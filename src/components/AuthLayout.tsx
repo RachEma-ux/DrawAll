@@ -47,6 +47,11 @@ export default function AuthLayout({
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
   const { isLoading, user } = useAuth();
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
+  }, [sidebarWidth]);
+
   if (isLoading) {
     return <AuthLayoutSkeleton />;
   }

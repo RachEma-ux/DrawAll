@@ -2,7 +2,7 @@ FROM node:20-alpine AS base
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json package-lock.json ./
+COPY package*.json ./
 ENV HTTP_PROXY=http://172.23.0.4:2003
 ENV HTTPS_PROXY=http://172.23.0.4:2003
 ENV http_proxy=http://172.23.0.4:2003
@@ -14,7 +14,11 @@ RUN npm config set registry https://npm.mirrors.msh.team \
     && npm config set fund false \
     && npm config set audit false
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline --no-audit
+    if [ -f package-lock.json ]; then \
+      npm ci --prefer-offline --no-audit; \
+    else \
+      npm install --prefer-offline --no-audit; \
+    fi
 
 FROM deps AS build
 COPY . .
