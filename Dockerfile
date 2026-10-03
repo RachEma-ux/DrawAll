@@ -13,9 +13,10 @@ RUN npm config set registry https://npm.mirrors.msh.team \
     && npm config set strict-ssl false \
     && npm config set fund false \
     && npm config set audit false
+RUN npm install -g npm@11
 RUN --mount=type=cache,target=/root/.npm \
     if [ -f package-lock.json ]; then \
-      npm ci --prefer-offline --no-audit; \
+      npm ci --prefer-offline --no-audit || npm install --prefer-offline --no-audit; \
     else \
       npm install --prefer-offline --no-audit; \
     fi
