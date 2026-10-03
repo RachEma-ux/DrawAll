@@ -10,9 +10,11 @@ interface Props {
   onGoTo: (index: number) => void;
   onNameVersion: (name: string) => void;
   compact: boolean;
+  syncLabel: string;
+  syncColor: string;
 }
 
-export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, onNameVersion, compact }: Props) {
+export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, onNameVersion, compact, syncLabel, syncColor }: Props) {
   const [tab, setTab] = useState<'modifs' | 'problemes'>('modifs');
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
@@ -55,7 +57,7 @@ export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, o
         {tab === 'modifs' ? (
           <div>
             {shown.map((v) => {
-              const idx = v.seq; // seq croissant = index dans versions
+              const idx = versions.findIndex(candidate => candidate.seq === v.seq);
               const active = idx === pointer;
               return (
                 <button
@@ -103,12 +105,12 @@ export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, o
         <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
           {versions.length} microversion{versions.length > 1 ? 's' : ''} · {versions.filter(v => v.named).length} nommée{versions.filter(v => v.named).length > 1 ? 's' : ''}
         </span>
-        <span className="flex items-center gap-1.5 font-mono text-[9px] text-emerald-400">
+        <span className="flex items-center gap-1.5 font-mono text-[9px]" style={{ color: syncColor }}>
           <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" style={{ background: syncColor }} />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: syncColor }} />
           </span>
-          LOCAL · SYNCHRONISÉ
+          {syncLabel.toUpperCase()}
         </span>
       </div>
     </div>
