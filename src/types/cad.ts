@@ -1,7 +1,10 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'polyline';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'polyline' | 'dimension' | 'blockRef';
+export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'polyline';
+export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
+export type DimensionStyle = 'horizontal' | 'vertical' | 'aligned' | 'radial';
 
 // Ontologies activables (Architecture §4) — deux lectures d'un même objet
 export type Classification =
@@ -14,12 +17,21 @@ export type Classification =
 export type ViewReading = 'batiment' | 'industrie';
 export type DisplayLevel = 'essentiel' | 'contextuel' | 'complet';
 
+export interface Layer {
+  id: string;               // identifiant stable LAY-0001
+  name: string;
+  color: string;
+  visible: boolean;
+  locked: boolean;
+}
+
 interface Base {
   id: string;              // identifiant stable OBJ-0001
   name: string;
   kind: ObjectKind;
   classification: Classification;
-  layer: string;
+  layerId: string;
+  hatch?: HatchStyle;
   createdSeq: number;      // microversion de création
 }
 
@@ -28,24 +40,64 @@ export interface RectObj extends Base { kind: 'rect'; x: number; y: number; w: n
 export interface CircleObj extends Base { kind: 'circle'; cx: number; cy: number; r: number }
 export interface PolylineObj extends Base { kind: 'polyline'; points: number[] }
 
-export type CadObject = LineObj | RectObj | CircleObj | PolylineObj;
+/** Cote associative : la géométrie affichée dérive de l'objet cible. */
+export interface DimensionObj extends Base {
+  kind: 'dimension';
+  targetId: string;
+  style: DimensionStyle;
+  offset: number;
+}
+
+/** Occurrence d'un bloc réutilisable. */
+export interface BlockRefObj extends Base {
+  kind: 'blockRef';
+  blockId: string;
+  x: number;
+  y: number;
+  scale: number;
+}
+
+export type PrimitiveObject = LineObj | RectObj | CircleObj | PolylineObj;
+export type CadObject = PrimitiveObject | DimensionObj | BlockRefObj;
+
+export interface BlockDef {
+  id: string;              // identifiant stable BLQ-0001
+  name: string;
+  description?: string;
+  primitives: PrimitiveObject[];
+}
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type NewCadObject = DistributiveOmit<CadObject, 'id' | 'createdSeq' | 'name'>;
 
-// Microversion — versionnement Git-like (Concept §8)
+// Microversion — versionnement Git-like (Concept §8). Chaque microversion
+// capture les objets, les calques et les définitions de blocs.
 export interface MicroVersion {
   seq: number;
   label: string;
   time: number;
   named?: string;          // version nommée (jalon, livrable)
   objects: CadObject[];
+  layers: Layer[];
+  blocks: BlockDef[];
 }
 
 export interface ProjectState {
   versions: MicroVersion[];
   pointer: number;         // indice de la microversion courante
   counter: number;         // compteur d'identifiants OBJ-
+  layerCounter: number;    // compteur d'identifiants LAY-
+  blockCounter: number;    // compteur d'identifiants BLQ-
+  activeLayerId: string;
+}
+
+export function createDefaultLayers(): Layer[] {
+  return [
+    { id: 'LAY-0001', name: 'Bâtiment', color: '#22d3ee', visible: true, locked: false },
+    { id: 'LAY-0002', name: 'Équipements', color: '#34d399', visible: true, locked: false },
+    { id: 'LAY-0003', name: 'Repères', color: '#fbbf24', visible: true, locked: false },
+    { id: 'LAY-0004', name: 'Dessin libre', color: '#8b93a7', visible: true, locked: false },
+  ];
 }
 
 export const CLASSIFICATION_META: Record<Classification, { label: string; ontology: string; color: string }> = {
@@ -61,11 +113,43 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   rect: 'Rectangle',
   circle: 'Cercle',
   polyline: 'Polyligne',
+  dimension: 'Cote',
+  blockRef: 'Bloc',
 };
+
+export const HATCH_LABEL: Record<HatchStyle, string> = {
+  none: 'Aucun',
+  diagonal: 'Diagonales',
+  cross: 'Croisées',
+  solid: 'Plein',
+};
+
+export const DIMENSION_LABEL: Record<DimensionStyle, string> = {
+  horizontal: 'Horizontale',
+  vertical: 'Verticale',
+  aligned: 'Alignée',
+  radial: 'Rayon / diamètre',
+};
+
+export function isClosedPolyline(obj: CadObject): obj is PolylineObj {
+  if (obj.kind !== 'polyline' || obj.points.length < 6) return false;
+  const p = obj.points;
+  return Math.hypot(p[0] - p[p.length - 2], p[1] - p[p.length - 1]) < 0.01;
+}
+
+export function canHatch(obj: CadObject): obj is RectObj | CircleObj | PolylineObj {
+  return obj.kind === 'rect' || obj.kind === 'circle' || isClosedPolyline(obj);
+}
 
 // Lecture métier d'un objet selon la vue active — « un objet, deux lectures » (Concept §1)
 export function readingFor(obj: CadObject, view: ViewReading): { title: string; detail: string } {
   const dim = dimensionOf(obj);
+  if (obj.kind === 'dimension') {
+    return { title: 'Cote associative', detail: `Mesure dérivée de ${obj.targetId} — recalculée à chaque modification de la cible.` };
+  }
+  if (obj.kind === 'blockRef') {
+    return { title: 'Occurrence de bloc', detail: `Référence ${obj.blockId} — la définition reste unique et réutilisable.` };
+  }
   if (view === 'batiment') {
     switch (obj.classification) {
       case 'architecture': return { title: 'Élément architectural', detail: `Implantation bâtiment — encombrement ${dim}, position et zone.` };
@@ -99,7 +183,19 @@ export function dimensionOf(obj: CadObject): string {
       }
       return `L ${fmt(d)} mm`;
     }
+    case 'dimension': return `cote → ${obj.targetId}`;
+    case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
   }
+}
+
+export function dimensionValue(obj: DimensionObj, objects: CadObject[]): string {
+  const target = objects.find(o => o.id === obj.targetId);
+  if (!target) return 'cible absente';
+  if (obj.style === 'radial' && target.kind === 'circle') return `Ø ${fmt(target.r * 2)} mm`;
+  if (obj.style === 'horizontal' && target.kind === 'rect') return `${fmt(target.w)} mm`;
+  if (obj.style === 'vertical' && target.kind === 'rect') return `${fmt(target.h)} mm`;
+  if (target.kind === 'line') return `${fmt(Math.hypot(target.x2 - target.x1, target.y2 - target.y1))} mm`;
+  return dimensionOf(target);
 }
 
 export function fmt(n: number): string {
