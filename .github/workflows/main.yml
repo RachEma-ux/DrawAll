@@ -25,7 +25,7 @@ on:
       - feat/application-p1
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   DURATION_MINUTES: ${{ github.event.inputs.duration || '15' }}
@@ -203,6 +203,15 @@ jobs:
           echo "    ou passez du Wi-Fi aux données mobiles — le nom vient d'être créé et certains résolveurs gardent"
           echo "    quelques minutes une première réponse négative."
           echo "============================================"
+
+      - name: Expose the URL while the run is alive
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B deploy-url
+          git add -f app_url.txt
+          git commit -m "URL du deploiement (run ${{ github.run_id }})"
+          git push -f origin deploy-url
 
       - name: Deployment summary
         if: always()
