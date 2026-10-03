@@ -8,18 +8,17 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 interface Props { focusId?: string | null }
 
 export default function RequirementsExplorer({ focusId }: Props) {
-  const [q, setQ] = useState('');
-  const [mod, setMod] = useState<string>('all');
+  const focusedRequirement = focusId && REQUIREMENTS.some(r => r.id === focusId);
+  const focusedModule = focusId && MODULES.some(m => m.id === focusId);
+  const [q, setQ] = useState(() => focusedRequirement ? focusId : '');
+  const [mod, setMod] = useState<string>(() => focusedModule ? focusId : 'all');
   const [step, setStep] = useState<string>('all');
   const focusRef = useRef<HTMLTableRowElement>(null);
 
   useEffect(() => {
     if (!focusId) return;
-    const req = REQUIREMENTS.find(r => r.id === focusId);
-    if (req) { setQ(focusId); setMod('all'); setStep('all'); }
-    const mod = MODULES.find(m => m.id === focusId);
-    if (mod) { setMod(focusId); setQ(''); setStep('all'); }
-    setTimeout(() => focusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+    const timer = window.setTimeout(() => focusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+    return () => window.clearTimeout(timer);
   }, [focusId]);
 
   const filtered = useMemo(() => {

@@ -10,7 +10,7 @@ export default function DocsView({ sub, focusId }: Props) {
     <div className="mx-auto max-w-6xl px-6 py-6">
       {sub === 'concept' && <Concept />}
       {sub === 'architecture' && <Architecture />}
-      {sub === 'exigences' && <RequirementsExplorer focusId={focusId} />}
+      {sub === 'exigences' && <RequirementsExplorer key={focusId ?? 'aucun'} focusId={focusId} />}
     </div>
   );
 }
