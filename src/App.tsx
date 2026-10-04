@@ -22,6 +22,7 @@ import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
 import { exportToDxf, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
+import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, selectionCenter } from '@/lib/geometry';
 
 const TOOLS: { id: ToolId; label: string; key: string; levels: DisplayLevel[]; hint: string }[] = [
   { id: 'select', label: 'Sélection', key: 'V', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Sélectionner et déplacer' },
@@ -73,9 +74,62 @@ function Workbench() {
   const [orthoEnabled, setOrthoEnabled] = useState(true);
   const [currentSnap, setCurrentSnap] = useState<SnapPoint | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [isNarrow, setIsNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1100);
+  const [narrowDismissed, setNarrowDismissed] = useState(false);
   const dxfInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < 1100);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const selected = project.objects.find(o => o.id === project.selectedId) ?? null;
+
+  // ─── Opérations d'édition sur la sélection ────────────────────────────────
+  const selection = project.selectedIds;
+  const hasSelection = selection.length > 0;
+  const pivot = useCallback(
+    () => selectionCenter(selection, project.objects, project.blocks),
+    [selection, project.objects, project.blocks],
+  );
+
+  const nudgeSelection = useCallback((dx: number, dy: number) => {
+    project.transformObjects(selection, o => moveObject(o, dx, dy), 'Déplacer');
+  }, [project, selection]);
+
+  const rotateSelection = useCallback((deg: number) => {
+    const c = pivot();
+    if (!c) return;
+    project.transformObjects(selection, o => rotateObject(o, c.x, c.y, deg), `Rotation ${deg}°`);
+  }, [project, selection, pivot]);
+
+  const mirrorSelection = useCallback((axis: 'x' | 'y') => {
+    const c = pivot();
+    if (!c) return;
+    project.transformObjects(selection, o => mirrorObject(o, axis, axis === 'x' ? c.x : c.y), axis === 'x' ? 'Miroir vertical' : 'Miroir horizontal');
+  }, [project, selection, pivot]);
+
+  const scaleSelection = useCallback((factor: number) => {
+    const c = pivot();
+    if (!c) return;
+    project.transformObjects(selection, o => scaleObject(o, c.x, c.y, factor), `Échelle ×${factor}`);
+  }, [project, selection, pivot]);
+
+  const offsetSelection = useCallback((d: number) => {
+    project.transformObjects(selection, o => offsetObject(o, d), `Décalage ${d > 0 ? '+' : ''}${d} mm`);
+  }, [project, selection]);
+
+  const duplicateSelection = useCallback(() => {
+    project.duplicateObjects(selection);
+  }, [project, selection]);
+
+  const selectAll = useCallback(() => {
+    const ids = project.objects
+      .filter(o => project.layers.find(l => l.id === o.layerId)?.visible !== false)
+      .map(o => o.id);
+    project.setSelectedIds(ids);
+  }, [project]);
 
   const exportPackage = useCallback(() => {
     const pkg = {
@@ -265,6 +319,16 @@ function Workbench() {
     { id: 'view-ind', title: 'Basculer en lecture industrie', hint: 'Vue industrie — pièces, tôles, assemblages (Concept §1)', keywords: ['industrie', 'mecanique', 'tole', 'vue'], run: () => { setMode('atelier'); setView('industrie'); } },
     { id: 'undo', title: 'Annuler', hint: 'Revenir à la microversion précédente', keywords: ['annuler', 'undo', 'ctrl+z'], run: project.undo },
     { id: 'redo', title: 'Rétablir', hint: 'Revenir à la microversion suivante', keywords: ['retablir', 'redo'], run: project.redo },
+    { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
+    { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
+    { id: 'edit-dup', title: 'Dupliquer la sélection', hint: 'Copie décalée de 20 mm (Ctrl+D)', keywords: ['dupliquer', 'copier', 'copie', 'duplicate', 'copy'], run: duplicateSelection },
+    { id: 'edit-rot90', title: 'Rotation +90°', hint: 'Pivote la sélection autour de son centre', keywords: ['rotation', 'pivoter', 'tourner', 'rotate'], run: () => rotateSelection(90) },
+    { id: 'edit-rot-90', title: 'Rotation −90°', hint: 'Pivote la sélection autour de son centre', keywords: ['rotation', 'pivoter', 'tourner', 'rotate'], run: () => rotateSelection(-90) },
+    { id: 'edit-mirror-h', title: 'Miroir horizontal', hint: 'Symétrie autour de l’axe horizontal de la sélection', keywords: ['miroir', 'symetrie', 'mirror', 'flip'], run: () => mirrorSelection('y') },
+    { id: 'edit-mirror-v', title: 'Miroir vertical', hint: 'Symétrie autour de l’axe vertical de la sélection', keywords: ['miroir', 'symetrie', 'mirror', 'flip'], run: () => mirrorSelection('x') },
+    { id: 'edit-offset', title: 'Décaler la sélection (+10 mm)', hint: 'Décalage parallèle ou dilatation', keywords: ['decalage', 'offset', 'dilater', 'decaler'], run: () => offsetSelection(10) },
+    { id: 'edit-scale2', title: 'Échelle ×2', hint: 'Homothétie depuis le centre de la sélection', keywords: ['echelle', 'scale', 'agrandir'], run: () => scaleSelection(2) },
+    { id: 'edit-scale05', title: 'Échelle ÷2', hint: 'Homothétie depuis le centre de la sélection', keywords: ['echelle', 'scale', 'reduire'], run: () => scaleSelection(0.5) },
     { id: 'cloud-save', title: 'Synchroniser le projet cloud', hint: 'Sauvegarde en base avec contrôle de révision', keywords: ['cloud', 'sauvegarder', 'synchroniser', 'compte'], run: () => void saveToCloud(false) },
     { id: 'cloud-list', title: 'Ouvrir Mes projets cloud', hint: 'Charger, renommer ou supprimer les projets du compte', keywords: ['projets', 'cloud', 'charger', 'compte'], run: () => setCloudOpen(true) },
     { id: 'toggle-snap', title: 'Basculer l’accrochage objet', hint: 'Extrémités, milieux, centres, quadrants et intersections (F9)', keywords: ['snap', 'accrochage', 'precision'], run: () => setSnapEnabled(v => !v) },
@@ -290,13 +354,24 @@ function Workbench() {
         if (e.shiftKey) project.redo(); else project.undo();
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && project.selectedId) { project.removeObject(project.selectedId); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAll(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelection(); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && project.selectedIds.length > 0) { project.removeObjects(project.selectedIds); return; }
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && project.selectedIds.length > 0) {
+        e.preventDefault();
+        const step = e.shiftKey ? 100 : 10;
+        nudgeSelection(
+          e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
+          e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0,
+        );
+        return;
+      }
       const t = TOOLS.find(t => t.key.toLowerCase() === e.key.toLowerCase());
       if (t && t.levels.includes(level)) setTool(t.id);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [paletteOpen, mode, level, project]);
+  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, nudgeSelection]);
 
   const visibleTools = TOOLS.filter(t => t.levels.includes(level));
 
@@ -395,7 +470,7 @@ function Workbench() {
               </button>
               <span className="ml-3 hidden min-w-0 flex-1 truncate font-mono text-[9px] text-muted-foreground/60 xl:inline">
                 {tool === 'polyline' ? 'Cliquez les points — Entrée/double-clic pour valider, Échap pour annuler' :
-                 tool === 'select' ? 'Cliquez un objet pour le sélectionner, glissez pour le déplacer, Suppr pour l’effacer' :
+                 tool === 'select' ? 'Cliquez un objet, glissez sur le fond pour une fenêtre de sélection, Maj+clic pour ajouter, Suppr pour effacer' :
                  tool === 'dimension' ? 'Cliquez une ligne, un rectangle ou un cercle : la cote restera associative' :
                  tool === 'measure' ? 'Cliquez-glissez : distance, ΔX et ΔY en millimètres' :
                  tool === 'block' ? (activeBlockId ? `Cliquez pour insérer ${activeBlockId}` : 'Choisissez un bloc dans le navigateur') :
@@ -404,6 +479,38 @@ function Workbench() {
               </span>
               <span className="ml-auto hidden shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground 2xl:inline">
                 {currentSnap ? `${currentSnap.label} · ` : ''}{snapEnabled ? 'accrochage objet + grille 10 mm' : 'grille 10 mm'}
+              </span>
+            </div>
+
+            {/* Barre d'édition — opérations sur la sélection */}
+            <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border bg-[#0a0f1c]/80 px-2 py-1">
+              <span className="px-1 font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground/70">
+                Édition{hasSelection ? ` — ${selection.length} objet${selection.length > 1 ? 's' : ''}` : ''}
+              </span>
+              {([
+                { label: 'Dupliquer', hint: 'Ctrl+D', run: duplicateSelection },
+                { label: '↺ −90°', hint: 'Rotation anti-horaire autour du centre de la sélection', run: () => rotateSelection(-90) },
+                { label: '↻ +90°', hint: 'Rotation horaire autour du centre de la sélection', run: () => rotateSelection(90) },
+                { label: 'Miroir H', hint: 'Symétrie par rapport à l’axe horizontal de la sélection', run: () => mirrorSelection('y') },
+                { label: 'Miroir V', hint: 'Symétrie par rapport à l’axe vertical de la sélection', run: () => mirrorSelection('x') },
+                { label: 'Décaler +10', hint: 'Décalage parallèle / dilatation de 10 mm', run: () => offsetSelection(10) },
+                { label: 'Décaler −10', hint: 'Contraction de 10 mm', run: () => offsetSelection(-10) },
+                { label: '×2', hint: 'Échelle ×2 depuis le centre de la sélection', run: () => scaleSelection(2) },
+                { label: '÷2', hint: 'Échelle ÷2 depuis le centre de la sélection', run: () => scaleSelection(0.5) },
+                { label: 'Supprimer', hint: 'Suppr / Retour arrière', run: () => project.removeObjects(selection) },
+              ]).map(a => (
+                <button
+                  key={a.label}
+                  onClick={a.run}
+                  disabled={!hasSelection}
+                  title={a.hint}
+                  className="rounded-sm px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors disabled:cursor-not-allowed disabled:opacity-30 enabled:text-muted-foreground enabled:hover:bg-accent enabled:hover:text-foreground"
+                >
+                  {a.label}
+                </button>
+              ))}
+              <span className="ml-auto hidden font-mono text-[9px] text-muted-foreground/60 lg:inline">
+                Maj+clic : multi-sélection · fenêtre : glisser sur le fond · flèches : déplacer (Maj = ×10) · Ctrl+A : tout
               </span>
             </div>
 
@@ -417,13 +524,15 @@ function Workbench() {
                 tool={tool}
                 view={view}
                 selectedId={project.selectedId}
+                selectedIds={project.selectedIds}
                 snapEnabled={snapEnabled}
                 orthoEnabled={orthoEnabled}
                 onSelect={project.setSelectedId}
+                onSelectMany={project.setSelectedIds}
                 onAdd={project.addObject}
                 onAddDimension={project.addDimension}
                 onInsertBlock={project.insertBlock}
-                onMove={(id, patch) => project.updateObject(id, patch, 'Déplacer')}
+                onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
                 onSnapChange={setCurrentSnap}
                 onZoomChange={setZoom}
@@ -450,6 +559,7 @@ function Workbench() {
                 {cursor.x === null ? '—' : `X ${fmt(cursor.x)} mm`} · {cursor.y === null ? '—' : `Y ${fmt(cursor.y)} mm`}
               </span>
               <span>{project.objects.length} objet{project.objects.length > 1 ? 's' : ''}</span>
+              {hasSelection && <span className="text-cyan-300">{selection.length} sélectionné{selection.length > 1 ? 's' : ''}</span>}
               <span>{project.layers.find(l => l.id === project.activeLayerId)?.name ?? 'Calque'}</span>
               <span>{project.blocks.length} bloc{project.blocks.length > 1 ? 's' : ''}</span>
               <span>v{project.current.seq}{project.current.named ? ` · ${project.current.named}` : ''}</span>
@@ -505,6 +615,27 @@ function Workbench() {
         onKeepLocalVersion={keepLocalVersion}
       />
       <CommandPalette key={paletteOpen ? 'open' : 'closed'} open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} onOpenRequirement={openRequirement} />
+
+      {isNarrow && !narrowDismissed && mode === 'atelier' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#050810]/95 p-6">
+          <div className="max-w-sm rounded-md border border-border bg-[#0c1220] p-6 text-center">
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-cyan-300">Écran trop étroit</p>
+            <p className="mt-3 text-sm text-foreground">
+              DrawAll est un atelier de dessin de précision conçu pour un écran d’au moins 1 100 px de large
+              (ordinateur ou tablette en paysage).
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Sur téléphone, les panneaux se chevauchent et le tracé au doigt n’est pas fiable au millimètre.
+            </p>
+            <button
+              onClick={() => setNarrowDismissed(true)}
+              className="mt-5 rounded-sm border border-border px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+            >
+              Continuer quand même
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

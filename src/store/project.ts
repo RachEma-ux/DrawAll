@@ -12,6 +12,7 @@ import {
   type PrimitiveObject,
   type ProjectState,
 } from '@/types/cad';
+import { moveObject } from '@/lib/geometry';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 const LAYER_COLORS = ['#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185'];
@@ -177,7 +178,18 @@ function localizePrimitive(obj: PrimitiveObject, origin: { x: number; y: number 
 
 export function useProject() {
   const [state, setState] = useState<ProjectState>(load);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedIdRaw] = useState<string | null>(null);
+  const [selectedIds, setSelectedIdsRaw] = useState<string[]>([]);
+
+  const setSelectedId = useCallback((id: string | null) => {
+    setSelectedIdRaw(id);
+    setSelectedIdsRaw(id ? [id] : []);
+  }, []);
+
+  const setSelectedIds = useCallback((ids: string[]) => {
+    setSelectedIdsRaw(ids);
+    setSelectedIdRaw(ids[ids.length - 1] ?? null);
+  }, []);
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* quota : état visible, non bloquant */ }
@@ -227,12 +239,60 @@ export function useProject() {
     commit(`${label} ${id}`, { objects: objects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)) });
   }, [objects, commit]);
 
-  const removeObject = useCallback((id: string) => {
-    commit(`Supprimer ${id}`, {
-      objects: objects.filter(o => o.id !== id && !(o.kind === 'dimension' && o.targetId === id)),
+  const removeObjects = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const removed = new Set(ids);
+    // Les cotes associatives dont la cible disparaît partent avec elle.
+    for (const o of objects) {
+      if (o.kind === 'dimension' && removed.has(o.targetId)) removed.add(o.id);
+    }
+    commit(ids.length === 1 ? `Supprimer ${ids[0]}` : `Supprimer ${ids.length} objets`, {
+      objects: objects.filter(o => !removed.has(o.id)),
     });
-    setSelectedId(sel => (sel === id ? null : sel));
-  }, [objects, commit]);
+    setSelectedIds([]);
+  }, [objects, commit, setSelectedIds]);
+
+  /** Applique une transformation géométrique pure à chaque objet de la sélection. */
+  const transformObjects = useCallback((ids: string[], fn: (o: CadObject) => Partial<CadObject> | null, label: string) => {
+    const editable = ids
+      .map(id => objects.find(o => o.id === id))
+      .filter((o): o is CadObject => !!o && !layers.find(l => l.id === o.layerId)?.locked && o.kind !== 'dimension');
+    if (editable.length === 0) return 0;
+    const patches = new Map<string, Partial<CadObject>>();
+    for (const o of editable) {
+      const patch = fn(o);
+      if (patch) patches.set(o.id, patch);
+    }
+    if (patches.size === 0) return 0;
+    commit(`${label} (${patches.size} objet${patches.size > 1 ? 's' : ''})`, {
+      objects: objects.map(o => (patches.has(o.id) ? ({ ...o, ...patches.get(o.id) } as CadObject) : o)),
+    });
+    return patches.size;
+  }, [objects, layers, commit]);
+
+  /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
+  const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
+    const sources = ids
+      .map(id => objects.find(o => o.id === id))
+      .filter((o): o is CadObject => !!o && o.kind !== 'dimension' && !layers.find(l => l.id === o.layerId)?.locked);
+    if (sources.length === 0) return [];
+    let counter = state.counter;
+    const clones: CadObject[] = sources.map(o => {
+      counter += 1;
+      const clone = { ...o, id: `OBJ-${String(counter).padStart(4, '0')}`, createdSeq: current.seq } as CadObject;
+      return { ...clone, ...moveObject(clone, dx, dy) } as CadObject;
+    });
+    commit(`Dupliquer ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
+      objects: [...objects, ...clones],
+      counter,
+    });
+    setSelectedIds(clones.map(c => c.id));
+    return clones.map(c => c.id);
+  }, [objects, layers, state.counter, current.seq, commit, setSelectedIds]);
+
+  const removeObject = useCallback((id: string) => {
+    removeObjects([id]);
+  }, [removeObjects]);
 
   const addLayer = useCallback((name: string) => {
     const id = `LAY-${String(state.layerCounter + 1).padStart(4, '0')}`;
@@ -385,11 +445,9 @@ export function useProject() {
       blocks: blocks.filter(b => b.id !== blockId),
       objects: objects.filter(o => !(o.kind === 'blockRef' && o.blockId === blockId)),
     });
-    setSelectedId(sel => {
-      const selected = objects.find(o => o.id === sel);
-      return selected?.kind === 'blockRef' && selected.blockId === blockId ? null : sel;
-    });
-  }, [blocks, objects, commit]);
+    const selected = objects.find(o => selectedIds.includes(o.id));
+    if (selected?.kind === 'blockRef' && selected.blockId === blockId) setSelectedIds([]);
+  }, [blocks, objects, commit, selectedIds, setSelectedIds]);
 
   const undo = useCallback(() => setState(s => ({ ...s, pointer: Math.max(0, s.pointer - 1) })), []);
   const redo = useCallback(() => setState(s => ({ ...s, pointer: Math.min(s.versions.length - 1, s.pointer + 1) })), []);
@@ -451,8 +509,9 @@ export function useProject() {
   return {
     state, objects, layers, blocks, activeLayerId,
     current, versions: state.versions, pointer: state.pointer,
-    selectedId, setSelectedId,
-    addObject, updateObject, removeObject,
+    selectedId, selectedIds, setSelectedId, setSelectedIds,
+    addObject, updateObject, removeObject, removeObjects,
+    transformObjects, duplicateObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, reset, loadState,

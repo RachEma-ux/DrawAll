@@ -19,7 +19,7 @@ import {
   distanceSegment,
   findSnap,
   gridSnap,
-  moveObject,
+  objectBounds,
   projectBounds,
   snapLabel,
   type Point,
@@ -37,13 +37,15 @@ interface Props {
   tool: ToolId;
   view: ViewReading;
   selectedId: string | null;
+  selectedIds: string[];
   snapEnabled: boolean;
   orthoEnabled: boolean;
   onSelect: (id: string | null) => void;
+  onSelectMany: (ids: string[]) => void;
   onAdd: (partial: NewCadObject) => void;
   onAddDimension: (targetId: string) => void;
   onInsertBlock: (blockId: string, x: number, y: number) => void;
-  onMove: (id: string, patch: Partial<CadObject>) => void;
+  onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
   onZoomChange: (k: number) => void;
@@ -66,14 +68,16 @@ export default function CanvasView({
   activeBlockId,
   tool,
   view,
-  selectedId,
+  selectedId: _selectedId, // conservé pour compatibilité d'appel — la sélection pilote est selectedIds
+  selectedIds,
   snapEnabled,
   orthoEnabled,
-  onSelect,
+  onSelect: _onSelect,
+  onSelectMany,
   onAdd,
   onAddDimension,
   onInsertBlock,
-  onMove,
+  onMoveMany,
   onCursor,
   onSnapChange,
   onZoomChange,
@@ -88,14 +92,16 @@ export default function CanvasView({
   ) ? draft : null;
   const [hoverSnap, setHoverSnap] = useState<SnapPoint | null>(null);
   const [coord, setCoord] = useState({ x: '', y: '' });
+  const [lengthInput, setLengthInput] = useState('');
+  const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const drag = useRef<{
-    mode: 'pan' | 'move' | null;
-    id?: string;
+    mode: 'pan' | 'move' | 'marquee' | null;
+    ids?: string[];
     lx: number;
     ly: number;
-    orig?: CadObject;
     grab?: Point;
     moved?: boolean;
+    shift?: boolean;
   }>({ mode: null, lx: 0, ly: 0 });
 
   const layerById = new Map(layers.map(l => [l.id, l]));
@@ -181,12 +187,20 @@ export default function CanvasView({
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (e.key === 'Escape') setDraft(null);
-      if (e.key === 'Enter') finishPolyline();
+      if (e.key === 'Escape') { setDraft(null); setLengthInput(''); }
+      if (e.key === 'Enter') {
+        if (lengthInput && activeDraft && activeDraft.kind !== 'measure') { applyLength(); return; }
+        finishPolyline();
+      }
+      // Saisie dynamique : les chiffres tapés pendant un tracé alimentent la longueur directe.
+      if (activeDraft && activeDraft.kind !== 'measure' && /^[0-9.,]$/.test(e.key)) {
+        setLengthInput(v => v + e.key);
+      }
+      if (activeDraft && e.key === 'Backspace') setLengthInput(v => v.slice(0, -1));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [finishPolyline]);
+  }, [finishPolyline, activeDraft, lengthInput]);
 
   const startOrContinueDraft = useCallback((point: SnapPoint) => {
     if (!activeLayer || activeLayer.locked) return;
@@ -217,11 +231,19 @@ export default function CanvasView({
     if (tool === 'select') {
       const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, 6 / tf.k);
       if (hit) {
-        onSelect(hit.id);
-        drag.current = { mode: 'move', id: hit.id, lx: w.x, ly: w.y, orig: hit, grab: { x: w.x, y: w.y }, moved: false };
+        if (e.shiftKey) {
+          const next = selectedIds.includes(hit.id) ? selectedIds.filter(i => i !== hit.id) : [...selectedIds, hit.id];
+          onSelectMany(next);
+          drag.current = { mode: null, lx: 0, ly: 0 };
+          return;
+        }
+        const ids = selectedIds.includes(hit.id) ? selectedIds : [hit.id];
+        if (!selectedIds.includes(hit.id)) onSelectMany([hit.id]);
+        drag.current = { mode: 'move', ids, lx: w.x, ly: w.y, grab: { x: w.x, y: w.y }, moved: false };
       } else {
-        onSelect(null);
-        drag.current = { mode: 'pan', lx: e.clientX, ly: e.clientY };
+        if (!e.shiftKey) onSelectMany([]);
+        drag.current = { mode: 'marquee', lx: w.x, ly: w.y, shift: e.shiftKey };
+        setMarquee({ x1: w.x, y1: w.y, x2: w.x, y2: w.y });
       }
       return;
     }
@@ -255,7 +277,12 @@ export default function CanvasView({
       updateHover(w);
       return;
     }
-    if (drag.current.mode === 'move' && drag.current.orig && drag.current.grab) {
+    if (drag.current.mode === 'marquee') {
+      drag.current.moved = true;
+      setMarquee(m => (m ? { ...m, x2: w.x, y2: w.y } : m));
+      return;
+    }
+    if (drag.current.mode === 'move' && drag.current.ids && drag.current.grab) {
       const snap = resolvePoint(w, drag.current.grab);
       if (Math.hypot(snap.x - drag.current.grab.x, snap.y - drag.current.grab.y) > 2 / tf.k) drag.current.moved = true;
       updateHover(w);
@@ -277,11 +304,25 @@ export default function CanvasView({
 
   const handleUp = (e: React.MouseEvent) => {
     const w = toWorld(e);
-    if (drag.current.mode === 'move' && drag.current.orig && drag.current.grab && drag.current.moved) {
+    if (drag.current.mode === 'move' && drag.current.ids && drag.current.grab && drag.current.moved) {
       const point = resolvePoint(w, drag.current.grab);
       const dx = Math.round((point.x - drag.current.grab.x) * 1000) / 1000;
       const dy = Math.round((point.y - drag.current.grab.y) * 1000) / 1000;
-      if (dx !== 0 || dy !== 0) onMove(drag.current.orig.id, moveObject(drag.current.orig, dx, dy));
+      if (dx !== 0 || dy !== 0) onMoveMany(drag.current.ids, dx, dy);
+    } else if (drag.current.mode === 'marquee' && marquee) {
+      const minX = Math.min(marquee.x1, marquee.x2);
+      const maxX = Math.max(marquee.x1, marquee.x2);
+      const minY = Math.min(marquee.y1, marquee.y2);
+      const maxY = Math.max(marquee.y1, marquee.y2);
+      const inside = editableObjects
+        .filter(o => {
+          const b = objectBounds(o, blocks, objects);
+          return !!b && b.minX >= minX && b.maxX <= maxX && b.minY >= minY && b.maxY <= maxY;
+        })
+        .map(o => o.id);
+      const base = drag.current.shift ? selectedIds : [];
+      onSelectMany([...new Set([...base, ...inside])]);
+      setMarquee(null);
     }
     drag.current = { mode: null, lx: 0, ly: 0 };
 
@@ -306,8 +347,36 @@ export default function CanvasView({
     });
   };
 
-  const applyPrecisePoint = () => {
-    const x = Number(coord.x.replace(',', '.'));
+  /** Saisie directe de longueur : fixe l'extrémité courante à L mm le long de l'angle en cours. */
+  const applyLength = () => {
+    const L = Number(lengthInput.replace(',', '.'));
+    if (!Number.isFinite(L) || L < 1 || !activeDraft) return;
+    const ox = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
+      ? activeDraft.points[activeDraft.points.length - 2] : activeDraft.sx;
+    const oy = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
+      ? activeDraft.points[activeDraft.points.length - 1] : activeDraft.sy;
+    const angle = Math.atan2(activeDraft.cy - oy, activeDraft.cx - ox);
+    const ex = Math.round((ox + Math.cos(angle) * L) * 1000) / 1000;
+    const ey = Math.round((oy + Math.sin(angle) * L) * 1000) / 1000;
+    setLengthInput('');
+    if (activeDraft.kind === 'polyline') {
+      setDraft(d => (d?.kind === 'polyline' ? { ...d, points: [...d.points, ex, ey], cx: ex, cy: ey } : d));
+      return;
+    }
+    if (activeDraft.kind === 'circle') {
+      if (activeLayer && !activeLayer.locked) {
+        onAdd({ kind: 'circle', classification: 'non-classifie', layerId: activeLayer.id, hatch: 'none', cx: activeDraft.sx, cy: activeDraft.sy, r: L });
+      }
+      setDraft(null);
+      return;
+    }
+    if (activeDraft.kind === 'line' || activeDraft.kind === 'rect') {
+      commitDraft({ ...activeDraft, cx: ex, cy: ey });
+      setDraft(null);
+    }
+  };
+
+  const applyPrecisePoint = () => {    const x = Number(coord.x.replace(',', '.'));
     const y = Number(coord.y.replace(',', '.'));
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const point: SnapPoint = { x, y, type: 'endpoint', label: 'Point saisi', distance: 0 };
@@ -411,10 +480,25 @@ export default function CanvasView({
               objects={objects}
               blocks={blocks}
               view={view}
-              selected={o.id === selectedId}
+              selected={selectedIds.includes(o.id)}
               zoom={tf.k}
             />
           ))}
+
+          {marquee && (
+            <rect
+              x={Math.min(marquee.x1, marquee.x2)}
+              y={Math.min(marquee.y1, marquee.y2)}
+              width={Math.abs(marquee.x2 - marquee.x1)}
+              height={Math.abs(marquee.y2 - marquee.y1)}
+              fill="#22d3ee"
+              fillOpacity={0.06}
+              stroke="#22d3ee"
+              strokeWidth={1 / tf.k}
+              strokeDasharray={`${4 / tf.k} ${3 / tf.k}`}
+              pointerEvents="none"
+            />
+          )}
 
           {activeDraft && activeDraft.kind === 'line' && (
             <line x1={activeDraft.sx} y1={activeDraft.sy} x2={activeDraft.cx} y2={activeDraft.cy} stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
@@ -441,6 +525,20 @@ export default function CanvasView({
             </g>
           )}
           {activeDraft && activeDraft.kind !== 'measure' && <circle cx={activeDraft.sx} cy={activeDraft.sy} r={3 / tf.k} fill="#22d3ee" />}
+          {activeDraft && (activeDraft.kind === 'line' || activeDraft.kind === 'circle' || activeDraft.kind === 'polyline') && (() => {
+            const ox = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
+              ? activeDraft.points[activeDraft.points.length - 2] : activeDraft.sx;
+            const oy = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
+              ? activeDraft.points[activeDraft.points.length - 1] : activeDraft.sy;
+            const len = Math.hypot(activeDraft.cx - ox, activeDraft.cy - oy);
+            if (len < 1) return null;
+            return (
+              <text x={(ox + activeDraft.cx) / 2 + 10 / tf.k} y={(oy + activeDraft.cy) / 2 - 8 / tf.k}
+                fontSize={11 / tf.k} fill="#22d3ee" fontFamily="JetBrains Mono, monospace" pointerEvents="none">
+                {activeDraft.kind === 'circle' ? 'R' : 'L'} {fmt(len)} mm
+              </text>
+            );
+          })()}
           {hoverSnap && <SnapMarker snap={hoverSnap} zoom={tf.k} />}
         </g>
       </svg>
@@ -463,25 +561,43 @@ export default function CanvasView({
       </div>
 
       {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'polyline' || tool === 'measure' || tool === 'dimension' || tool === 'block') && (
-        <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-sm border border-border bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
-          <span className="px-1 uppercase tracking-wider">Point précis</span>
-          <input
-            value={coord.x}
-            onChange={e => setCoord(c => ({ ...c, x: e.target.value }))}
-            onKeyDown={e => { if (e.key === 'Enter') applyPrecisePoint(); }}
-            placeholder="X mm"
-            className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
-          />
-          <input
-            value={coord.y}
-            onChange={e => setCoord(c => ({ ...c, y: e.target.value }))}
-            onKeyDown={e => { if (e.key === 'Enter') applyPrecisePoint(); }}
-            placeholder="Y mm"
-            className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
-          />
-          <button onClick={applyPrecisePoint} className="rounded-sm bg-cyan-400 px-2 py-1 font-semibold uppercase tracking-wider text-[#050810] hover:bg-cyan-300">
-            Placer
-          </button>
+        <div className="absolute bottom-3 left-3 flex flex-col gap-1">
+          {activeDraft && activeDraft.kind !== 'measure' && (
+            <div className="flex items-center gap-1 rounded-sm border border-cyan-400/50 bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
+              <span className="px-1 uppercase tracking-wider text-cyan-300">Longueur</span>
+              <input
+                value={lengthInput}
+                onChange={e => setLengthInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); applyLength(); } }}
+                placeholder={activeDraft.kind === 'circle' ? 'Rayon mm' : 'L mm'}
+                autoFocus
+                className="w-24 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
+              />
+              <button onClick={applyLength} className="rounded-sm bg-cyan-400 px-2 py-1 font-semibold uppercase tracking-wider text-[#050810] hover:bg-cyan-300">
+                Appliquer
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-1 rounded-sm border border-border bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
+            <span className="px-1 uppercase tracking-wider">Point précis</span>
+            <input
+              value={coord.x}
+              onChange={e => setCoord(c => ({ ...c, x: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') applyPrecisePoint(); }}
+              placeholder="X mm"
+              className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
+            />
+            <input
+              value={coord.y}
+              onChange={e => setCoord(c => ({ ...c, y: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') applyPrecisePoint(); }}
+              placeholder="Y mm"
+              className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
+            />
+            <button onClick={applyPrecisePoint} className="rounded-sm bg-cyan-400 px-2 py-1 font-semibold uppercase tracking-wider text-[#050810] hover:bg-cyan-300">
+              Placer
+            </button>
+          </div>
         </div>
       )}
     </div>

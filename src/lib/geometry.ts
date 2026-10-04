@@ -417,6 +417,141 @@ export function dimensionText(dim: DimensionObj, objects: CadObject[]): string {
   return dimensionValue(dim, objects);
 }
 
+// ─── Transformations d'édition (rotation, miroir, échelle, décalage) ────────
+// Fonctions pures : elles retournent un patch partiel, comme moveObject.
+
+function rotatePoint(px: number, py: number, cx: number, cy: number, rad: number): Point {
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  const dx = px - cx;
+  const dy = py - cy;
+  return { x: round(cx + dx * c - dy * s), y: round(cy + dx * s + dy * c) };
+}
+
+/** Rotation autour d'un centre, angle en degrés (sens trigonométrique, Y descendant). */
+export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg: number): Partial<CadObject> | null {
+  const rad = (angleDeg * Math.PI) / 180;
+  switch (object.kind) {
+    case 'line': {
+      const a = rotatePoint(object.x1, object.y1, cx, cy, rad);
+      const b = rotatePoint(object.x2, object.y2, cx, cy, rad);
+      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+    }
+    case 'rect': {
+      if (Math.abs(((angleDeg % 90) + 90) % 90) > 1e-9) return null; // rectangles axis-aligned : multiples de 90° seulement
+      const a = rotatePoint(object.x, object.y, cx, cy, rad);
+      const b = rotatePoint(object.x + object.w, object.y + object.h, cx, cy, rad);
+      return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+    }
+    case 'circle': {
+      const p = rotatePoint(object.cx, object.cy, cx, cy, rad);
+      return { cx: p.x, cy: p.y };
+    }
+    case 'polyline': {
+      const points: number[] = [];
+      for (let i = 0; i + 1 < object.points.length; i += 2) {
+        const p = rotatePoint(object.points[i], object.points[i + 1], cx, cy, rad);
+        points.push(p.x, p.y);
+      }
+      return { points };
+    }
+    case 'blockRef': {
+      const p = rotatePoint(object.x, object.y, cx, cy, rad);
+      return { x: p.x, y: p.y };
+    }
+    case 'dimension':
+      return null; // cote associative : elle suit sa cible
+  }
+}
+
+/** Symétrie par rapport à un axe vertical ('x' = valeur X de l'axe) ou horizontal. */
+export function mirrorObject(object: CadObject, axis: 'x' | 'y', value: number): Partial<CadObject> {
+  const mx = (v: number) => round(2 * value - v);
+  switch (object.kind) {
+    case 'line':
+      return axis === 'x'
+        ? { x1: mx(object.x1), x2: mx(object.x2) }
+        : { y1: mx(object.y1), y2: mx(object.y2) };
+    case 'rect':
+      return axis === 'x'
+        ? { x: mx(object.x + object.w) }
+        : { y: mx(object.y + object.h) };
+    case 'circle':
+      return axis === 'x' ? { cx: mx(object.cx) } : { cy: mx(object.cy) };
+    case 'polyline':
+      return { points: object.points.map((v, i) => (i % 2 === 0) === (axis === 'x') ? mx(v) : v) };
+    case 'blockRef':
+      return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
+    case 'dimension':
+      return { offset: -object.offset };
+  }
+}
+
+/** Homothétie depuis un centre fixe. */
+export function scaleObject(object: CadObject, cx: number, cy: number, factor: number): Partial<CadObject> | null {
+  if (!(factor > 0) || !Number.isFinite(factor)) return null;
+  const s = (v: number, c: number) => round(c + (v - c) * factor);
+  switch (object.kind) {
+    case 'line': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy) };
+    case 'rect': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor) };
+    case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
+    case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
+    case 'blockRef': return { x: s(object.x, cx), y: s(object.y, cy), scale: round(object.scale * factor) };
+    case 'dimension': return { offset: round(object.offset * factor) };
+  }
+}
+
+/**
+ * Décalage parallèle (offset) : ligne → parallèle à distance d (normale gauche),
+ * rectangle et cercle → dilatation/ contraction de d, polyligne non supportée.
+ */
+export function offsetObject(object: CadObject, d: number): Partial<CadObject> | null {
+  switch (object.kind) {
+    case 'line': {
+      const len = Math.hypot(object.x2 - object.x1, object.y2 - object.y1);
+      if (len < 1e-9) return null;
+      const nx = (-(object.y2 - object.y1) / len) * d;
+      const ny = ((object.x2 - object.x1) / len) * d;
+      return { x1: object.x1 + nx, y1: object.y1 + ny, x2: object.x2 + nx, y2: object.y2 + ny };
+    }
+    case 'rect': {
+      const w = object.w + 2 * d;
+      const h = object.h + 2 * d;
+      if (w < 1 || h < 1) return null;
+      return { x: object.x - d, y: object.y - d, w, h };
+    }
+    case 'circle': {
+      const r = object.r + d;
+      if (r < 1) return null;
+      return { r };
+    }
+    case 'polyline':
+    case 'dimension':
+    case 'blockRef':
+      return null;
+  }
+}
+
+/** Centre géométrique d'un objet — pivot par défaut des transformations. */
+export function objectCenter(object: CadObject, blocks: BlockDef[], objects: CadObject[]): Point | null {
+  const b = objectBounds(object, blocks, objects);
+  return b ? { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 } : null;
+}
+
+/** Centre commun d'une sélection (pour rotation / miroir groupés). */
+export function selectionCenter(ids: string[], objects: CadObject[], blocks: BlockDef[]): Point | null {
+  const bounds = ids
+    .map(id => objects.find(o => o.id === id))
+    .filter((o): o is CadObject => !!o)
+    .map(o => objectBounds(o, blocks, objects))
+    .filter((b): b is Bounds => !!b);
+  if (bounds.length === 0) return null;
+  return {
+    x: (Math.min(...bounds.map(b => b.minX)) + Math.max(...bounds.map(b => b.maxX))) / 2,
+    y: (Math.min(...bounds.map(b => b.minY)) + Math.max(...bounds.map(b => b.maxY))) / 2,
+  };
+}
+
 function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
