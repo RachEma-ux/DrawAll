@@ -112,3 +112,11 @@ export async function currentObjects(page: Page): Promise<Record<string, unknown
     return s.versions[s.pointer].objects;
   });
 }
+
+/** Touche (téléphone) ou clique (bureau) un point du modèle (mm). */
+export async function tapModel(page: Page, info: TestInfo, x: number, y: number) {
+  const at = await toScreen(page, x, y);
+  if (isPhone(info)) await (await touch(page)).tap(at);
+  else await page.mouse.click(at.x, at.y);
+  await page.waitForTimeout(100);
+}

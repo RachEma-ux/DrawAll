@@ -22,6 +22,7 @@ import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
 import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
+import { chamferLines, filletLines } from '@/lib/fillet';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, selectionCenter } from '@/lib/geometry';
@@ -45,6 +46,8 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'text', label: 'Texte', key: 'T', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez ou cliquez le point d’insertion, puis saisissez le texte' },
   { id: 'trim', label: 'Ajuster', key: 'J', levels: ['contextuel', 'complet'], hint: 'Touchez la portion à retirer entre deux arêtes' },
   { id: 'extend', label: 'Prolonger', key: 'X', levels: ['contextuel', 'complet'], hint: 'Touchez près de l’extrémité à prolonger jusqu’à la prochaine arête' },
+  { id: 'fillet', label: 'Congé', key: 'F', levels: ['contextuel', 'complet'], hint: 'Touchez deux lignes du côté à conserver : raccord par un arc du rayon saisi' },
+  { id: 'chamfer', label: 'Chanfrein', key: 'N', levels: ['contextuel', 'complet'], hint: 'Touchez deux lignes du côté à conserver : coin coupé aux distances saisies' },
   { id: 'block', label: 'Bloc', key: 'B', levels: ['contextuel', 'complet'], hint: 'Cliquez pour insérer le bloc actif' },
   { id: 'pan', label: 'Panoramique', short: 'Vue', key: 'H', levels: ['contextuel', 'complet'], hint: 'Déplacer la vue (molette : zoom)' },
 ];
@@ -92,6 +95,8 @@ function Workbench() {
   const [panel, setPanel] = useState<'inspector' | 'history' | null>(null);
   const compactRef = useRef(compact);
   const [notice, setNotice] = useState<string | null>(null);
+  // Paramètres du congé et du chanfrein (mm), saisis dans le panneau de l'outil.
+  const [cornerParams, setCornerParams] = useState({ r: '10', d1: '10', d2: '10' });
   const noticeTimer = useRef<number | undefined>(undefined);
   const [moreOpen, setMoreOpen] = useState(false);
   // Navigateur du projet : toujours présent, pliable ; plié par défaut sur petit écran.
@@ -269,6 +274,26 @@ function Workbench() {
     project.applyEdit(id, result, mode === 'trim' ? 'Ajuster' : 'Prolonger');
   }, [project, flash]);
 
+  // Congé / chanfrein entre deux lignes ; refus explicite (message) sinon.
+  const corner = useCallback((mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => {
+    const a = project.objects.find(o => o.id === first.id);
+    const b = project.objects.find(o => o.id === second.id);
+    if (!a || !b) return;
+    if (a.kind !== 'line' || b.kind !== 'line') {
+      flash('Congé et chanfrein s’appliquent entre deux lignes.');
+      return;
+    }
+    const num = (v: string) => (v.trim() === '' ? NaN : Number(v.replace(',', '.')));
+    const out = mode === 'fillet'
+      ? filletLines(a, first, b, second, num(cornerParams.r))
+      : chamferLines(a, first, b, second, num(cornerParams.d1), num(cornerParams.d2));
+    if (!out.ok) { flash(out.error); return; }
+    const { patchA, patchB, arc, line } = out.result;
+    const added = arc ? [{ from: a.id, partial: { kind: 'arc' as const, ...arc } }]
+      : line ? [{ from: a.id, partial: { kind: 'line' as const, ...line } }] : [];
+    project.applyPatches([{ id: a.id, patch: patchA }, { id: b.id, patch: patchB }], added, mode === 'fillet' ? 'Congé' : 'Chanfrein');
+  }, [project, flash, cornerParams]);
+
   const prepareBlockInsertion = useCallback((blockId: string) => {
     setActiveBlockId(blockId);
     setMode('atelier');
@@ -404,6 +429,8 @@ function Workbench() {
         arc: ['arc', 'courbe', 'trois points', 'cintre'],
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
+        fillet: ['conge', 'raccord', 'arrondi', 'fillet', 'rayon'],
+        chamfer: ['chanfrein', 'biseau', 'chamfer', 'coin'],
         extend: ['prolonger', 'etendre', 'extend', 'allonger'],
         dimension: ['cote', 'cotation', 'dimension', 'mesure associative'],
         measure: ['mesure', 'distance', 'mesurer'],
@@ -657,6 +684,8 @@ function Workbench() {
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
                  tool === 'trim' ? 'Ajuster : cliquez la portion à retirer, entre deux arêtes' :
                  tool === 'extend' ? 'Prolonger : cliquez près de l’extrémité à prolonger' :
+                 tool === 'fillet' ? 'Congé : cliquez la première ligne puis la seconde, du côté à conserver' :
+                 tool === 'chamfer' ? 'Chanfrein : cliquez la première ligne puis la seconde, du côté à conserver' :
                  tool === 'text' ? 'Cliquez le point d’insertion puis saisissez le texte ; double-clic sur un texte pour le modifier' :
                  'Cliquez-glissez : l’aperçu précède la validation (UX3)'}
               </span>
@@ -729,7 +758,7 @@ function Workbench() {
               </span>
             </div>
 
-            <div className="min-h-0 flex-1">
+            <div className="relative min-h-0 flex-1">
               <CanvasView
                 objects={project.objects}
                 layers={project.layers}
@@ -750,11 +779,36 @@ function Workbench() {
                 onPlaceText={placeText}
                 onEditText={editText}
                 onTrimExtend={trimExtend}
+                onCorner={corner}
                 onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
                 onSnapChange={setCurrentSnap}
                 onZoomChange={setZoom}
               />
+              {(tool === 'fillet' || tool === 'chamfer') && (
+                <div className="absolute left-3 top-3 z-10 sm:top-12 flex items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg">
+                  {tool === 'fillet' ? (
+                    <label className="flex items-center gap-1">Rayon
+                      <input aria-label="Rayon du congé (mm)" inputMode="decimal" value={cornerParams.r}
+                        onChange={e => setCornerParams(p => ({ ...p, r: e.target.value }))}
+                        className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                    </label>
+                  ) : (
+                    <>
+                      <label className="flex items-center gap-1">D1
+                        <input aria-label="Distance du chanfrein sur la première ligne (mm)" inputMode="decimal" value={cornerParams.d1}
+                          onChange={e => setCornerParams(p => ({ ...p, d1: e.target.value }))}
+                          className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" />
+                      </label>
+                      <label className="flex items-center gap-1">D2
+                        <input aria-label="Distance du chanfrein sur la seconde ligne (mm)" inputMode="decimal" value={cornerParams.d2}
+                          onChange={e => setCornerParams(p => ({ ...p, d2: e.target.value }))}
+                          className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                      </label>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Panneau des modifications / problèmes — repère permanent 5 (tiroir sur petit écran) */}

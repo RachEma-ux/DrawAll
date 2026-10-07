@@ -323,6 +323,27 @@ export function useProject() {
     return true;
   }, [objects, state.counter, current.seq, commit, setSelectedIds]);
 
+  /**
+   * Modifie plusieurs objets et en ajoute d'autres en une seule version (congé, chanfrein).
+   * Chaque objet ajouté hérite du calque et de la classification de son objet source.
+   */
+  const applyPatches = useCallback((patches: { id: string; patch: Partial<CadObject> }[], added: { from: string; partial: Partial<CadObject> }[], label: string) => {
+    if (patches.some(p => !objects.some(o => o.id === p.id))) return false;
+    let counter = state.counter;
+    const created = added.map(({ from, partial }) => {
+      const source = objects.find(o => o.id === from)!;
+      counter += 1;
+      const newId = `OBJ-${String(counter).padStart(4, '0')}`;
+      const inherited = { classification: source.classification, layerId: source.layerId, hatch: 'none' as const };
+      return { ...inherited, ...partial, id: newId, name: `${source.name} (${newId})`, createdSeq: current.seq } as CadObject;
+    });
+    const byId = new Map(patches.map(p => [p.id, p.patch]));
+    const next = objects.map(o => (byId.has(o.id) ? ({ ...o, ...byId.get(o.id) } as CadObject) : o));
+    commit(`${label} ${patches.map(p => p.id).join(' + ')}`, { objects: [...next, ...created], counter });
+    setSelectedIds(created.map(o => o.id));
+    return true;
+  }, [objects, state.counter, current.seq, commit, setSelectedIds]);
+
   const removeObject = useCallback((id: string) => {
     removeObjects([id]);
   }, [removeObjects]);
@@ -548,7 +569,7 @@ export function useProject() {
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
     addObject, updateObject, removeObject, removeObjects,
-    transformObjects, duplicateObjects, applyEdit,
+    transformObjects, duplicateObjects, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, reset, loadState,

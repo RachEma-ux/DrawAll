@@ -123,7 +123,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 1.2 Texte | Fait | #8 |
 | 1.3 Arc | Fait | #9 |
 | 1.4 Ajuster et prolonger | Fait | #10 |
-| 1.5 → 8.4 | À faire | — |
+| 1.5 Congé et chanfrein | Fait | #11 |
+| 1.6 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 
