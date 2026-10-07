@@ -254,6 +254,7 @@ function Workbench() {
       calques: project.layers,
       blocs: project.blocks,
       objets: project.objects,
+      feuilles: project.sheets,
     };
     const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');

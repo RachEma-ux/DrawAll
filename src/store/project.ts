@@ -11,6 +11,10 @@ import {
   type NewCadObject,
   type PrimitiveObject,
   type ProjectState,
+  type Sheet,
+  type Viewport,
+  type PaperFormat,
+  type Orientation,
   KIND_LABEL,
   polylineExtents,
   supportedDimensionStyles,
@@ -18,6 +22,7 @@ import {
 import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, type Placement } from '@/lib/array';
 import { LINE_TYPES } from '@/lib/linestyle';
+import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
@@ -76,6 +81,42 @@ function normalizeLayers(raw: unknown): Layer[] {
   return layers.length > 0 ? layers : createDefaultLayers();
 }
 
+const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+
+/** Feuilles d'une version : valeurs manquantes complétées, calques masqués limités aux calques existants. */
+export function normalizeSheets(raw: unknown, layers: Layer[]): Sheet[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((sh): sh is Partial<Sheet> => !!sh && typeof sh === 'object' && typeof (sh as Sheet).id === 'string')
+    .map(sh => ({
+      id: sh.id!,
+      name: typeof sh.name === 'string' ? sh.name : sh.id!,
+      format: PAPER_FORMATS.includes(sh.format as PaperFormat) ? sh.format! : 'A3',
+      orientation: sh.orientation === 'portrait' ? 'portrait' : 'paysage',
+      margins: {
+        top: num(sh.margins?.top, DEFAULT_MARGINS.top), right: num(sh.margins?.right, DEFAULT_MARGINS.right),
+        bottom: num(sh.margins?.bottom, DEFAULT_MARGINS.bottom), left: num(sh.margins?.left, DEFAULT_MARGINS.left),
+      },
+      viewports: (Array.isArray(sh.viewports) ? sh.viewports : [])
+        .filter((v): v is Viewport => !!v && typeof v === 'object' && typeof v.id === 'string')
+        .map(v => ({
+          id: v.id,
+          name: typeof v.name === 'string' ? v.name : v.id,
+          x: num(v.x, 0), y: num(v.y, 0), w: num(v.w, 100), h: num(v.h, 100),
+          scale: { paper: num(v.scale?.paper, 1) > 0 ? num(v.scale?.paper, 1) : 1, model: num(v.scale?.model, 1) > 0 ? num(v.scale?.model, 1) : 1 },
+          center: { x: num(v.center?.x, 0), y: num(v.center?.y, 0) },
+          hiddenLayerIds: Array.isArray(v.hiddenLayerIds) ? v.hiddenLayerIds.filter(id => layers.some(l => l.id === id)) : [],
+        })),
+    }));
+}
+
+/** Prochain identifiant libre pour un préfixe, d'après tous les identifiants déjà vus. */
+function nextId(prefix: string, ids: string[]): string {
+  let max = 0;
+  for (const id of ids) max = Math.max(max, numericSuffix(id, prefix));
+  return `${prefix}-${String(max + 1).padStart(4, '0')}`;
+}
+
 function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as CadObject & { layer?: string };
@@ -120,6 +161,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
           objects: v.objects.map(o => normalizeObject(o, layers)).filter((o): o is CadObject => !!o),
           layers,
           blocks: normalizeBlocks(v.blocks, layers),
+          sheets: normalizeSheets(v.sheets, layers),
         };
       });
     if (versions.length > 0) {
@@ -153,6 +195,7 @@ function load(): ProjectState {
 }
 
 interface SnapshotPatch {
+  sheets?: Sheet[];
   objects?: CadObject[];
   layers?: Layer[];
   blocks?: BlockDef[];
@@ -209,6 +252,7 @@ export function useProject() {
   const objects = current.objects;
   const layers = current.layers;
   const blocks = current.blocks;
+  const sheets = useMemo(() => current.sheets ?? [], [current.sheets]);
   const activeLayerId = layers.some(l => l.id === state.activeLayerId) ? state.activeLayerId : layers[0].id;
 
   const commit = useCallback((label: string, patch: SnapshotPatch) => {
@@ -222,6 +266,7 @@ export function useProject() {
         objects: patch.objects ?? cur.objects,
         layers: patch.layers ?? cur.layers,
         blocks: patch.blocks ?? cur.blocks,
+        sheets: patch.sheets ?? cur.sheets ?? [],
       };
       return {
         versions: [...s.versions.slice(0, s.pointer + 1), mv],
@@ -576,8 +621,67 @@ export function useProject() {
     return out;
   }, [objects, layers, blocks, state.pointer, state.versions.length]);
 
+  // ─── Feuilles et fenêtres ────────────────────────────────────────────────────
+  // Identifiants jamais réutilisés, même après suppression puis annulation.
+  const versions = state.versions;
+  const allSheetIds = useMemo(() => versions.flatMap(v => (v.sheets ?? []).map(sh => sh.id)), [versions]);
+  const allViewportIds = useMemo(() => versions.flatMap(v => (v.sheets ?? []).flatMap(sh => sh.viewports.map(vp => vp.id))), [versions]);
+
+  const addSheet = useCallback((format: PaperFormat = 'A3', orientation: Orientation = 'paysage', name?: string) => {
+    const id = nextId('FEU', allSheetIds);
+    const sheet: Sheet = { id, name: name ?? `Feuille ${id.slice(4).replace(/^0+/, '')} — ${format}`, format, orientation, margins: { ...DEFAULT_MARGINS }, viewports: [] };
+    commit(`Créer feuille ${id}`, { sheets: [...sheets, sheet] });
+    return id;
+  }, [sheets, allSheetIds, commit]);
+
+  const updateSheet = useCallback((id: string, patch: Partial<Omit<Sheet, 'id' | 'viewports'>>, label = 'Modifier feuille') => {
+    if (!sheets.some(sh => sh.id === id)) return;
+    commit(`${label} ${id}`, { sheets: sheets.map(sh => (sh.id === id ? { ...sh, ...patch } : sh)) });
+  }, [sheets, commit]);
+
+  const removeSheet = useCallback((id: string) => {
+    if (!sheets.some(sh => sh.id === id)) return;
+    commit(`Supprimer feuille ${id}`, { sheets: sheets.filter(sh => sh.id !== id) });
+  }, [sheets, commit]);
+
+  /**
+   * Ajoute une fenêtre sur la feuille. Par défaut : toute la zone utile, centrée sur l'emprise
+   * donnée, à la plus grande échelle normalisée qui la fait tenir.
+   */
+  const addViewport = useCallback((sheetId: string, vp: Partial<Omit<Viewport, 'id'>> = {}) => {
+    const sheet = sheets.find(sh => sh.id === sheetId);
+    if (!sheet) return null;
+    const id = nextId('FEN', allViewportIds);
+    const area = printableArea(sheet);
+    const viewport: Viewport = {
+      id,
+      name: vp.name ?? `Fenêtre ${id.slice(4).replace(/^0+/, '')}`,
+      x: vp.x ?? area.x, y: vp.y ?? area.y, w: vp.w ?? area.w, h: vp.h ?? area.h,
+      scale: vp.scale ?? STANDARD_SCALES.find(s => s.paper === 1 && s.model === 50)!,
+      center: vp.center ?? { x: 0, y: 0 },
+      hiddenLayerIds: vp.hiddenLayerIds ?? [],
+    };
+    commit(`Créer fenêtre ${id} sur ${sheetId}`, { sheets: sheets.map(sh => (sh.id === sheetId ? { ...sh, viewports: [...sh.viewports, viewport] } : sh)) });
+    return id;
+  }, [sheets, allViewportIds, commit]);
+
+  const updateViewport = useCallback((sheetId: string, id: string, patch: Partial<Omit<Viewport, 'id'>>, label = 'Modifier fenêtre') => {
+    const sheet = sheets.find(sh => sh.id === sheetId);
+    if (!sheet || !sheet.viewports.some(v => v.id === id)) return;
+    commit(`${label} ${id}`, {
+      sheets: sheets.map(sh => (sh.id === sheetId ? { ...sh, viewports: sh.viewports.map(v => (v.id === id ? { ...v, ...patch } : v)) } : sh)),
+    });
+  }, [sheets, commit]);
+
+  const removeViewport = useCallback((sheetId: string, id: string) => {
+    const sheet = sheets.find(sh => sh.id === sheetId);
+    if (!sheet || !sheet.viewports.some(v => v.id === id)) return;
+    commit(`Supprimer fenêtre ${id}`, { sheets: sheets.map(sh => (sh.id === sheetId ? { ...sh, viewports: sh.viewports.filter(v => v.id !== id) } : sh)) });
+  }, [sheets, commit]);
+
   return {
-    state, objects, layers, blocks, activeLayerId,
+    state, objects, layers, blocks, activeLayerId, sheets,
+    addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
     addObject, updateObject, removeObject, removeObjects,
