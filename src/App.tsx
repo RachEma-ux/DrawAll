@@ -16,7 +16,7 @@ import NotFound from '@/pages/NotFound';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { useProject } from '@/store/project';
-import type { CadObject, DisplayLevel, ViewReading } from '@/types/cad';
+import type { CadObject, DisplayLevel, PointDimensionMode, PointDimensionObj, ViewReading } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
@@ -49,6 +49,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'area', label: 'Aire', key: 'Q', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points du contour, puis Terminer : aire et périmètre (rien n’est créé)' },
+  { id: 'pdim', label: 'Cote par points', key: 'K', levels: ['contextuel', 'complet'], hint: 'Série, cumulée, angulaire ou niveau : désignez les points, puis Terminer' },
   { id: 'measure', label: 'Mesure', key: 'M', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Cliquez-glissez pour mesurer une distance' },
   { id: 'text', label: 'Texte', key: 'T', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez ou cliquez le point d’insertion, puis saisissez le texte' },
   { id: 'trim', label: 'Ajuster', key: 'J', levels: ['contextuel', 'complet'], hint: 'Touchez la portion à retirer entre deux arêtes' },
@@ -353,6 +354,26 @@ function Workbench() {
     project.applyEdit(id, result, mode === 'trim' ? 'Ajuster' : 'Prolonger');
   }, [project, flash]);
 
+  // Outil Cote par points : paramètres saisis dans le panneau de l'outil.
+  const [pdimParams, setPdimParams] = useState<{ mode: PointDimensionMode; axis: PointDimensionObj['axis']; offset: string; reference: string }>(
+    { mode: 'chain', axis: 'horizontal', offset: '500', reference: '0' },
+  );
+  const addPointDimension = useCallback((points: number[]) => {
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!layer || layer.locked) { flash('Calque actif verrouillé : cote non créée.'); return; }
+    const num = (v: string) => Number(v.replace(',', '.'));
+    const needed = pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : 2;
+    if (points.length / 2 < needed) { flash(`Il faut au moins ${needed} point${needed > 1 ? 's' : ''} pour cette cote.`); return; }
+    const offset = Number.isFinite(num(pdimParams.offset)) ? num(pdimParams.offset) : 500;
+    const reference = Number.isFinite(num(pdimParams.reference)) ? num(pdimParams.reference) : 0;
+    project.addObject({
+      kind: 'pdim', classification: 'non-classifie', layerId: layer.id, hatch: 'none',
+      mode: pdimParams.mode, axis: pdimParams.axis, points: pdimParams.mode === 'angular' ? points.slice(0, 6) : points,
+      offset: pdimParams.mode === 'angular' && offset < 0 ? -offset : offset,
+      ...(pdimParams.mode === 'level' ? { reference } : {}),
+    });
+  }, [project, pdimParams, flash]);
+
   // Outil Aire : résultat affiché sur le canevas jusqu'à la mesure suivante ou la fermeture.
   const [areaResult, setAreaResult] = useState<Measure | null>(null);
   const measureArea = useCallback((points: number[]) => setAreaResult(measurePolygon(points)), []);
@@ -513,6 +534,7 @@ function Workbench() {
         arc: ['arc', 'courbe', 'trois points', 'cintre'],
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
+        pdim: ['cote', 'serie', 'chainee', 'cumulee', 'angulaire', 'angle', 'niveau', 'altitude', 'dimension'],
         area: ['aire', 'surface', 'perimetre', 'area', 'mesurer'],
         fillet: ['conge', 'raccord', 'arrondi', 'fillet', 'rayon'],
         chamfer: ['chanfrein', 'biseau', 'chamfer', 'coin'],
@@ -800,6 +822,7 @@ function Workbench() {
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
                  tool === 'trim' ? 'Ajuster : cliquez la portion à retirer, entre deux arêtes' :
                  tool === 'extend' ? 'Prolonger : cliquez près de l’extrémité à prolonger' :
+                 tool === 'pdim' ? 'Cote par points : désignez les points (angulaire : sommet puis deux branches ; niveau : un point), puis Terminer' :
                  tool === 'area' ? 'Aire : cliquez les sommets du contour, puis Entrée ou Terminer' :
                  tool === 'fillet' ? 'Congé : cliquez la première ligne puis la seconde, du côté à conserver' :
                  tool === 'chamfer' ? 'Chanfrein : cliquez la première ligne puis la seconde, du côté à conserver' :
@@ -902,6 +925,8 @@ function Workbench() {
                 onTrimExtend={trimExtend}
                 onCorner={corner}
                 onMeasureArea={measureArea}
+                onAddPointDimension={addPointDimension}
+                pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
                 gridSize={gridSize}
                 projectKey={projectKey}
                 snapTypes={snapTypes}
@@ -920,6 +945,37 @@ function Workbench() {
                   </div>
                   <div>Aire <span className="text-foreground">{areaResult.area !== undefined ? formatArea(areaResult.area, displayUnit, fmt) : areaResult.areaNote}</span></div>
                   <div>Périmètre <span className="text-foreground">{formatLength(areaResult.length, displayUnit, fmt)}</span></div>
+                </div>
+              )}
+              {tool === 'pdim' && (
+                <div role="group" aria-label="Paramètres de la cote" className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg sm:top-12">
+                  <select aria-label="Type de cote" value={pdimParams.mode} onChange={e => setPdimParams(p => ({ ...p, mode: e.target.value as PointDimensionMode }))}
+                    className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                    <option value="chain">En série</option>
+                    <option value="baseline">Cumulée</option>
+                    <option value="angular">Angulaire</option>
+                    <option value="level">Niveau</option>
+                  </select>
+                  {(pdimParams.mode === 'chain' || pdimParams.mode === 'baseline') && (
+                    <select aria-label="Direction de la cote" value={pdimParams.axis} onChange={e => setPdimParams(p => ({ ...p, axis: e.target.value as PointDimensionObj['axis'] }))}
+                      className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                      <option value="horizontal">Horizontale</option>
+                      <option value="vertical">Verticale</option>
+                      <option value="aligned">Alignée</option>
+                    </select>
+                  )}
+                  <label className="flex items-center gap-1">{pdimParams.mode === 'angular' ? 'Rayon' : pdimParams.mode === 'level' ? 'Repère' : 'Décalage'}
+                    <input aria-label="Décalage de la cote (mm)" inputMode="decimal" value={pdimParams.offset}
+                      onChange={e => setPdimParams(p => ({ ...p, offset: e.target.value }))}
+                      className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                  </label>
+                  {pdimParams.mode === 'level' && (
+                    <label className="flex items-center gap-1">±0,00 à Y
+                      <input aria-label="Y du niveau ±0,00 (mm)" inputMode="decimal" value={pdimParams.reference}
+                        onChange={e => setPdimParams(p => ({ ...p, reference: e.target.value }))}
+                        className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                    </label>
+                  )}
                 </div>
               )}
               {(tool === 'fillet' || tool === 'chamfer') && (

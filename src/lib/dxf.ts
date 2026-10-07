@@ -11,6 +11,7 @@ import type { BlockDef, CadObject, Layer, PrimitiveObject, TextAlign, TextObj } 
 import { textLines } from '@/lib/text';
 import { norm360 } from '@/lib/arc';
 import { dimensionGeometry, dimensionText } from '@/lib/geometry';
+import { pdimGeometry } from '@/lib/pdim';
 import { DEFAULT_LINE_TYPE, DEFAULT_LINE_WEIGHT, LINE_TYPES, dxfLineWeight, lineTypeDef, lineTypeFromDxf } from '@/lib/linestyle';
 
 /** Écart maximal entre un arc et la polyligne qui l'approche, en millimètres. */
@@ -89,7 +90,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -182,6 +183,27 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       else counts.text++;
       continue;
     }
+    if (object.kind === 'pdim') {
+      // Cote par points : traits, arcs et textes (comme les cotes associatives, sans entité DIMENSION).
+      const g = pdimGeometry(object);
+      if (!g) { counts.dimensionSkipped++; continue; }
+      counts.pdim++;
+      for (const [x1, y1, x2, y2] of [...g.lines, ...g.ext]) {
+        entityHeader('LINE', layer, 'AcDbLine');
+        push(10, n(x1)); push(20, n(-y1)); push(30, 0);
+        push(11, n(x2)); push(21, n(-y2)); push(31, 0);
+      }
+      for (const a of g.arcs) {
+        writePrimitive(entityHeader, push, { ...object, kind: 'arc', cx: a.cx, cy: a.cy, r: a.r, start: a.start, end: a.start + a.sweep } as PrimitiveObject, layer);
+      }
+      for (const t of g.texts) {
+        entityHeader('TEXT', layer, 'AcDbText');
+        push(10, n(t.at.x + t.normal.x * 5)); push(20, n(-(t.at.y + t.normal.y * 5))); push(30, 0); push(40, 10);
+        push(1, t.value);
+        push(100, 'AcDbText');
+      }
+      continue;
+    }
     writeOne(object, layer);
   }
   push(0, 'ENDSEC'); push(0, 'EOF');
@@ -200,6 +222,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.hatch) report.kept.push(`Hachures : ${counts.hatch} (HATCH, motif ANSI31 / ANSI37 / SOLID).`);
   if (counts.rect) report.transformed.push(`Rectangles : ${counts.rect} → polylignes fermées (LWPOLYLINE).`);
   if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
+  if (counts.pdim) report.transformed.push(`Cotes par points (série, cumulées, angulaires, niveaux) : ${counts.pdim} → traits, arcs et textes ; la mesure n'est plus recalculée.`);
   if (counts.dimension) report.transformed.push(`Cotes : ${counts.dimension} → traits + texte (LINE + TEXT) ; l'association à l'objet coté est perdue.`);
   report.lost.push('Identifiants OBJ-, classification métier, noms d\'objets et historique des versions (non représentables en DXF).');
   if (counts.dimensionSkipped) report.lost.push(`Cotes sans géométrie calculable : ${counts.dimensionSkipped} (non exportées).`);

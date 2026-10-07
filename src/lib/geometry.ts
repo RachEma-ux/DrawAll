@@ -4,6 +4,7 @@ import type { BlockDef, CadObject, DimensionObj, Layer, PrimitiveObject } from '
 import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExtents } from '@/types/cad';
 import { normalizeAngle, textBounds } from '@/lib/text';
 import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } from '@/lib/arc';
+import { pdimGeometry, pdimPoints, transformPdim } from '@/lib/pdim';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -161,6 +162,9 @@ function collectObjectSnaps(
         add('midpoint', (object.points[i] + object.points[i + 2]) / 2, (object.points[i + 1] + object.points[i + 3]) / 2);
       }
       return;
+    case 'pdim':
+      for (const q of pdimPoints(object)) add('endpoint', q.x, q.y);
+      return;
     case 'dimension': {
       const target = objects.find(o => o.id === object.targetId);
       const geometry = target ? dimensionGeometry(object, target) : null;
@@ -266,6 +270,7 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
       return;
     }
     case 'dimension':
+    case 'pdim':
     case 'text':
       return;
   }
@@ -452,6 +457,15 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
     }
     case 'text':
       return textBounds(object);
+    case 'pdim': {
+      const g = pdimGeometry(object);
+      const q = pdimPoints(object);
+      if (g) {
+        for (const [x1, y1, x2, y2] of [...g.lines, ...g.ext]) q.push({ x: x1, y: y1 }, { x: x2, y: y2 });
+        for (const a of g.arcs) q.push({ x: a.cx - a.r, y: a.cy - a.r }, { x: a.cx + a.r, y: a.cy + a.r });
+      }
+      return q.length ? boundsOfPoints(q) : null;
+    }
   }
 }
 
@@ -501,18 +515,27 @@ function boundsOfPoints(points: Point[]): Bounds {
   return unionBounds(points.map(p => ({ minX: p.x, minY: p.y, maxX: p.x, maxY: p.y })))!;
 }
 
-export function dimensionGeometry(dim: DimensionObj, target: CadObject): { x1: number; y1: number; x2: number; y2: number; tx: number; ty: number; ext: [number, number, number, number][] } | null {
+export function dimensionGeometry(dim: DimensionObj, target: CadObject): { x1: number; y1: number; x2: number; y2: number; tx: number; ty: number; ext: [number, number, number, number][]; arrows?: 'end' } | null {
   const style = effectiveDimensionStyle(dim.style, target);
   if (!style) return null;
   if (style === 'radial' && target.kind === 'arc') {
     const m = arcMidpoint(target);
-    return { x1: target.cx, y1: target.cy, x2: m.x, y2: m.y, tx: (target.cx + m.x) / 2, ty: (target.cy + m.y) / 2 - 8, ext: [] };
+    if (dim.radialMode === 'diametre') {
+      // Diamètre : ligne d'un bord à l'autre en passant par le centre, dans la direction du milieu de l'arc.
+      const x1 = 2 * target.cx - m.x, y1 = 2 * target.cy - m.y;
+      return { x1, y1, x2: m.x, y2: m.y, tx: target.cx, ty: target.cy - 8, ext: [] };
+    }
+    return { x1: target.cx, y1: target.cy, x2: m.x, y2: m.y, tx: (target.cx + m.x) / 2, ty: (target.cy + m.y) / 2 - 8, ext: [], arrows: 'end' };
   }
   if (style === 'radial' && target.kind === 'circle') {
     const a = -Math.PI / 4;
     const x2 = target.cx + Math.cos(a) * target.r;
     const y2 = target.cy + Math.sin(a) * target.r;
-    return { x1: target.cx, y1: target.cy, x2, y2, tx: (target.cx + x2) / 2, ty: (target.cy + y2) / 2 - 8, ext: [] };
+    if ((dim.radialMode ?? 'diametre') === 'diametre') {
+      const x1 = 2 * target.cx - x2, y1 = 2 * target.cy - y2;
+      return { x1, y1, x2, y2, tx: target.cx, ty: target.cy - 8, ext: [] };
+    }
+    return { x1: target.cx, y1: target.cy, x2, y2, tx: (target.cx + x2) / 2, ty: (target.cy + y2) / 2 - 8, ext: [], arrows: 'end' };
   }
   if (style === 'aligned' && target.kind === 'line') {
     const len = Math.hypot(target.x2 - target.x1, target.y2 - target.y1) || 1;
@@ -582,6 +605,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'arc': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'polyline': return { points: object.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)) };
     case 'dimension': return { offset: object.offset + (object.style === 'vertical' ? dx : dy) };
+    case 'pdim': return transformPdim(object, q => ({ x: q.x + dx, y: q.y + dy })) ?? {};
     case 'blockRef': return { x: object.x + dx, y: object.y + dy };
     case 'text': return { x: object.x + dx, y: object.y + dy };
   }
@@ -640,6 +664,8 @@ export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg
     }
     case 'dimension':
       return null; // cote associative : elle suit sa cible
+    case 'pdim':
+      return transformPdim(object, q => rotatePoint(q.x, q.y, cx, cy, rad), { rotation: angleDeg });
     case 'text': {
       // angleDeg > 0 tourne dans le sens horaire à l'écran ; la rotation du texte est trigonométrique (repère DXF).
       const p = rotatePoint(object.x, object.y, cx, cy, rad);
@@ -673,6 +699,8 @@ export function mirrorObject(object: CadObject, axis: 'x' | 'y', value: number):
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
     case 'dimension':
       return { offset: -object.offset };
+    case 'pdim':
+      return transformPdim(object, q => (axis === 'x' ? { x: mx(q.x), y: q.y } : { x: q.x, y: mx(q.y) })) ?? {};
     case 'text':
       // Le texte reste lisible (pas de lettres en miroir) : seul son point d'insertion est symétrisé.
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
@@ -691,6 +719,7 @@ export function scaleObject(object: CadObject, cx: number, cy: number, factor: n
     case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
     case 'blockRef': return { x: s(object.x, cx), y: s(object.y, cy), scale: round(object.scale * factor) };
     case 'dimension': return { offset: round(object.offset * factor) };
+    case 'pdim': return transformPdim(object, q => ({ x: s(q.x, cx), y: s(q.y, cy) }), { factor });
     case 'text': return { x: s(object.x, cx), y: s(object.y, cy), height: round(object.height * factor) };
   }
 }
@@ -722,6 +751,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     }
     case 'polyline':
     case 'dimension':
+    case 'pdim':
     case 'blockRef':
     case 'text':
       return null;

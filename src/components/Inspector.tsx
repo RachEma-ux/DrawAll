@@ -3,6 +3,7 @@
 import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchStyle, Layer, ViewReading } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
+import { formatLevel, pdimValues } from '@/lib/pdim';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
 import {
   canHatch,
@@ -203,7 +204,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           );
         })()}
 
-        {(
+        {obj.kind !== 'pdim' && (
           <div>
             <p className="ui-label mb-1.5">Trait (ISO 128-2)</p>
             <LineStyleFields
@@ -252,7 +253,40 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
               ) : (
                 <p className="text-[11px] text-amber-300">{target ? `Aucune cote disponible pour un objet de type ${KIND_LABEL[target.kind]}.` : `Cible ${obj.targetId} absente.`}</p>
               )}
+              {current === 'radial' && target && (
+                <div className="mt-1.5 grid grid-cols-2 gap-1" role="group" aria-label="Rayon ou diamètre">
+                  {(['rayon', 'diametre'] as const).map(m => {
+                    const active = (obj.radialMode ?? (target.kind === 'circle' ? 'diametre' : 'rayon')) === m;
+                    return (
+                      <button key={m} onClick={() => onUpdate(obj.id, { radialMode: m }, m === 'rayon' ? 'Coter le rayon' : 'Coter le diamètre')} aria-pressed={active}
+                        className={`rounded-sm border px-2 py-1.5 font-mono text-[10px] ${active ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                        {m === 'rayon' ? 'Rayon (R)' : 'Diamètre (Ø)'}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <p className="mt-1 font-mono text-[9px] text-muted-foreground">Cible : {obj.targetId} · valeur recalculée automatiquement.</p>
+            </div>
+          );
+        })()}
+
+        {obj.kind === 'pdim' && (() => {
+          const values = pdimValues(obj);
+          const label = { chain: 'En série', baseline: 'Cumulée', angular: 'Angulaire', level: 'Niveau' }[obj.mode];
+          const shown = obj.mode === 'angular' ? values.map(v => `${fmt(v)}°`) : obj.mode === 'level' ? values.map(formatLevel) : values.map(v => `${fmt(v)} mm`);
+          return (
+            <div>
+              <p className="ui-label mb-1.5">Cote par points — {label}</p>
+              <p aria-label="Valeurs de la cote" className="font-mono text-[11px] text-foreground">{shown.join(' · ') || 'points insuffisants'}</p>
+              <label className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                {obj.mode === 'angular' ? 'Rayon de l’arc' : obj.mode === 'level' ? 'Longueur du repère' : 'Décalage'}
+                <input key={`${obj.id}-${obj.offset}`} aria-label="Décalage de la cote" defaultValue={String(obj.offset).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => { const v = Number(e.target.value.replace(',', '.')); if (Number.isFinite(v) && v !== obj.offset) onUpdate(obj.id, { offset: v }, 'Décaler la cote'); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" />
+              </label>
+              <p className="mt-1 font-mono text-[9px] text-muted-foreground">Cote non associative : sa valeur vient de ses {obj.points.length / 2} points.</p>
             </div>
           );
         })()}
