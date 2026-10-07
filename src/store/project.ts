@@ -107,6 +107,14 @@ export function normalizeSheets(raw: unknown, layers: Layer[]): Sheet[] {
           center: { x: num(v.center?.x, 0), y: num(v.center?.y, 0) },
           hiddenLayerIds: Array.isArray(v.hiddenLayerIds) ? v.hiddenLayerIds.filter(id => layers.some(l => l.id === id)) : [],
         })),
+      ...(sh.titleBlock && typeof sh.titleBlock === 'object' ? {
+        titleBlock: {
+          project: typeof sh.titleBlock.project === 'string' ? sh.titleBlock.project : '',
+          title: typeof sh.titleBlock.title === 'string' ? sh.titleBlock.title : '',
+          author: typeof sh.titleBlock.author === 'string' ? sh.titleBlock.author : '',
+          projection: sh.titleBlock.projection === 'troisieme-diedre' ? 'troisieme-diedre' as const : 'premier-diedre' as const,
+        },
+      } : {}),
     }));
 }
 

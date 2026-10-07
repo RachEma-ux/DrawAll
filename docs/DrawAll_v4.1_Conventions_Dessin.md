@@ -87,7 +87,8 @@ Remarque : le support pédagogique « Dessin Technique » associe dans un premie
 - Passage papier ↔ modèle : longueur papier = longueur réelle × échelle (5 000 mm au 1:50 = 100 mm ; au 1:100 = 50 mm). L'échelle ne modifie jamais le modèle.
 - Les feuilles sont versionnées avec le projet (historique, annulation) ; une fenêtre qui déborde de la zone utile est signalée.
 - Éditeur (mode « Feuilles », lot 2.2) : feuilles A4 à A0 en portrait ou paysage, cadre de la zone utile, fenêtres ajoutées cadrées sur le dessin à l'échelle normalisée qui le fait tenir, déplacées et redimensionnées au geste (accrochage au millimètre papier) ou par saisie ; échelle, centre et calques propres à chaque fenêtre.
-- Le cartouche (2.3) et l'export PDF calibré (2.5) suivent.
+- **Cartouche** (lot 2.3) : 180 × 32 mm au coin inférieur droit de la zone utile (ISO 7200, ISO 5457). Champs saisis : projet, titre, auteur, méthode de projection (premier dièdre par défaut, décision §6). Champs tirés du projet : échelle(s) des fenêtres, date et **indice** de la version affichée. L'indice prend une lettre par version nommée (A, B…) ; une modification après la dernière version nommée est signalée « modifié depuis ». Un champ non renseigné s'affiche « — » : rien n'est inventé.
+- L'export PDF calibré (2.5) suit.
 
 ## 3. Traits
 

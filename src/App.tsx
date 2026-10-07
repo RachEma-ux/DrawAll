@@ -677,6 +677,9 @@ function Workbench() {
           onAddViewport={project.addViewport}
           onUpdateViewport={project.updateViewport}
           onRemoveViewport={project.removeViewport}
+          versions={project.versions}
+          pointer={project.pointer}
+          onNameVersion={project.nameVersion}
         />
       ) : mode === 'docs' ? (
         <div className="flex min-h-0 flex-1 flex-col">
