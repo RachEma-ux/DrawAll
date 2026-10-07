@@ -22,7 +22,7 @@ on:
           - "30"
   push:
     branches:
-      - feat/application-p1
+      - main
 
 permissions:
   contents: write
