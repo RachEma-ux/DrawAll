@@ -57,3 +57,34 @@ describe('blocs et profils (lot 3.1)', () => {
     expect(occurrencePrimitives(block, { hatch: 'none' })).toBe(block.primitives);
   });
 });
+
+describe('contexte de vue et pièces voisines (lot 3.3)', () => {
+  const steel = (id: string, x: number): CadObject => ({ ...base, id, kind: 'rect', x, y: 0, w: 100, h: 50, hatch: 'none', materialId: 'acier' });
+  const a = steel('A', 0), b = steel('B', 100), c = steel('C', 300);
+
+  it('en coupe, deux pièces voisines du même motif reçoivent des sens différents', () => {
+    const shown = withProfile([a, b, c], profileById('neutre'), 'coupe');
+    expect(shown[0].hatchParams).toBeUndefined();               // 45° par défaut
+    expect(shown[1].hatchParams).toMatchObject({ angle: 135 });  // voisine : autre sens
+    expect(shown[2].hatchParams).toBeUndefined();               // isolée : défaut
+  });
+
+  it('trois pièces mutuellement voisines : sens puis pas différents', () => {
+    const tri = [steel('A', 0), steel('B', 100), { ...steel('C', 0), y: 50, w: 200 } as CadObject];
+    const p = withProfile(tri, profileById('neutre'), 'coupe').map(o => o.hatchParams ?? { angle: 45, spacing: 3 });
+    expect(new Set(p.map(h => `${h.angle}/${h.spacing}`)).size).toBe(3);
+  });
+
+  it('un angle choisi à la main est respecté', () => {
+    const manual = { ...b, hatchParams: { angle: 45, spacing: 3, unit: 'papier' as const } };
+    expect(withProfile([a, manual], profileById('neutre'), 'coupe')[1].hatchParams).toEqual(manual.hatchParams);
+  });
+
+  it('en vue, les surfaces ne sont pas hachurées (sauf motif de surface du profil) ; le matériau reste', () => {
+    const shown = withProfile([a], profileById('neutre'), 'vue');
+    expect(shown[0]).toMatchObject({ hatch: 'none', materialId: 'acier' });
+    const glass: CadObject = { ...a, id: 'G', materialId: 'verre' };
+    expect(withProfile([glass], profileById('enseignement'), 'vue')[0].hatch).toBe('solid');
+    expect(effectiveHatch(a, profileById('neutre'), 'coupe')).toBe('diagonal');
+  });
+});

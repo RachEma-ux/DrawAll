@@ -108,6 +108,7 @@ export function normalizeSheets(raw: unknown, layers: Layer[]): Sheet[] {
           scale: { paper: num(v.scale?.paper, 1) > 0 ? num(v.scale?.paper, 1) : 1, model: num(v.scale?.model, 1) > 0 ? num(v.scale?.model, 1) : 1 },
           center: { x: num(v.center?.x, 0), y: num(v.center?.y, 0) },
           hiddenLayerIds: Array.isArray(v.hiddenLayerIds) ? v.hiddenLayerIds.filter(id => layers.some(l => l.id === id)) : [],
+          ...(v.context === 'vue' || v.context === 'coupe' ? { context: v.context } : {}),
         })),
       ...(sh.titleBlock && typeof sh.titleBlock === 'object' ? {
         titleBlock: {

@@ -7,6 +7,7 @@ import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
 import { pdfBytes, sheetToPdf } from '@/lib/pdf';
+import { withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
   PAPER_FORMATS, STANDARD_SCALES, fitScale, formatScale, layerVisibleInViewport, parseScale, printableArea,
@@ -26,6 +27,8 @@ interface Props {
   onAddViewport: (sheetId: string, vp: Partial<Omit<Viewport, 'id'>>) => string | null;
   onUpdateViewport: (sheetId: string, id: string, patch: Partial<Omit<Viewport, 'id'>>, label?: string) => void;
   onRemoveViewport: (sheetId: string, id: string) => void;
+  /** Profil de dessin : chaque fenêtre en tire les motifs selon son contexte (coupe ou vue). */
+  profile: DrawingProfile;
   /** Historique : le cartouche en tire la date et l'indice. */
   versions: MicroVersion[];
   pointer: number;
@@ -58,6 +61,15 @@ export default function SheetEditor(p: Props) {
   const issues = sheet ? sheetIssues(sheet) : [];
   // Cadrage : seulement les objets que les fenêtres dessinent (calques visibles).
   const bounds = useMemo(() => projectBounds(p.objects.filter(o => p.layers.find(l => l.id === o.layerId)?.visible !== false), p.blocks), [p.objects, p.layers, p.blocks]);
+  // Objets tels que dessinés en coupe et en vue (motifs du profil, pièces voisines alternées).
+  const byContext = useMemo(() => ({
+    coupe: withProfile(p.objects, p.profile, 'coupe'),
+    vue: withProfile(p.objects, p.profile, 'vue'),
+  }), [p.objects, p.profile]);
+  const blocksByContext = useMemo(() => ({
+    coupe: withProfileBlocks(p.blocks, p.profile, 'coupe'),
+    vue: withProfileBlocks(p.blocks, p.profile, 'vue'),
+  }), [p.blocks, p.profile]);
 
   // Échelle d'affichage (px écran par mm papier), pour des traits lisibles quel que soit le format.
   useEffect(() => {
@@ -85,7 +97,7 @@ export default function SheetEditor(p: Props) {
   /** PDF vectoriel aux dimensions exactes de la feuille : téléchargé, ou ouvert pour impression à 100 %. */
   const exportPdf = (print: boolean) => {
     if (!sheet) return;
-    const pdf = sheetToPdf({ sheet, objects: p.objects, layers: p.layers, blocks: p.blocks, versions: p.versions, pointer: p.pointer });
+    const pdf = sheetToPdf({ sheet, objects: p.objects, layers: p.layers, blocks: p.blocks, versions: p.versions, pointer: p.pointer, profile: p.profile });
     const blob = new Blob([pdfBytes(pdf)], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     if (print) {
@@ -282,6 +294,15 @@ export default function SheetEditor(p: Props) {
               {!STANDARD_SCALES.some(s => formatScale(s) === formatScale(viewport.scale)) && <option value="autre">{formatScale(viewport.scale)}</option>}
             </select>
           </label>
+          <label className="flex items-center justify-between gap-2 text-muted-foreground">
+            <span>Contexte</span>
+            <select aria-label="Contexte de la fenêtre" value={viewport.context ?? 'coupe'}
+              onChange={e => p.onUpdateViewport(sheet.id, viewport.id, { context: e.target.value as 'coupe' | 'vue' }, e.target.value === 'vue' ? 'Fenêtre en vue' : 'Fenêtre en coupe')}
+              className={`${input} w-28`}>
+              <option value="coupe">Coupe</option>
+              <option value="vue">Vue</option>
+            </select>
+          </label>
           {numberField('Centre X', viewport.center.x, v => p.onUpdateViewport(sheet.id, viewport.id, { center: { ...viewport.center, x: v } }, 'Cadrer fenêtre'))}
           {numberField('Centre Y', viewport.center.y, v => p.onUpdateViewport(sheet.id, viewport.id, { center: { ...viewport.center, y: v } }, 'Cadrer fenêtre'))}
           <button
@@ -356,12 +377,13 @@ export default function SheetEditor(p: Props) {
               const m = viewportModelRect(shown);
               const zoom = pxPerMm * scaleRatio(v.scale);
               const visibleLayer = new Map(p.layers.map(l => [l.id, layerVisibleInViewport(v, l)]));
+              const drawn = byContext[v.context ?? 'coupe'];
               const selected = v.id === vpId;
               return (
                 <g key={v.id} data-testid={`fenetre-${v.id}`}>
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
-                    {p.objects.filter(o => visibleLayer.get(o.layerId)).map(o => (
-                      <ObjectShape key={o.id} obj={o} objects={p.objects} blocks={p.blocks} view={p.view} selected={false}
+                    {drawn.filter(o => visibleLayer.get(o.layerId)).map(o => (
+                      <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false}
                         zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} />
                     ))}
                   </svg>

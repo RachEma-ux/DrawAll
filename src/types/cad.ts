@@ -155,6 +155,7 @@ export interface Viewport {
   scale: DrawingScale;
   center: { x: number; y: number };   // point du modèle au centre de la fenêtre (mm)
   hiddenLayerIds: string[];           // calques masqués dans cette fenêtre seulement
+  context?: 'coupe' | 'vue';          // représentation des matériaux (lot 3.3) ; défaut : coupe
 }
 
 /** Méthode de projection orthogonale (ISO 5456-2) indiquée au cartouche. */

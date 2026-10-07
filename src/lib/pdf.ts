@@ -14,7 +14,7 @@ import { primitiveBounds } from '@/lib/geometry';
 import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetSize } from '@/lib/sheet';
 import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
 import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
-import { occurrencePrimitives } from '@/lib/materials';
+import { occurrencePrimitives, profileById, withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 
 export const MM_TO_PT = 72 / 25.4;
 
@@ -27,6 +27,8 @@ export interface PdfInput {
   pointer: number;
   /** Date de création inscrite dans le fichier (pour des sorties reproductibles en test). */
   date?: Date;
+  /** Profil de dessin : chaque fenêtre en tire les motifs selon son contexte (coupe ou vue). */
+  profile?: DrawingProfile;
 }
 
 interface P { x: number; y: number }
@@ -110,7 +112,8 @@ function primitiveIn(p: PrimitiveObject, x: number, y: number, s: number): Primi
 // ─── Écriture de la feuille ───────────────────────────────────────────────────
 
 export function sheetToPdf(input: PdfInput): string {
-  const { sheet, objects, layers, blocks } = input;
+  const { sheet, layers, blocks } = input;
+  const profile = input.profile ?? profileById(undefined);
   const size = sheetSize(sheet.format, sheet.orientation);
   const W = size.w * MM_TO_PT, H = size.h * MM_TO_PT;
   /** Point de la feuille (mm, Y vers le bas) → point PDF (pt, Y vers le haut). */
@@ -175,6 +178,8 @@ export function sheetToPdf(input: PdfInput): string {
 
   function drawViewport(vp: Viewport) {
     const k = scaleRatio(vp.scale);
+    const objects = withProfile(input.objects, profile, vp.context ?? 'coupe');
+    const vpBlocks = withProfileBlocks(blocks, profile, vp.context ?? 'coupe');
     const toPdf = (q: P) => pt(modelToPaper(vp, q));
     out('q');
     { const a = pt({ x: vp.x, y: vp.y + vp.h }); out(`${n(a.x)} ${n(a.y)} ${n(vp.w * MM_TO_PT)} ${n(vp.h * MM_TO_PT)} re W n`); }
@@ -186,7 +191,7 @@ export function sheetToPdf(input: PdfInput): string {
       if (o.kind === 'pdim') { drawPointDimension(o); continue; }
       if (o.kind === 'text') { drawText(o); continue; }
       if (o.kind === 'blockRef') {
-        const block = blocks.find(b => b.id === o.blockId);
+        const block = vpBlocks.find(b => b.id === o.blockId);
         if (!block) continue;
         for (const prim of occurrencePrimitives(block, o)) drawPrimitive(primitiveIn(prim, o.x, o.y, o.scale), effectiveStyle(o, layer));
         continue;
