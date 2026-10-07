@@ -52,3 +52,32 @@ describe('feuilles enregistrées (lot 2.1)', () => {
     expect(normalizeSheets([full], layers)).toEqual([full]);
   });
 });
+
+describe('niveaux enregistrés (lot 4.4)', () => {
+  const layers = [{ id: 'LAY-0001', name: 'A', color: '#fff', visible: true, locked: false }];
+  const obj = (id: string, levelId?: string) => ({ id, name: id, kind: 'line', classification: 'non-classifie', layerId: 'LAY-0001', createdSeq: 0, x1: 0, y1: 0, x2: 1, y2: 0, ...(levelId ? { levelId } : {}) });
+
+  it('un projet antérieur reste sur un seul niveau, sans marque sur les objets', () => {
+    const state = normalizeProjectState({ versions: [{ seq: 0, label: 'v0', time: 1, layers, objects: [obj('OBJ-0001')], blocks: [] }], pointer: 0 });
+    expect(state.versions[0].levels).toBeUndefined();
+    expect(state.versions[0].objects[0].levelId).toBeUndefined();
+  });
+
+  it('niveaux valides conservés ; objet et fenêtre sur un niveau inconnu ramenés au premier niveau', () => {
+    const state = normalizeProjectState({
+      versions: [{
+        seq: 0, label: 'v0', time: 1, layers, blocks: [],
+        levels: [{ id: 'NIV-0002', name: 'Étage', elevation: 2800 }, { id: 'NIV-0002', name: 'doublon', elevation: 0 }, { id: 'NIV-0003', name: 'Sous-sol', elevation: 'x' }],
+        objects: [obj('OBJ-0001', 'NIV-0002'), obj('OBJ-0002', 'NIV-0099'), obj('OBJ-0003')],
+        sheets: [{ id: 'FEU-0001', viewports: [{ id: 'FEN-0001', levelId: 'NIV-0099' }, { id: 'FEN-0002', levelId: 'NIV-0002' }] }],
+      }],
+      pointer: 0, activeLevelId: 'NIV-0002',
+    });
+    const v = state.versions[0];
+    expect(v.levels).toEqual([{ id: 'NIV-0002', name: 'Étage', elevation: 2800 }, { id: 'NIV-0003', name: 'Sous-sol', elevation: 0 }]);
+    // Premier niveau par altitude : Sous-sol (0) puis Étage (2 800).
+    expect(v.objects.map(o => o.levelId)).toEqual(['NIV-0002', 'NIV-0003', 'NIV-0003']);
+    expect(v.sheets![0].viewports.map(vp => vp.levelId)).toEqual(['NIV-0003', 'NIV-0002']);
+    expect(state.activeLevelId).toBe('NIV-0002');
+  });
+});

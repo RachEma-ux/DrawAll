@@ -141,7 +141,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 4.1 Murs | Fait | #26 |
 | 4.2 Ouvertures | Fait | #27 |
 | 4.3 Pièces et surfaces | Fait | #28 |
-| 4.4 → 8.4 | À faire | — |
+| 4.4 Niveaux | Fait | #29 |
+| 4.5 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

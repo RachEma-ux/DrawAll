@@ -1,8 +1,9 @@
 // Navigateur du projet — repère permanent UX1 : calques, objets identifiés et blocs.
-import type { BlockDef, CadObject, Classification, Layer } from '@/types/cad';
+import type { BlockDef, CadObject, Classification, Layer, Level } from '@/types/cad';
 import { CLASSIFICATION_META, KIND_LABEL } from '@/types/cad';
 import { useState } from 'react';
 import LineStyleFields from '@/components/LineStyleFields';
+import { formatElevation } from '@/lib/levels';
 
 interface Props {
   objects: CadObject[];
@@ -18,6 +19,15 @@ interface Props {
   onInsertBlock: (blockId: string) => void;
   onCreateBlock: (objectId: string) => void;
   onRemoveBlock: (blockId: string) => void;
+  /** Calque utilisé par un objet, tous niveaux confondus. */
+  layerUsed: (id: string) => boolean;
+  levels: Level[];
+  activeLevelId: string;
+  onSetActiveLevel: (id: string) => void;
+  onAddLevel: (name: string, elevation: number) => void;
+  onUpdateLevel: (id: string, patch: Partial<Omit<Level, 'id'>>) => void;
+  onRemoveLevel: (id: string) => boolean;
+  onCopyLevel: (fromId: string, name: string, elevation: number) => void;
   /** Si fourni, affiche un bouton pour plier le panneau. */
   onCollapse?: () => void;
 }
@@ -39,6 +49,28 @@ export default function Navigator(p: Props) {
     if (name?.trim()) p.onAddLayer(name.trim());
   };
 
+  /** Altitude saisie en mètres (virgule acceptée) ; null si annulée ou illisible. */
+  const askElevation = (message: string, initialMm: number): number | null => {
+    const raw = window.prompt(message, String(initialMm / 1000).replace('.', ','));
+    if (raw == null) return null;
+    const m = Number(raw.trim().replace(',', '.').replace(/\s*m$/, ''));
+    if (!Number.isFinite(m)) { window.alert('Altitude illisible : saisir un nombre de mètres, par exemple 2,80.'); return null; }
+    return Math.round(m * 1000);
+  };
+  const top = p.levels[p.levels.length - 1];
+  const addLevel = () => {
+    const name = window.prompt('Nom du nouveau niveau', `Niveau ${p.levels.length}`);
+    if (!name?.trim()) return;
+    const elevation = askElevation('Altitude du plancher (m, par rapport au ±0,00)', top ? top.elevation : 0);
+    if (elevation != null) p.onAddLevel(name.trim(), elevation);
+  };
+  const copyLevel = (l: Level) => {
+    const name = window.prompt(`Copier ${l.name} : nom du nouveau niveau`, `${l.name} (copie)`);
+    if (!name?.trim()) return;
+    const elevation = askElevation('Altitude du plancher du nouveau niveau (m)', top ? top.elevation : l.elevation);
+    if (elevation != null) p.onCopyLevel(l.id, name.trim(), elevation);
+  };
+
   return (
     <div className="panel flex h-full flex-col overflow-hidden">
       <div className="panel-title">
@@ -58,13 +90,64 @@ export default function Navigator(p: Props) {
         </span>
       </div>
 
+      <div className="max-h-32 shrink-0 overflow-y-auto border-b border-border" aria-label="Niveaux">
+        <div className="flex items-center justify-between px-3 py-1.5">
+          <span className="ui-label">Niveaux</span>
+          <button onClick={addLevel} className="font-mono text-[10px] text-cyan-300 hover:text-cyan-200">+ niveau</button>
+        </div>
+        {[...p.levels].reverse().map(l => (
+          <div key={l.id} data-level={l.id} className={`flex items-center gap-1.5 border-t border-border/40 px-2 py-1 ${l.id === p.activeLevelId ? 'bg-cyan-400/5' : ''}`}>
+            <button
+              onClick={() => p.onSetActiveLevel(l.id)}
+              aria-label={`Afficher le niveau ${l.name}`}
+              aria-pressed={l.id === p.activeLevelId}
+              title="Niveau affiché et édité"
+              className={`font-mono text-[10px] ${l.id === p.activeLevelId ? 'text-cyan-300' : 'text-muted-foreground'}`}
+            >
+              {l.id === p.activeLevelId ? '◉' : '○'}
+            </button>
+            <button
+              onClick={() => { const n = window.prompt('Nom du niveau', l.name); if (n?.trim() && n.trim() !== l.name) p.onUpdateLevel(l.id, { name: n.trim() }); }}
+              title="Renommer le niveau"
+              className="min-w-0 truncate text-left text-xs text-foreground/85 hover:text-cyan-200"
+            >
+              {l.name}
+            </button>
+            <button
+              onClick={() => { const e = askElevation(`Altitude de ${l.name} (m)`, l.elevation); if (e != null && e !== l.elevation) p.onUpdateLevel(l.id, { elevation: e }); }}
+              title="Modifier l'altitude du plancher"
+              className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              {formatElevation(l.elevation)}
+            </button>
+            <button
+              onClick={() => copyLevel(l)}
+              aria-label={`Copier le niveau ${l.name}`}
+              title="Copier ce niveau (objets compris) vers un nouveau niveau"
+              className="rounded-sm border border-border px-1 font-mono text-[9px] text-muted-foreground hover:text-foreground"
+            >
+              CPY
+            </button>
+            <button
+              onClick={() => { if (window.confirm(`Supprimer le niveau ${l.name} et tous ses objets ?`)) p.onRemoveLevel(l.id); }}
+              disabled={p.levels.length <= 1}
+              aria-label={`Supprimer le niveau ${l.name}`}
+              title="Supprimer le niveau et ses objets"
+              className="rounded-sm border border-red-400/30 px-1 font-mono text-[9px] text-red-400 disabled:opacity-25"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
       <div className="max-h-44 shrink-0 overflow-y-auto border-b border-border">
         <div className="flex items-center justify-between px-3 py-1.5">
           <span className="ui-label">Calques</span>
           <button onClick={addLayer} className="font-mono text-[10px] text-cyan-300 hover:text-cyan-200">+ ajouter</button>
         </div>
         {p.layers.map(layer => {
-          const used = p.objects.some(o => o.layerId === layer.id);
+          const used = p.layerUsed(layer.id);
           return (
             <div key={layer.id} className="border-t border-border/40">
             <div className={`flex items-center gap-1.5 px-2 py-1 ${layer.id === p.activeLayerId ? 'bg-cyan-400/5' : ''}`}>

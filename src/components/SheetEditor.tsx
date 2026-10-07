@@ -2,7 +2,7 @@
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OpeningObj, WallObj, BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
+import type { OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
@@ -10,6 +10,7 @@ import { pdfBytes, sheetToPdf } from '@/lib/pdf';
 import { withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { wallsGeometry } from '@/lib/wall';
 import { roomPolygons } from '@/lib/rooms';
+import { formatElevation, levelIdOf, onLevel } from '@/lib/levels';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
   PAPER_FORMATS, STANDARD_SCALES, fitScale, formatScale, layerVisibleInViewport, parseScale, printableArea,
@@ -18,7 +19,9 @@ import {
 
 interface Props {
   sheets: Sheet[];
+  /** Objets de tous les niveaux : chaque fenêtre montre celui qu'elle désigne. */
   objects: CadObject[];
+  levels: Level[];
   layers: Layer[];
   blocks: BlockDef[];
   view: ViewReading;
@@ -63,11 +66,16 @@ export default function SheetEditor(p: Props) {
   const issues = sheet ? sheetIssues(sheet) : [];
   // Cadrage : seulement les objets que les fenêtres dessinent (calques visibles).
   const bounds = useMemo(() => projectBounds(p.objects.filter(o => p.layers.find(l => l.id === o.layerId)?.visible !== false), p.blocks), [p.objects, p.layers, p.blocks]);
-  // Objets tels que dessinés en coupe et en vue (motifs du profil, pièces voisines alternées).
-  const byContext = useMemo(() => ({
-    coupe: withProfile(p.objects, p.profile, 'coupe', p.blocks),
-    vue: withProfile(p.objects, p.profile, 'vue', p.blocks),
-  }), [p.objects, p.profile, p.blocks]);
+  // Par niveau : objets tels que dessinés en coupe et en vue (motifs du profil, pièces voisines
+  // alternées) et objets du niveau.
+  const byLevel = useMemo(() => new Map(p.levels.map(l => {
+    const objs = onLevel(p.objects, l.id);
+    return [l.id, {
+      coupe: withProfile(objs, p.profile, 'coupe', p.blocks),
+      vue: withProfile(objs, p.profile, 'vue', p.blocks),
+      objs,
+    }];
+  })), [p.objects, p.levels, p.profile, p.blocks]);
   const blocksByContext = useMemo(() => ({
     coupe: withProfileBlocks(p.blocks, p.profile, 'coupe'),
     vue: withProfileBlocks(p.blocks, p.profile, 'vue'),
@@ -305,6 +313,14 @@ export default function SheetEditor(p: Props) {
               <option value="vue">Vue</option>
             </select>
           </label>
+          <label className="flex items-center justify-between gap-2 text-muted-foreground">
+            <span>Niveau</span>
+            <select aria-label="Niveau de la fenêtre" value={p.levels.some(l => l.id === levelIdOf(viewport)) ? levelIdOf(viewport) : p.levels[0].id}
+              onChange={e => p.onUpdateViewport(sheet.id, viewport.id, { levelId: e.target.value }, `Fenêtre sur ${p.levels.find(l => l.id === e.target.value)?.name ?? e.target.value}`)}
+              className={`${input} w-28`}>
+              {p.levels.map(l => <option key={l.id} value={l.id}>{l.name} ({formatElevation(l.elevation)})</option>)}
+            </select>
+          </label>
           {numberField('Centre X', viewport.center.x, v => p.onUpdateViewport(sheet.id, viewport.id, { center: { ...viewport.center, x: v } }, 'Cadrer fenêtre'))}
           {numberField('Centre Y', viewport.center.y, v => p.onUpdateViewport(sheet.id, viewport.id, { center: { ...viewport.center, y: v } }, 'Cadrer fenêtre'))}
           <button
@@ -379,12 +395,13 @@ export default function SheetEditor(p: Props) {
               const m = viewportModelRect(shown);
               const zoom = pxPerMm * scaleRatio(v.scale);
               const visibleLayer = new Map(p.layers.map(l => [l.id, layerVisibleInViewport(v, l)]));
-              const drawn = byContext[v.context ?? 'coupe'];
+              const lv = byLevel.get(levelIdOf(v)) ?? byLevel.get(p.levels[0].id)!;
+              const drawn = lv[v.context ?? 'coupe'];
               // Jonctions et pièces calculées à partir des seuls objets que la fenêtre dessine (comme le PDF).
-              const rooms = roomPolygons(p.objects.filter(o => !!visibleLayer.get(o.layerId)));
+              const rooms = roomPolygons(lv.objs.filter(o => !!visibleLayer.get(o.layerId)));
               const walls = wallsGeometry(
-                p.objects.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)),
-                p.objects.filter((o): o is OpeningObj => o.kind === 'opening'),
+                lv.objs.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)),
+                lv.objs.filter((o): o is OpeningObj => o.kind === 'opening'),
               );
               const selected = v.id === vpId;
               return (
