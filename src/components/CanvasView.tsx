@@ -429,23 +429,47 @@ export default function CanvasView({
     return { d: Math.hypot(b.x - a.x, b.y - a.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
   };
 
+  // Au doigt, l'action du premier contact est différée jusqu'à ce que le geste soit confirmé :
+  // glissement au-delà de quelques pixels, ou relâchement (tape). Un second doigt avant cela
+  // transforme le geste en pincement sans rien modifier au dessin.
+  const pendingDown = useRef<React.PointerEvent | null>(null);
+  const draftAtGestureStart = useRef<Draft | null>(null);
+  const TAP_SLOP_PX = 6;
+
+  const restoreGestureStart = () => {
+    pendingDown.current = null;
+    setDraft(draftAtGestureStart.current);
+    setMarquee(null);
+    drag.current = { mode: null, lx: 0, ly: 0 };
+  };
+
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     coarse.current = e.pointerType !== 'mouse';
     if (e.pointerType === 'mouse' && e.button === 2) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 2) {
-      // Deux doigts : on abandonne le geste en cours et on passe en zoom/déplacement de la vue.
-      setDraft(null);
-      setMarquee(null);
-      drag.current = { mode: null, lx: 0, ly: 0 };
+      // Deux doigts : le geste en cours est annulé (état d'avant le premier doigt) et la vue zoome.
+      restoreGestureStart();
       const p = pinchState();
       pinch.current = { d0: p.d, mx: p.mx, my: p.my, tf0: tf };
       suppressUntilRelease.current = true;
       return;
     }
     if (pointers.current.size > 2 || suppressUntilRelease.current) return;
-    handleDown(e);
+    if (e.pointerType === 'mouse') {
+      handleDown(e);
+      return;
+    }
+    draftAtGestureStart.current = draft;
+    e.persist?.();
+    pendingDown.current = e;
+  };
+
+  const flushPendingDown = () => {
+    const pending = pendingDown.current;
+    pendingDown.current = null;
+    if (pending) handleDown(pending);
   };
 
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -462,6 +486,12 @@ export default function CanvasView({
     if (suppressUntilRelease.current) return;
     // Au doigt, pas de survol : seuls les glissements comptent.
     if (e.pointerType !== 'mouse' && !pointers.current.has(e.pointerId)) return;
+    const pending = pendingDown.current;
+    if (pending) {
+      if (Math.hypot(e.clientX - pending.clientX, e.clientY - pending.clientY) < TAP_SLOP_PX) return;
+      flushPendingDown();
+      return;
+    }
     handleMove(e);
   };
 
@@ -473,8 +503,22 @@ export default function CanvasView({
       return;
     }
     if (e.type === 'pointercancel') {
-      drag.current = { mode: null, lx: 0, ly: 0 };
-      setMarquee(null);
+      // Geste interrompu par le navigateur : rien de ce geste ne doit subsister.
+      if (e.pointerType === 'mouse') {
+        drag.current = { mode: null, lx: 0, ly: 0 };
+        setMarquee(null);
+      } else {
+        restoreGestureStart();
+      }
+      return;
+    }
+    const pending = pendingDown.current;
+    if (pending) {
+      // Tape : les outils à glisser (ligne, rectangle, cercle, mesure) ne démarrent rien.
+      pendingDown.current = null;
+      if (tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'measure') return;
+      handleDown(pending);
+      handleUp(e);
       return;
     }
     if (tracked || e.pointerType === 'mouse') handleUp(e);
