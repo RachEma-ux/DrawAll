@@ -1,7 +1,7 @@
 name: Contrôle
 
 # Contrôle de qualité à chaque poussée et demande de fusion : types, lint, tests,
-# build, lisibilité des DXF exportés par un lecteur strict (ezdxf) et recette
+# build, lisibilité des DXF (ezdxf) et des PDF (pypdf) exportés par des lecteurs stricts, et recette
 # navigateur Playwright (ordinateur et téléphone).
 # Indépendant du workflow de déploiement (main.yml).
 
@@ -39,15 +39,21 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Tests (et export des DXF de référence)
+      - name: Tests (et export des DXF et PDF de référence)
         run: npm test
         env:
           DXF_FIXTURES_DIR: ${{ runner.temp }}/dxf
+          PDF_FIXTURES_DIR: ${{ runner.temp }}/pdf
 
       - name: Lire les DXF exportés avec ezdxf
         run: |
           python3 -m pip install --quiet ezdxf
           python3 scripts/check-dxf.py "${{ runner.temp }}/dxf"
+
+      - name: Lire les PDF exportés avec pypdf (lecture stricte, format)
+        run: |
+          python3 -m pip install --quiet pypdf
+          python3 scripts/check-pdf.py "${{ runner.temp }}/pdf"
 
       - name: Build
         run: npm run build

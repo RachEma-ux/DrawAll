@@ -140,17 +140,28 @@ test('lot 2.4 — cote : texte et flèches de même taille sur la feuille au 1:5
   expect(sizes[1].arrow / sizes[0].arrow).toBeLessThan(1.05);
 });
 
-test('lot 2.4 — le type de trait propre à une cote est conservé sur la feuille', async ({ page }) => {
+test('lot 2.5 — export PDF aux dimensions exactes de la feuille', async ({ page }) => {
   await openAtelier(page);
-  await loadObjects(page, [
-    { id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 2000, y2: 0 },
-    { id: 'OBJ-0002', kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 100, lineType: 'interrompu' },
-  ]);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 5000, y2: 0 }]);
   await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
   await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByLabel('Format').selectOption('A4');
   await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
-  const dash = await page.locator('[data-testid="fenetre-FEN-0001"] [data-cote-papier] > line').last().getAttribute('stroke-dasharray');
-  expect(dash).toBeTruthy();
+  await page.getByLabel('Échelle de la fenêtre').selectOption('1:50');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Exporter en PDF' }).click()]);
+  expect(download.suggestedFilename()).toBe('FEU-0001.pdf');
+  const path = await download.path();
+  const { readFileSync } = await import('node:fs');
+  const pdf = readFileSync(path!, 'latin1');
+  expect(pdf.startsWith('%PDF-1.4')).toBe(true);
+  const box = /\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/.exec(pdf)!;
+  // A4 paysage (choix par défaut de l'orientation) : 297 × 210 mm.
+  expect(Number(box[1]) * 25.4 / 72).toBeCloseTo(297, 1);
+  expect(Number(box[2]) * 25.4 / 72).toBeCloseTo(210, 1);
+  // Le mur de 5 m au 1:50 mesure 100 mm sur la feuille.
+  const seg = [...pdf.matchAll(/(-?[\d.]+) (-?[\d.]+) m (-?[\d.]+) (-?[\d.]+) l S/g)]
+    .map(m => Math.hypot(+m[3] - +m[1], +m[4] - +m[2]) * 25.4 / 72);
+  expect(seg.some(l => Math.abs(l - 100) <= 0.1)).toBe(true);
 });
 
 test('lot 2.2 — annuler une modification de feuille sans quitter le mode Feuilles', async ({ page }) => {
@@ -183,4 +194,17 @@ test('lot 2.2 — une fenêtre se cadre sur les calques visibles seulement', asy
   await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
   const vp = (await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return s.versions[s.pointer].sheets[0].viewports[0]; }));
   expect(vp.center).toEqual({ x: 4000, y: 2500 });
+});
+
+test('lot 2.4 — le type de trait propre à une cote est conservé sur la feuille', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, [
+    { id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 2000, y2: 0 },
+    { id: 'OBJ-0002', kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 100, lineType: 'interrompu' },
+  ]);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  const dash = await page.locator('[data-testid="fenetre-FEN-0001"] [data-cote-papier] > line').last().getAttribute('stroke-dasharray');
+  expect(dash).toBeTruthy();
 });
