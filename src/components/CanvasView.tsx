@@ -111,6 +111,8 @@ export default function CanvasView({
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ d0: number; mx: number; my: number; tf0: { x: number; y: number; k: number } } | null>(null);
   const suppressUntilRelease = useRef(false);
+  /** Vrai dès que l'utilisateur a agi sur la vue : l'ajustement automatique s'arrête. */
+  const viewTouched = useRef(false);
   const coarse = useRef(false);
   const isCoarseDevice = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
 
@@ -334,6 +336,7 @@ export default function CanvasView({
   };
 
   const handleWheel = (e: React.WheelEvent) => {
+    viewTouched.current = true;
     const r = ref.current!.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     setTf(t => {
@@ -444,6 +447,7 @@ export default function CanvasView({
   };
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    viewTouched.current = true;
     coarse.current = e.pointerType !== 'mouse';
     if (e.pointerType === 'mouse' && e.button === 2) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -542,15 +546,25 @@ export default function CanvasView({
 
   const resetView = () => setTf({ x: 60, y: 40, k: 1 });
 
-  // Sur petit écran, le dessin s'ajuste à la zone visible à l'ouverture.
-  const initialFit = useRef(false);
+  // Taille de la zone de travail (grille de fond) et ajustement automatique sur petit écran :
+  // tant que l'utilisateur n'a pas touché la vue, le dessin suit la taille de la zone
+  // (ouverture, rotation de l'écran, panneau plié ou déplié).
+  const [viewSize, setViewSize] = useState({ w: 0, h: 0 });
+  const fitRef = useRef(fitView);
+  useEffect(() => { fitRef.current = fitView; });
   useEffect(() => {
-    if (initialFit.current) return;
-    initialFit.current = true;
-    if (window.innerWidth >= 1024) return;
-    // Pas d'annulation au rendu suivant : l'ajustement initial doit avoir lieu une fois.
-    requestAnimationFrame(() => fitView());
-  });
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(entries => {
+      const r = entries[0]?.contentRect;
+      if (!r) return;
+      setViewSize({ w: r.width, h: r.height });
+      if (!viewTouched.current && window.innerWidth < 1024 && r.width > 0 && r.height > 0) fitRef.current();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const cursorClass = tool === 'pan' ? 'canvas-grab' : tool === 'select' ? 'canvas-move' : 'canvas-cross';
   const measure = activeDraft?.kind === 'measure'
     ? { d: Math.hypot(activeDraft.cx - activeDraft.sx, activeDraft.cy - activeDraft.sy), dx: activeDraft.cx - activeDraft.sx, dy: activeDraft.cy - activeDraft.sy }
@@ -592,7 +606,7 @@ export default function CanvasView({
 
         <rect width="100%" height="100%" fill="#070b16" />
         <g transform={`translate(${tf.x},${tf.y}) scale(${tf.k})`}>
-          <rect x={-tf.x / tf.k - 100} y={-tf.y / tf.k - 100} width="100%" height="100%" fill="url(#grid-maj)" style={{ width: '200%', height: '200%' }} />
+          <rect x={-tf.x / tf.k - 100} y={-tf.y / tf.k - 100} width={(viewSize.w || 4000) / tf.k + 200} height={(viewSize.h || 4000) / tf.k + 200} fill="url(#grid-maj)" />
           <line x1={-100000} y1={0} x2={100000} y2={0} stroke="#22304f" strokeWidth={1 / tf.k} />
           <line x1={0} y1={-100000} x2={0} y2={100000} stroke="#22304f" strokeWidth={1 / tf.k} />
 
@@ -682,10 +696,10 @@ export default function CanvasView({
       </div>
 
       <div className="absolute right-3 top-3 flex gap-1">
-        <button onClick={fitView} className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
+        <button onClick={() => { viewTouched.current = true; fitView(); }} className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
           Ajuster
         </button>
-        <button onClick={resetView} className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
+        <button onClick={() => { viewTouched.current = true; resetView(); }} className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
           100 %
         </button>
       </div>

@@ -79,12 +79,18 @@ function Workbench() {
   const [zoom, setZoom] = useState(1);
   // Sous 1 024 px (téléphone, tablette en portrait), les repères permanents deviennent des tiroirs.
   const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT);
-  const [panel, setPanel] = useState<'navigator' | 'inspector' | 'history' | null>(null);
+  const [panel, setPanel] = useState<'inspector' | 'history' | null>(null);
+  const compactRef = useRef(compact);
+  // Navigateur du projet : toujours présent, pliable ; plié par défaut sur petit écran.
+  const [navOpen, setNavOpen] = useState(() => !(typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT));
   const dxfInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const onResize = () => {
       const next = window.innerWidth < COMPACT_BREAKPOINT;
+      // Au passage du seuil, le navigateur reprend l'état par défaut de la nouvelle taille.
+      if (next !== compactRef.current) setNavOpen(!next);
+      compactRef.current = next;
       setCompact(next);
       if (!next) setPanel(null);
     };
@@ -408,14 +414,15 @@ function Workbench() {
       blocks={project.blocks}
       selectedId={project.selectedId}
       activeLayerId={project.activeLayerId}
-      onSelect={id => { project.setSelectedId(id); if (compact) setPanel(null); }}
+      onSelect={project.setSelectedId}
       onAddLayer={project.addLayer}
       onUpdateLayer={project.updateLayer}
       onRemoveLayer={project.removeLayer}
       onSetActiveLayer={project.setActiveLayerId}
-      onInsertBlock={id => { prepareBlockInsertion(id); if (compact) setPanel(null); }}
+      onInsertBlock={prepareBlockInsertion}
       onCreateBlock={createBlockFromSelection}
       onRemoveBlock={project.removeBlock}
+      onCollapse={() => setNavOpen(false)}
     />
   );
   const inspectorEl = (
@@ -486,8 +493,21 @@ function Workbench() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1">
-          {/* Navigateur — repère permanent 1 (tiroir sur petit écran) */}
-          {!compact && <aside className="w-56 shrink-0">{navigatorEl}</aside>}
+          {/* Navigateur — repère permanent 1, pliable (plié par défaut sur petit écran) */}
+          {navOpen ? (
+            <aside className={`shrink-0 ${compact ? 'w-[min(17rem,78vw)] border-r border-border' : 'w-56'}`}>{navigatorEl}</aside>
+          ) : (
+            <button
+              onClick={() => setNavOpen(true)}
+              aria-label="Déplier le navigateur du projet"
+              title="Déplier le navigateur du projet"
+              className="flex w-9 shrink-0 flex-col items-center gap-3 border-r border-border bg-[#0c1220] py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground transition-colors hover:text-cyan-300"
+            >
+              <span aria-hidden="true">▸</span>
+              <span style={{ writingMode: 'vertical-rl' }}>Navigateur du projet</span>
+              <span className="text-cyan-400">{project.objects.length}</span>
+            </button>
+          )}
 
           {/* Zone de travail + commandes — repères permanents 2 et 3 */}
           <main className="flex min-w-0 flex-1 flex-col border-l border-border">
@@ -611,27 +631,6 @@ function Workbench() {
               <span>{orthoEnabled ? 'ORTHO' : 'libre'} · {snapEnabled ? 'SNAP objet' : 'SNAP grille'}</span>
               <span className="ml-auto hidden lg:inline">unités : millimètre · référentiel : local projet · DXF : Y ascendant</span>
             </div>
-            {/* Navigation des repères sur petit écran */}
-            {compact && (
-              <nav className="grid shrink-0 grid-cols-3 border-t border-border bg-[#0c1220]">
-                {([
-                  ['navigator', 'Projet', `${project.objects.length}`],
-                  ['inspector', 'Inspecteur', selected ? selected.id : ''],
-                  ['history', 'Historique', warningCount > 0 ? `${warningCount} ⚠` : `v${project.current.seq}`],
-                ] as const).map(([id, label, badge]) => (
-                  <button
-                    key={id}
-                    onClick={() => setPanel(cur => (cur === id ? null : id))}
-                    className={`flex flex-col items-center gap-0.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] ${
-                      panel === id ? 'bg-cyan-400/10 text-cyan-300' : 'text-muted-foreground'
-                    }`}
-                  >
-                    <span>{label}</span>
-                    <span className={`text-[9px] normal-case tracking-normal ${id === 'history' && warningCount > 0 ? 'text-amber-300' : 'opacity-60'}`}>{badge || '—'}</span>
-                  </button>
-                ))}
-              </nav>
-            )}
           </main>
 
           {/* Inspecteur — repère permanent 4 (tiroir sur petit écran) */}
@@ -639,13 +638,34 @@ function Workbench() {
         </div>
       )}
 
+      {/* Inspecteur et historique sur petit écran */}
+      {compact && mode === 'atelier' && (
+        <nav className="grid shrink-0 grid-cols-2 border-t border-border bg-[#0c1220]">
+          {([
+            ['inspector', 'Inspecteur', selected ? selected.id : ''],
+            ['history', 'Historique', warningCount > 0 ? `${warningCount} ⚠` : `v${project.current.seq}`],
+          ] as const).map(([id, label, badge]) => (
+            <button
+              key={id}
+              onClick={() => setPanel(cur => (cur === id ? null : id))}
+              className={`flex flex-col items-center gap-0.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] ${
+                panel === id ? 'bg-cyan-400/10 text-cyan-300' : 'text-muted-foreground'
+              }`}
+            >
+              <span>{label}</span>
+              <span className={`text-[9px] normal-case tracking-normal ${id === 'history' && warningCount > 0 ? 'text-amber-300' : 'opacity-60'}`}>{badge || '—'}</span>
+            </button>
+          ))}
+        </nav>
+      )}
+
       {compact && mode === 'atelier' && panel && (
         <Drawer
-          side={panel === 'navigator' ? 'left' : panel === 'inspector' ? 'right' : 'bottom'}
-          title={panel === 'navigator' ? 'Navigateur du projet' : panel === 'inspector' ? 'Inspecteur' : 'Modifications et problèmes'}
+          side={panel === 'inspector' ? 'right' : 'bottom'}
+          title={panel === 'inspector' ? 'Inspecteur' : 'Modifications et problèmes'}
           onClose={() => setPanel(null)}
         >
-          {panel === 'navigator' ? navigatorEl : panel === 'inspector' ? inspectorEl : historyEl}
+          {panel === 'inspector' ? inspectorEl : historyEl}
         </Drawer>
       )}
 
@@ -684,17 +704,15 @@ function Workbench() {
 }
 
 /** Tiroir des repères permanents sur petit écran (navigateur, inspecteur, historique). */
-function Drawer({ side, title, onClose, children }: { side: 'left' | 'right' | 'bottom'; title: string; onClose: () => void; children: ReactNode }) {
+function Drawer({ side, title, onClose, children }: { side: 'right' | 'bottom'; title: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  const position = side === 'left'
-    ? 'inset-y-0 left-0 w-[86vw] max-w-sm border-r'
-    : side === 'right'
-      ? 'inset-y-0 right-0 w-[86vw] max-w-sm border-l'
-      : 'inset-x-0 bottom-0 h-[65dvh] border-t';
+  const position = side === 'right'
+    ? 'inset-y-0 right-0 w-[86vw] max-w-sm border-l'
+    : 'inset-x-0 bottom-0 h-[65dvh] border-t';
   return (
     <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={title}>
       <button aria-label="Fermer" className="absolute inset-0 h-full w-full cursor-default bg-black/60" onClick={onClose} />

@@ -16,6 +16,8 @@ interface Props {
   onInsertBlock: (blockId: string) => void;
   onCreateBlock: (objectId: string) => void;
   onRemoveBlock: (blockId: string) => void;
+  /** Si fourni, affiche un bouton pour plier le panneau. */
+  onCollapse?: () => void;
 }
 
 const ORDER: Classification[] = ['architecture', 'structure', 'mecanique', 'electrique', 'non-classifie'];
@@ -38,7 +40,19 @@ export default function Navigator(p: Props) {
     <div className="panel flex h-full flex-col overflow-hidden">
       <div className="panel-title">
         <span>Navigateur du projet</span>
-        <span className="font-mono text-[10px] text-cyan-400">{p.objects.length}</span>
+        <span className="flex items-center gap-2">
+          <span className="font-mono text-[10px] text-cyan-400">{p.objects.length}</span>
+          {p.onCollapse && (
+            <button
+              onClick={p.onCollapse}
+              aria-label="Plier le navigateur du projet"
+              title="Plier le navigateur du projet"
+              className="rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:border-cyan-400/50 hover:text-cyan-300"
+            >
+              ◂
+            </button>
+          )}
+        </span>
       </div>
 
       <div className="max-h-44 shrink-0 overflow-y-auto border-b border-border">
