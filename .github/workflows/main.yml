@@ -1,0 +1,263 @@
+name: Builder Deploy
+
+# Copié depuis le dépôt Fadi (RachEma-ux/Fadi) et adapté à ce que DrawAll
+# est réellement : une application full-stack unique (Hono + tRPC + Drizzle
+# + MySQL, frontend Vite/React servi en production par le serveur), lancée
+# sur le port 3000, publiée via un tunnel Cloudflare temporaire puis arrêtée
+# après une durée fixe. La base MySQL du job est jetable : rien n'est
+# conservé après la fin du run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Combien de temps garder l'application accessible (minutes)"
+        required: true
+        default: "15"
+        type: choice
+        options:
+          - "5"
+          - "10"
+          - "15"
+          - "30"
+  push:
+    branches:
+      - feat/application-p1
+
+permissions:
+  contents: write
+
+env:
+  DURATION_MINUTES: ${{ github.event.inputs.duration || '15' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: drawall_deploy_password
+          MYSQL_DATABASE: drawall
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: mysql://root:drawall_deploy_password@localhost:3306/drawall
+      APP_ID: 1a102e50-5af2-8a16-8000-000071960ed2
+      APP_SECRET: drawall_deploy_secret_demo_only
+      KIMI_AUTH_URL: https://auth.kimi.com
+      KIMI_OPEN_URL: https://open.kimi.com
+      VITE_KIMI_AUTH_URL: https://auth.kimi.com
+      VITE_APP_ID: 1a102e50-5af2-8a16-8000-000071960ed2
+      PORT: "3000"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          npm install -g npm@11
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Generate and apply database schema
+        run: |
+          npm run db:generate
+          npm run db:migrate
+
+      - name: Typecheck, test, build
+        run: |
+          npm run check
+          npm test
+          npm run build
+
+      - name: Start the server
+        run: |
+          echo "🚀 Starting DrawAll on :3000..."
+          NODE_ENV=production node dist/boot.js > api.log 2>&1 &
+          echo $! > api.pid
+
+          for attempt in $(seq 1 18); do
+            if ! kill -0 "$(cat api.pid)" 2>/dev/null; then
+              echo "❌ Server process exited before becoming healthy"
+              cat api.log
+              exit 1
+            fi
+            HTTP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -H "Accept: text/html" http://localhost:3000/ 2>/dev/null || echo 000)
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Server healthy on :3000"
+              break
+            fi
+            echo "⌛ Waiting for the server (attempt ${attempt}/18, http=${HTTP_CODE})..."
+            sleep 3
+          done
+          curl -fsS -H "Accept: text/html" http://localhost:3000/ | grep -q '<div id="root"' || { echo "❌ Server never became healthy"; cat api.log; exit 1; }
+
+      - name: Install cloudflared
+        run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+
+      - name: Publish a public URL
+        run: |
+          set -uo pipefail
+
+          # The free Cloudflare quick-tunnel API is best-effort and
+          # occasionally returns a 500 that kills cloudflared before any URL
+          # is published. Retry the whole tunnel a few times rather than
+          # fail the deploy on one transient blip.
+          TUNNEL_URL=""
+          TUNNEL_PID=""
+          for outer in $(seq 1 3); do
+            echo "🌐 Starting Cloudflare tunnel (attempt ${outer}/3)..."
+            : > tunnel.log
+            ./cloudflared tunnel --url http://localhost:3000 >> tunnel.log 2>&1 &
+            TUNNEL_PID=$!
+
+            for attempt in $(seq 1 12); do
+              if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+                echo "⚠️ cloudflared exited before publishing a URL on attempt ${outer}"
+                cat tunnel.log || true
+                break
+              fi
+              TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' tunnel.log | head -1 || true)
+              if [ -n "$TUNNEL_URL" ]; then
+                echo "✅ Tunnel URL published on outer ${outer}, inner ${attempt}"
+                break
+              fi
+              echo "⌛ Waiting for tunnel URL (outer ${outer}, inner ${attempt}/12)..."
+              sleep 5
+            done
+
+            if [ -n "$TUNNEL_URL" ]; then
+              break
+            fi
+            if [ -n "$TUNNEL_PID" ] && kill -0 "$TUNNEL_PID" 2>/dev/null; then
+              kill "$TUNNEL_PID" 2>/dev/null || true
+              wait "$TUNNEL_PID" 2>/dev/null || true
+            fi
+            [ "$outer" -lt 3 ] && { echo "🔁 Retrying cloudflared in 10s..."; sleep 10; }
+          done
+
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "❌ Tunnel URL was not published after 3 attempts"
+            cat tunnel.log || true
+            exit 1
+          fi
+
+          echo "$TUNNEL_URL" > app_url.txt
+          echo "$TUNNEL_PID" > tunnel.pid
+
+          # Le nom *.trycloudflare.com vient d'être créé : un navigateur qui l'ouvre dans la foulée reçoit
+          # souvent « DNS_PROBE_FINISHED_NXDOMAIN » (propagation + cache négatif du résolveur). On attend que
+          # le nom réponde sur des résolveurs publics et que l'application réponde à travers le tunnel avant
+          # d'annoncer l'URL — la durée demandée court à partir de ce moment-là.
+          HOST="${TUNNEL_URL#https://}"
+          READY=""
+          for attempt in $(seq 1 30); do
+            DNS_OK=""
+            if command -v dig >/dev/null 2>&1; then
+              [ -n "$(dig +short +time=3 +tries=1 "$HOST" @1.1.1.1 2>/dev/null)" ] && [ -n "$(dig +short +time=3 +tries=1 "$HOST" @8.8.8.8 2>/dev/null)" ] && DNS_OK=1
+            else
+              getent hosts "$HOST" >/dev/null 2>&1 && DNS_OK=1
+            fi
+            HTTP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$TUNNEL_URL/" 2>/dev/null || echo 000)
+            if [ -n "$DNS_OK" ] && [ "$HTTP_CODE" = "200" ]; then
+              READY=1
+              echo "✅ Nom résolu sur 1.1.1.1 et 8.8.8.8, application servie à travers le tunnel (HTTP ${HTTP_CODE}) après ${attempt} essai(s)"
+              break
+            fi
+            echo "⌛ Propagation DNS / tunnel (essai ${attempt}/30) : dns=${DNS_OK:-non} http=${HTTP_CODE}"
+            sleep 5
+          done
+          [ -n "$READY" ] || echo "⚠️ Le nom ou le tunnel ne répond pas encore depuis le runner après 150 s : l'URL est publiée quand même, réessayez après une minute."
+
+          # Annotation du job : l'URL est lisible par l'API GitHub (check-runs) dès cette étape,
+          # sans attendre la fin du run ni ouvrir les journaux.
+          echo "::notice title=DrawAll en ligne::$TUNNEL_URL (disponible ${DURATION_MINUTES} minutes à partir de maintenant). Si le navigateur dit « site inaccessible » / DNS_PROBE_FINISHED_NXDOMAIN : attendez une minute et rechargez, ou passez du Wi-Fi aux données mobiles (le nom vient d'être créé)."
+
+          echo ""
+          echo "============================================"
+          echo "🎉 DrawAll est en ligne"
+          echo "============================================"
+          echo "🌐 URL : $TUNNEL_URL"
+          echo "⏱️  Disponible ${DURATION_MINUTES} minutes à partir de maintenant"
+          echo "ℹ️  « Site inaccessible » / DNS_PROBE_FINISHED_NXDOMAIN : attendez une minute et rechargez,"
+          echo "    ou passez du Wi-Fi aux données mobiles — le nom vient d'être créé et certains résolveurs gardent"
+          echo "    quelques minutes une première réponse négative."
+          echo "============================================"
+
+      - name: Expose the URL while the run is alive
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B deploy-url
+          git add -f app_url.txt
+          git commit -m "URL du deploiement (run ${{ github.run_id }})"
+          git push -f origin deploy-url
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "## 🚀 DrawAll — Builder Deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f app_url.txt ]; then
+            TUNNEL_URL=$(cat app_url.txt)
+            echo "### Application en ligne" >> "$GITHUB_STEP_SUMMARY"
+            echo "🌐 **[$TUNNEL_URL]($TUNNEL_URL)**" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Disponible pendant ${DURATION_MINUTES} minutes à partir de cette étape." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**« Site inaccessible » / DNS_PROBE_FINISHED_NXDOMAIN ?** Le nom vient d'être créé : attendez une minute et rechargez, ou passez du Wi-Fi aux données mobiles (certains résolveurs gardent quelques minutes une première réponse négative)." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "C'est une base de données MySQL jetable (service du job) : rien n'est conservé après la fin de ce run." >> "$GITHUB_STEP_SUMMARY"
+            echo "La sauvegarde cloud suppose une application OAuth Kimi réelle ; le dessin local fonctionne sans compte." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ Le déploiement a échoué avant de publier une URL — voir les logs du job et les artefacts." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Keep the app running
+        if: always()
+        run: |
+          if [ -f app_url.txt ]; then
+            DURATION_SECONDS=$(( DURATION_MINUTES * 60 ))
+            echo "💤 Maintien en ligne pendant ${DURATION_SECONDS}s..."
+            sleep "$DURATION_SECONDS"
+          else
+            echo "Rien à maintenir en ligne : le déploiement a échoué plus haut."
+          fi
+
+      - name: Stop everything
+        if: always()
+        run: |
+          [ -f tunnel.pid ] && kill "$(cat tunnel.pid)" 2>/dev/null || true
+          [ -f api.pid ] && kill "$(cat api.pid)" 2>/dev/null || true
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: builder-deploy-logs-${{ github.run_id }}
+          path: |
+            app_url.txt
+            api.log
+            tunnel.log
+          retention-days: 7
+          if-no-files-found: ignore

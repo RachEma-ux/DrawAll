@@ -1,75 +1,455 @@
-// État du projet : microversions Git-like, annulation, versions nommées,
-// persistance locale (cache navigateur — Concept §8 : espace de travail local explicite).
+// État du projet : microversions Git-like, calques, blocs, cotes associatives,
+// annulation, versions nommées, persistance locale (brouillon explicite — Concept §8).
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CadObject, MicroVersion, NewCadObject, ProjectState } from '@/types/cad';
+import {
+  createDefaultLayers,
+  type BlockDef,
+  type CadObject,
+  type DimensionStyle,
+  type Layer,
+  type MicroVersion,
+  type NewCadObject,
+  type PrimitiveObject,
+  type ProjectState,
+  supportedDimensionStyles,
+} from '@/types/cad';
+import { moveObject } from '@/lib/geometry';
 
 const STORAGE_KEY = 'drawall-projet-v1';
+/** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
+const GEOMETRY_EPSILON = 1e-6;
+const LAYER_COLORS = ['#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185'];
 
 function seedProject(): ProjectState {
+  const layers = createDefaultLayers();
+  const blocks: BlockDef[] = [
+    {
+      id: 'BLQ-0001',
+      name: 'Support machine type',
+      description: 'Bloc de démonstration : semelle + perçage',
+      primitives: [
+        { id: 'BLQ-0001-P1', name: 'Semelle', kind: 'rect', classification: 'mecanique', layerId: 'LAY-0002', hatch: 'diagonal', createdSeq: 0, x: 0, y: 0, w: 90, h: 52 },
+        { id: 'BLQ-0001-P1b', name: 'Perçage', kind: 'circle', classification: 'mecanique', layerId: 'LAY-0002', createdSeq: 0, cx: 45, cy: 26, r: 12 },
+      ],
+    },
+  ];
   const objects: CadObject[] = [
-    { id: 'OBJ-0001', name: 'Mur porteur A', kind: 'rect', classification: 'architecture', layer: 'Bâtiment', createdSeq: 0, x: 80, y: 80, w: 460, h: 24 },
-    { id: 'OBJ-0002', name: 'Mur porteur B', kind: 'rect', classification: 'architecture', layer: 'Bâtiment', createdSeq: 0, x: 80, y: 80, w: 24, h: 320 },
-    { id: 'OBJ-0003', name: 'Support machine', kind: 'rect', classification: 'mecanique', layer: 'Équipements', createdSeq: 0, x: 200, y: 200, w: 120, h: 90 },
-    { id: 'OBJ-0004', name: 'Axe de référence', kind: 'line', classification: 'structure', layer: 'Repères', createdSeq: 0, x1: 140, y1: 360, x2: 520, y2: 360 },
-    { id: 'OBJ-0005', name: 'Armoire électrique', kind: 'circle', classification: 'electrique', layer: 'Équipements', createdSeq: 0, cx: 460, cy: 180, r: 42 },
+    { id: 'OBJ-0001', name: 'Mur porteur A', kind: 'rect', classification: 'architecture', layerId: 'LAY-0001', hatch: 'cross', createdSeq: 0, x: 80, y: 80, w: 460, h: 24 },
+    { id: 'OBJ-0002', name: 'Mur porteur B', kind: 'rect', classification: 'architecture', layerId: 'LAY-0001', hatch: 'cross', createdSeq: 0, x: 80, y: 80, w: 24, h: 320 },
+    { id: 'OBJ-0003', name: 'Support machine', kind: 'rect', classification: 'mecanique', layerId: 'LAY-0002', hatch: 'diagonal', createdSeq: 0, x: 200, y: 200, w: 120, h: 90 },
+    { id: 'OBJ-0004', name: 'Axe de référence', kind: 'line', classification: 'structure', layerId: 'LAY-0003', createdSeq: 0, x1: 140, y1: 360, x2: 520, y2: 360 },
+    { id: 'OBJ-0005', name: 'Armoire électrique', kind: 'circle', classification: 'electrique', layerId: 'LAY-0002', createdSeq: 0, cx: 460, cy: 180, r: 42 },
+    { id: 'OBJ-0006', name: 'Support type — occurrence', kind: 'blockRef', classification: 'mecanique', layerId: 'LAY-0002', createdSeq: 0, blockId: 'BLQ-0001', x: 580, y: 260, scale: 1 },
   ];
   return {
-    versions: [{ seq: 0, label: 'Projet initial — démonstrateur atelier', time: Date.now(), objects }],
+    versions: [{ seq: 0, label: 'Projet initial — démonstrateur atelier', time: Date.now(), objects, layers, blocks }],
     pointer: 0,
-    counter: 5,
+    counter: 6,
+    layerCounter: 4,
+    blockCounter: 1,
+    activeLayerId: 'LAY-0004',
   };
+}
+
+function numericSuffix(id: string, prefix: string): number {
+  const match = id.match(new RegExp(`^${prefix}-(\\d+)$`));
+  return match ? Number(match[1]) : 0;
+}
+
+function normalizeLayers(raw: unknown): Layer[] {
+  if (!Array.isArray(raw)) return createDefaultLayers();
+  const layers = raw
+    .filter((l): l is Partial<Layer> => !!l && typeof l === 'object')
+    .map((l, i) => ({
+      id: typeof l.id === 'string' ? l.id : `LAY-${String(i + 1).padStart(4, '0')}`,
+      name: typeof l.name === 'string' ? l.name : `Calque ${i + 1}`,
+      color: typeof l.color === 'string' ? l.color : LAYER_COLORS[i % LAYER_COLORS.length],
+      visible: l.visible !== false,
+      locked: l.locked === true,
+    }));
+  return layers.length > 0 ? layers : createDefaultLayers();
+}
+
+function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as CadObject & { layer?: string };
+  if (typeof o.id !== 'string' || typeof o.kind !== 'string') return null;
+  const legacyLayerId = typeof o.layer === 'string'
+    ? layers.find(l => l.name === o.layer)?.id
+    : undefined;
+  const layerId = layers.some(l => l.id === o.layerId)
+    ? o.layerId
+    : legacyLayerId ?? layers[0].id;
+  const base = { ...o, layerId, hatch: o.hatch ?? 'none' } as CadObject;
+  return base;
+}
+
+function normalizeBlocks(raw: unknown, layers: Layer[]): BlockDef[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((b): b is Partial<BlockDef> => !!b && typeof b === 'object')
+    .map((b, i) => ({
+      id: typeof b.id === 'string' ? b.id : `BLQ-${String(i + 1).padStart(4, '0')}`,
+      name: typeof b.name === 'string' ? b.name : `Bloc ${i + 1}`,
+      description: typeof b.description === 'string' ? b.description : undefined,
+      primitives: Array.isArray(b.primitives)
+        ? b.primitives.map(p => normalizeObject(p, layers)).filter((p): p is PrimitiveObject =>
+            !!p && (p.kind === 'line' || p.kind === 'rect' || p.kind === 'circle' || p.kind === 'polyline'),
+          )
+        : [],
+    }));
+}
+
+export function normalizeProjectState(raw: unknown): ProjectState {
+  const p = raw as Partial<ProjectState> | null;
+  if (p && Array.isArray(p.versions) && p.versions.length > 0) {
+    const fallbackLayers = normalizeLayers((p.versions[0] as Partial<MicroVersion>).layers);
+    const versions = p.versions
+      .filter((v): v is MicroVersion => !!v && typeof v.seq === 'number' && typeof v.label === 'string' && Array.isArray(v.objects))
+      .map(v => {
+        const layers = normalizeLayers(v.layers ?? fallbackLayers);
+        return {
+          ...v,
+          time: typeof v.time === 'number' ? v.time : Date.now(),
+          objects: v.objects.map(o => normalizeObject(o, layers)).filter((o): o is CadObject => !!o),
+          layers,
+          blocks: normalizeBlocks(v.blocks, layers),
+        };
+      });
+    if (versions.length > 0) {
+      const pointer = Math.max(0, Math.min(versions.length - 1, Number(p.pointer ?? versions.length - 1)));
+      const allObjects = versions.flatMap(v => v.objects);
+      const allLayers = versions.flatMap(v => v.layers);
+      const allBlocks = versions.flatMap(v => v.blocks);
+      const currentLayers = versions[pointer].layers;
+      const activeLayerId = currentLayers.some(l => l.id === p.activeLayerId)
+        ? p.activeLayerId!
+        : currentLayers[0].id;
+      return {
+        versions,
+        pointer,
+        counter: Math.max(Number(p.counter ?? 0), ...allObjects.map(o => numericSuffix(o.id, 'OBJ')), 0),
+        layerCounter: Math.max(Number(p.layerCounter ?? 0), ...allLayers.map(l => numericSuffix(l.id, 'LAY')), currentLayers.length),
+        blockCounter: Math.max(Number(p.blockCounter ?? 0), ...allBlocks.map(b => numericSuffix(b.id, 'BLQ')), 0),
+        activeLayerId,
+      };
+    }
+  }
+  return seedProject();
 }
 
 function load(): ProjectState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const p = JSON.parse(raw) as ProjectState;
-      if (Array.isArray(p.versions) && p.versions.length > 0) return p;
-    }
+    if (raw) return normalizeProjectState(JSON.parse(raw));
   } catch { /* cache illisible : réinitialisation */ }
   return seedProject();
 }
 
+interface SnapshotPatch {
+  objects?: CadObject[];
+  layers?: Layer[];
+  blocks?: BlockDef[];
+  counter?: number;
+  layerCounter?: number;
+  blockCounter?: number;
+  activeLayerId?: string;
+}
+
+function primitiveOrigin(obj: PrimitiveObject): { x: number; y: number } {
+  switch (obj.kind) {
+    case 'line': return { x: Math.min(obj.x1, obj.x2), y: Math.min(obj.y1, obj.y2) };
+    case 'rect': return { x: obj.x, y: obj.y };
+    case 'circle': return { x: obj.cx - obj.r, y: obj.cy - obj.r };
+    case 'polyline': {
+      const xs = obj.points.filter((_, i) => i % 2 === 0);
+      const ys = obj.points.filter((_, i) => i % 2 === 1);
+      return { x: Math.min(...xs), y: Math.min(...ys) };
+    }
+  }
+}
+
+function localizePrimitive(obj: PrimitiveObject, origin: { x: number; y: number }, blockId: string): PrimitiveObject {
+  const local = { ...obj, id: `${blockId}-P1`, name: obj.name, createdSeq: 0 } as PrimitiveObject;
+  switch (local.kind) {
+    case 'line': return { ...local, x1: local.x1 - origin.x, y1: local.y1 - origin.y, x2: local.x2 - origin.x, y2: local.y2 - origin.y };
+    case 'rect': return { ...local, x: 0, y: 0 };
+    case 'circle': return { ...local, cx: local.cx - origin.x, cy: local.cy - origin.y };
+    case 'polyline': return { ...local, points: local.points.map((v, i) => v - (i % 2 === 0 ? origin.x : origin.y)) };
+  }
+}
+
 export function useProject() {
   const [state, setState] = useState<ProjectState>(load);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedIdRaw] = useState<string | null>(null);
+  const [selectedIds, setSelectedIdsRaw] = useState<string[]>([]);
+
+  const setSelectedId = useCallback((id: string | null) => {
+    setSelectedIdRaw(id);
+    setSelectedIdsRaw(id ? [id] : []);
+  }, []);
+
+  const setSelectedIds = useCallback((ids: string[]) => {
+    setSelectedIdsRaw(ids);
+    setSelectedIdRaw(ids[ids.length - 1] ?? null);
+  }, []);
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* quota : état visible, non bloquant */ }
   }, [state]);
 
-  const objects = state.versions[state.pointer].objects;
   const current = state.versions[state.pointer];
+  const objects = current.objects;
+  const layers = current.layers;
+  const blocks = current.blocks;
+  const activeLayerId = layers.some(l => l.id === state.activeLayerId) ? state.activeLayerId : layers[0].id;
 
-  const commit = useCallback((label: string, next: CadObject[], counter?: number) => {
+  const commit = useCallback((label: string, patch: SnapshotPatch) => {
     setState(s => {
+      const cur = s.versions[s.pointer];
       const seq = s.versions[s.versions.length - 1].seq + 1;
-      const mv: MicroVersion = { seq, label, time: Date.now(), objects: next };
+      const mv: MicroVersion = {
+        seq,
+        label,
+        time: Date.now(),
+        objects: patch.objects ?? cur.objects,
+        layers: patch.layers ?? cur.layers,
+        blocks: patch.blocks ?? cur.blocks,
+      };
       return {
         versions: [...s.versions.slice(0, s.pointer + 1), mv],
         pointer: s.pointer + 1,
-        counter: counter ?? s.counter,
+        counter: patch.counter ?? s.counter,
+        layerCounter: patch.layerCounter ?? s.layerCounter,
+        blockCounter: patch.blockCounter ?? s.blockCounter,
+        activeLayerId: patch.activeLayerId ?? s.activeLayerId,
       };
     });
   }, []);
 
   const addObject = useCallback((partial: NewCadObject, name?: string) => {
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
-    const obj = { ...partial, id, createdSeq: state.versions[state.pointer].seq, name: name ?? id } as CadObject;
-    commit(`Créer ${obj.kind === 'line' ? 'ligne' : obj.kind === 'rect' ? 'rectangle' : obj.kind === 'circle' ? 'cercle' : 'polyligne'} ${id}`, [...objects, obj], state.counter + 1);
+    const obj = { ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject;
+    commit(`Créer ${obj.kind === 'line' ? 'ligne' : obj.kind === 'rect' ? 'rectangle' : obj.kind === 'circle' ? 'cercle' : obj.kind === 'polyline' ? 'polyligne' : obj.kind === 'dimension' ? 'cote' : 'bloc'} ${id}`, {
+      objects: [...objects, obj],
+      counter: state.counter + 1,
+    });
     setSelectedId(id);
     return id;
-  }, [state, objects, commit]);
+  }, [state.counter, current.seq, objects, commit, setSelectedId]);
 
   const updateObject = useCallback((id: string, patch: Partial<CadObject>, label = 'Modifier') => {
-    commit(`${label} ${id}`, objects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)));
+    commit(`${label} ${id}`, { objects: objects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)) });
   }, [objects, commit]);
 
+  const removeObjects = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const removed = new Set(ids);
+    // Les cotes associatives dont la cible disparaît partent avec elle.
+    for (const o of objects) {
+      if (o.kind === 'dimension' && removed.has(o.targetId)) removed.add(o.id);
+    }
+    commit(ids.length === 1 ? `Supprimer ${ids[0]}` : `Supprimer ${ids.length} objets`, {
+      objects: objects.filter(o => !removed.has(o.id)),
+    });
+    setSelectedIds([]);
+  }, [objects, commit, setSelectedIds]);
+
+  /** Applique une transformation géométrique pure à chaque objet de la sélection. */
+  const transformObjects = useCallback((ids: string[], fn: (o: CadObject) => Partial<CadObject> | null, label: string) => {
+    const editable = ids
+      .map(id => objects.find(o => o.id === id))
+      .filter((o): o is CadObject => !!o && !layers.find(l => l.id === o.layerId)?.locked && o.kind !== 'dimension');
+    if (editable.length === 0) return 0;
+    const patches = new Map<string, Partial<CadObject>>();
+    for (const o of editable) {
+      const patch = fn(o);
+      if (patch) patches.set(o.id, patch);
+    }
+    if (patches.size === 0) return 0;
+    commit(`${label} (${patches.size} objet${patches.size > 1 ? 's' : ''})`, {
+      objects: objects.map(o => (patches.has(o.id) ? ({ ...o, ...patches.get(o.id) } as CadObject) : o)),
+    });
+    return patches.size;
+  }, [objects, layers, commit]);
+
+  /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
+  const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
+    const sources = ids
+      .map(id => objects.find(o => o.id === id))
+      .filter((o): o is CadObject => !!o && o.kind !== 'dimension' && !layers.find(l => l.id === o.layerId)?.locked);
+    if (sources.length === 0) return [];
+    let counter = state.counter;
+    const clones: CadObject[] = sources.map(o => {
+      counter += 1;
+      const clone = { ...o, id: `OBJ-${String(counter).padStart(4, '0')}`, createdSeq: current.seq } as CadObject;
+      return { ...clone, ...moveObject(clone, dx, dy) } as CadObject;
+    });
+    commit(`Dupliquer ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
+      objects: [...objects, ...clones],
+      counter,
+    });
+    setSelectedIds(clones.map(c => c.id));
+    return clones.map(c => c.id);
+  }, [objects, layers, state.counter, current.seq, commit, setSelectedIds]);
+
   const removeObject = useCallback((id: string) => {
-    commit(`Supprimer ${id}`, objects.filter(o => o.id !== id));
-    setSelectedId(sel => (sel === id ? null : sel));
-  }, [objects, commit]);
+    removeObjects([id]);
+  }, [removeObjects]);
+
+  const addLayer = useCallback((name: string) => {
+    const id = `LAY-${String(state.layerCounter + 1).padStart(4, '0')}`;
+    const layer: Layer = {
+      id,
+      name,
+      color: LAYER_COLORS[state.layerCounter % LAYER_COLORS.length],
+      visible: true,
+      locked: false,
+    };
+    commit(`Créer calque ${name}`, {
+      layers: [...layers, layer],
+      layerCounter: state.layerCounter + 1,
+      activeLayerId: id,
+    });
+    return id;
+  }, [state.layerCounter, layers, commit]);
+
+  const updateLayer = useCallback((id: string, patch: Partial<Layer>, label = 'Modifier calque') => {
+    const nextLayers = layers.map(l => (l.id === id ? { ...l, ...patch } : l));
+    const stillActiveLocked = id === activeLayerId && nextLayers.find(l => l.id === id)?.locked;
+    commit(`${label} ${id}`, {
+      layers: nextLayers,
+      activeLayerId: stillActiveLocked ? nextLayers.find(l => !l.locked)?.id ?? activeLayerId : undefined,
+    });
+  }, [layers, activeLayerId, commit]);
+
+  const removeLayer = useCallback((id: string) => {
+    if (layers.length <= 1 || objects.some(o => o.layerId === id)) return false;
+    const nextLayers = layers.filter(l => l.id !== id);
+    commit(`Supprimer calque ${id}`, {
+      layers: nextLayers,
+      activeLayerId: activeLayerId === id ? nextLayers[0].id : undefined,
+    });
+    return true;
+  }, [layers, objects, activeLayerId, commit]);
+
+  const setActiveLayerId = useCallback((id: string) => {
+    const layer = layers.find(l => l.id === id);
+    if (!layer || layer.locked) return;
+    setState(s => ({ ...s, activeLayerId: id }));
+  }, [layers]);
+
+  const addDimension = useCallback((targetId: string) => {
+    const target = objects.find(o => o.id === targetId);
+    if (!target) return null;
+    const style: DimensionStyle | undefined = supportedDimensionStyles(target)[0];
+    if (!style) return null;
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const dim: CadObject = {
+      id,
+      name: `Cote ${target.name}`,
+      kind: 'dimension',
+      classification: target.classification,
+      layerId: target.layerId,
+      hatch: 'none',
+      createdSeq: current.seq,
+      targetId,
+      style,
+      offset: 40,
+    };
+    commit(`Coter ${targetId}`, { objects: [...objects, dim], counter: state.counter + 1 });
+    setSelectedId(id);
+    return id;
+  }, [objects, state.counter, current.seq, commit, setSelectedId]);
+
+  const createBlockFromObject = useCallback((objectId: string) => {
+    const source = objects.find(o => o.id === objectId);
+    if (!source || (source.kind !== 'line' && source.kind !== 'rect' && source.kind !== 'circle' && source.kind !== 'polyline')) return null;
+    const blockId = `BLQ-${String(state.blockCounter + 1).padStart(4, '0')}`;
+    const origin = primitiveOrigin(source);
+    const primitive = localizePrimitive(source, origin, blockId);
+    const block: BlockDef = { id: blockId, name: `${source.name} — définition`, primitives: [primitive] };
+    const refId = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const ref: CadObject = {
+      ...source,
+      id: refId,
+      name: `${source.name} — occurrence`,
+      kind: 'blockRef',
+      blockId,
+      x: origin.x,
+      y: origin.y,
+      scale: 1,
+      hatch: 'none',
+      createdSeq: current.seq,
+    };
+    commit(`Créer bloc ${blockId}`, {
+      objects: objects.map(o => (o.id === objectId ? ref : o)),
+      blocks: [...blocks, block],
+      counter: state.counter + 1,
+      blockCounter: state.blockCounter + 1,
+    });
+    setSelectedId(refId);
+    return blockId;
+  }, [objects, blocks, state.blockCounter, state.counter, current.seq, commit, setSelectedId]);
+
+  const insertBlock = useCallback((blockId: string, x: number, y: number) => {
+    const block = blocks.find(b => b.id === blockId);
+    if (!block) return null;
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const ref: CadObject = {
+      id,
+      name: `${block.name} — occurrence`,
+      kind: 'blockRef',
+      classification: 'non-classifie',
+      layerId: activeLayerId,
+      hatch: 'none',
+      createdSeq: current.seq,
+      blockId,
+      x,
+      y,
+      scale: 1,
+    };
+    commit(`Insérer bloc ${blockId}`, { objects: [...objects, ref], counter: state.counter + 1 });
+    setSelectedId(id);
+    return id;
+  }, [blocks, state.counter, activeLayerId, current.seq, objects, commit, setSelectedId]);
+
+  const importObjects = useCallback((importedObjects: CadObject[], importedLayers: Layer[], label = 'Importer DXF') => {
+    if (importedObjects.length === 0) return 0;
+    const mergedLayers = [...layers];
+    for (const layer of importedLayers) {
+      if (!mergedLayers.some(l => l.id === layer.id || l.name.toLocaleLowerCase('fr-FR') === layer.name.toLocaleLowerCase('fr-FR'))) {
+        mergedLayers.push(layer);
+      }
+    }
+    const layerIdAlias = new Map<string, string>();
+    for (const layer of importedLayers) {
+      const existing = layers.find(l => l.name.toLocaleLowerCase('fr-FR') === layer.name.toLocaleLowerCase('fr-FR'));
+      layerIdAlias.set(layer.id, existing?.id ?? layer.id);
+    }
+    const stamped = importedObjects.map(o => ({
+      ...o,
+      layerId: layerIdAlias.get(o.layerId) ?? o.layerId,
+      createdSeq: current.seq,
+    }));
+    commit(label, {
+      objects: [...objects, ...stamped],
+      layers: mergedLayers,
+      counter: Math.max(state.counter, ...stamped.map(o => numericSuffix(o.id, 'OBJ'))),
+      layerCounter: Math.max(state.layerCounter, ...mergedLayers.map(l => numericSuffix(l.id, 'LAY'))),
+    });
+    setSelectedId(stamped[stamped.length - 1]?.id ?? null);
+    return stamped.length;
+  }, [layers, objects, state.counter, state.layerCounter, current.seq, commit, setSelectedId]);
+
+  const removeBlock = useCallback((blockId: string) => {
+    commit(`Supprimer bloc ${blockId}`, {
+      blocks: blocks.filter(b => b.id !== blockId),
+      objects: objects.filter(o => !(o.kind === 'blockRef' && o.blockId === blockId)),
+    });
+    const selected = objects.find(o => selectedIds.includes(o.id));
+    if (selected?.kind === 'blockRef' && selected.blockId === blockId) setSelectedIds([]);
+  }, [blocks, objects, commit, selectedIds, setSelectedIds]);
 
   const undo = useCallback(() => setState(s => ({ ...s, pointer: Math.max(0, s.pointer - 1) })), []);
   const redo = useCallback(() => setState(s => ({ ...s, pointer: Math.min(s.versions.length - 1, s.pointer + 1) })), []);
@@ -77,7 +457,7 @@ export function useProject() {
   const goTo = useCallback((index: number) => {
     setState(s => ({ ...s, pointer: Math.max(0, Math.min(s.versions.length - 1, index)) }));
     setSelectedId(null);
-  }, []);
+  }, [setSelectedId]);
 
   const nameVersion = useCallback((name: string) => {
     setState(s => ({
@@ -89,37 +469,59 @@ export function useProject() {
   const reset = useCallback(() => {
     setState(seedProject());
     setSelectedId(null);
-  }, []);
+  }, [setSelectedId]);
+
+  const loadState = useCallback((next: unknown) => {
+    setState(normalizeProjectState(next));
+    setSelectedId(null);
+  }, [setSelectedId]);
 
   const canUndo = state.pointer > 0;
   const canRedo = state.pointer < state.versions.length - 1;
 
   const diagnostics = useMemo(() => {
     const out: { level: 'info' | 'avertissement'; text: string }[] = [];
-    const unclassified = objects.filter(o => o.classification === 'non-classifie');
+    const unclassified = objects.filter(o => o.classification === 'non-classifie' && o.kind !== 'dimension');
     if (unclassified.length > 0) {
       out.push({ level: 'avertissement', text: `${unclassified.length} objet(s) sans classification métier — lectures indisponibles (${unclassified.map(o => o.id).join(', ')}).` });
     }
     for (const o of objects) {
-      if (o.kind === 'line' && Math.hypot(o.x2 - o.x1, o.y2 - o.y1) < 1) {
+      if (o.kind === 'line' && Math.hypot(o.x2 - o.x1, o.y2 - o.y1) <= GEOMETRY_EPSILON) {
         out.push({ level: 'avertissement', text: `${o.id} : ligne de longueur nulle — géométrie à réparer.` });
       }
-      if (o.kind === 'rect' && (o.w < 1 || o.h < 1)) {
+      if (o.kind === 'rect' && (o.w <= GEOMETRY_EPSILON || o.h <= GEOMETRY_EPSILON)) {
         out.push({ level: 'avertissement', text: `${o.id} : rectangle dégénéré — géométrie à réparer.` });
       }
+      if (o.kind === 'dimension') {
+        const target = objects.find(t => t.id === o.targetId);
+        if (!target) {
+          out.push({ level: 'avertissement', text: `${o.id} : cote orpheline — cible ${o.targetId} absente.` });
+        } else if (!supportedDimensionStyles(target).includes(o.style)) {
+          out.push({ level: 'info', text: `${o.id} : style « ${o.style} » non applicable à ${target.id} — style par défaut utilisé.` });
+        }
+      }
+      if (o.kind === 'blockRef' && !blocks.some(b => b.id === o.blockId)) {
+        out.push({ level: 'avertissement', text: `${o.id} : occurrence orpheline — bloc ${o.blockId} absent.` });
+      }
     }
+    const hidden = layers.filter(l => !l.visible);
+    if (hidden.length > 0) out.push({ level: 'info', text: `${hidden.length} calque(s) masqué(s) : ${hidden.map(l => l.name).join(', ')}.` });
     if (state.pointer < state.versions.length - 1) {
       out.push({ level: 'info', text: `Position historique : ${state.versions.length - 1 - state.pointer} microversion(s) en avance — toute modification créera une branche.` });
     }
     if (out.length === 0) out.push({ level: 'info', text: 'Aucun problème détecté sur la révision courante.' });
     return out;
-  }, [objects, state.pointer, state.versions.length]);
+  }, [objects, layers, blocks, state.pointer, state.versions.length]);
 
   return {
-    objects, current, versions: state.versions, pointer: state.pointer,
-    selectedId, setSelectedId,
-    addObject, updateObject, removeObject,
-    undo, redo, goTo, canUndo, canRedo, nameVersion, reset,
+    state, objects, layers, blocks, activeLayerId,
+    current, versions: state.versions, pointer: state.pointer,
+    selectedId, selectedIds, setSelectedId, setSelectedIds,
+    addObject, updateObject, removeObject, removeObjects,
+    transformObjects, duplicateObjects,
+    addLayer, updateLayer, removeLayer, setActiveLayerId,
+    addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock,
+    undo, redo, goTo, canUndo, canRedo, nameVersion, reset, loadState,
     diagnostics,
   };
 }

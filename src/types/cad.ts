@@ -1,7 +1,10 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'polyline';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'polyline' | 'dimension' | 'blockRef';
+export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'polyline';
+export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
+export type DimensionStyle = 'horizontal' | 'vertical' | 'aligned' | 'radial';
 
 // Ontologies activables (Architecture §4) — deux lectures d'un même objet
 export type Classification =
@@ -14,12 +17,21 @@ export type Classification =
 export type ViewReading = 'batiment' | 'industrie';
 export type DisplayLevel = 'essentiel' | 'contextuel' | 'complet';
 
+export interface Layer {
+  id: string;               // identifiant stable LAY-0001
+  name: string;
+  color: string;
+  visible: boolean;
+  locked: boolean;
+}
+
 interface Base {
   id: string;              // identifiant stable OBJ-0001
   name: string;
   kind: ObjectKind;
   classification: Classification;
-  layer: string;
+  layerId: string;
+  hatch?: HatchStyle;
   createdSeq: number;      // microversion de création
 }
 
@@ -28,24 +40,64 @@ export interface RectObj extends Base { kind: 'rect'; x: number; y: number; w: n
 export interface CircleObj extends Base { kind: 'circle'; cx: number; cy: number; r: number }
 export interface PolylineObj extends Base { kind: 'polyline'; points: number[] }
 
-export type CadObject = LineObj | RectObj | CircleObj | PolylineObj;
+/** Cote associative : la géométrie affichée dérive de l'objet cible. */
+export interface DimensionObj extends Base {
+  kind: 'dimension';
+  targetId: string;
+  style: DimensionStyle;
+  offset: number;
+}
+
+/** Occurrence d'un bloc réutilisable. */
+export interface BlockRefObj extends Base {
+  kind: 'blockRef';
+  blockId: string;
+  x: number;
+  y: number;
+  scale: number;
+}
+
+export type PrimitiveObject = LineObj | RectObj | CircleObj | PolylineObj;
+export type CadObject = PrimitiveObject | DimensionObj | BlockRefObj;
+
+export interface BlockDef {
+  id: string;              // identifiant stable BLQ-0001
+  name: string;
+  description?: string;
+  primitives: PrimitiveObject[];
+}
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type NewCadObject = DistributiveOmit<CadObject, 'id' | 'createdSeq' | 'name'>;
 
-// Microversion — versionnement Git-like (Concept §8)
+// Microversion — versionnement Git-like (Concept §8). Chaque microversion
+// capture les objets, les calques et les définitions de blocs.
 export interface MicroVersion {
   seq: number;
   label: string;
   time: number;
   named?: string;          // version nommée (jalon, livrable)
   objects: CadObject[];
+  layers: Layer[];
+  blocks: BlockDef[];
 }
 
 export interface ProjectState {
   versions: MicroVersion[];
   pointer: number;         // indice de la microversion courante
   counter: number;         // compteur d'identifiants OBJ-
+  layerCounter: number;    // compteur d'identifiants LAY-
+  blockCounter: number;    // compteur d'identifiants BLQ-
+  activeLayerId: string;
+}
+
+export function createDefaultLayers(): Layer[] {
+  return [
+    { id: 'LAY-0001', name: 'Bâtiment', color: '#22d3ee', visible: true, locked: false },
+    { id: 'LAY-0002', name: 'Équipements', color: '#34d399', visible: true, locked: false },
+    { id: 'LAY-0003', name: 'Repères', color: '#fbbf24', visible: true, locked: false },
+    { id: 'LAY-0004', name: 'Dessin libre', color: '#8b93a7', visible: true, locked: false },
+  ];
 }
 
 export const CLASSIFICATION_META: Record<Classification, { label: string; ontology: string; color: string }> = {
@@ -61,11 +113,43 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   rect: 'Rectangle',
   circle: 'Cercle',
   polyline: 'Polyligne',
+  dimension: 'Cote',
+  blockRef: 'Bloc',
 };
+
+export const HATCH_LABEL: Record<HatchStyle, string> = {
+  none: 'Aucun',
+  diagonal: 'Diagonales',
+  cross: 'Croisées',
+  solid: 'Plein',
+};
+
+export const DIMENSION_LABEL: Record<DimensionStyle, string> = {
+  horizontal: 'Horizontale',
+  vertical: 'Verticale',
+  aligned: 'Alignée',
+  radial: 'Rayon / diamètre',
+};
+
+export function isClosedPolyline(obj: CadObject): obj is PolylineObj {
+  if (obj.kind !== 'polyline' || obj.points.length < 6) return false;
+  const p = obj.points;
+  return Math.hypot(p[0] - p[p.length - 2], p[1] - p[p.length - 1]) < 0.01;
+}
+
+export function canHatch(obj: CadObject): obj is RectObj | CircleObj | PolylineObj {
+  return obj.kind === 'rect' || obj.kind === 'circle' || isClosedPolyline(obj);
+}
 
 // Lecture métier d'un objet selon la vue active — « un objet, deux lectures » (Concept §1)
 export function readingFor(obj: CadObject, view: ViewReading): { title: string; detail: string } {
   const dim = dimensionOf(obj);
+  if (obj.kind === 'dimension') {
+    return { title: 'Cote associative', detail: `Mesure dérivée de ${obj.targetId} — recalculée à chaque modification de la cible.` };
+  }
+  if (obj.kind === 'blockRef') {
+    return { title: 'Occurrence de bloc', detail: `Référence ${obj.blockId} — la définition reste unique et réutilisable.` };
+  }
   if (view === 'batiment') {
     switch (obj.classification) {
       case 'architecture': return { title: 'Élément architectural', detail: `Implantation bâtiment — encombrement ${dim}, position et zone.` };
@@ -99,9 +183,75 @@ export function dimensionOf(obj: CadObject): string {
       }
       return `L ${fmt(d)} mm`;
     }
+    case 'dimension': return `cote → ${obj.targetId}`;
+    case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
   }
 }
 
-export function fmt(n: number): string {
-  return Math.round(n).toLocaleString('fr-FR');
+/**
+ * Styles de cote pris en charge pour chaque type de cible — définition unique
+ * utilisée par la création, l'inspecteur, la mesure, le rendu et l'export.
+ * Le premier style de la liste est le style par défaut.
+ */
+export function supportedDimensionStyles(target: CadObject): DimensionStyle[] {
+  switch (target.kind) {
+    case 'line': return ['aligned', 'horizontal', 'vertical'];
+    case 'rect': return ['horizontal', 'vertical'];
+    case 'polyline': return ['horizontal', 'vertical'];
+    case 'circle': return ['radial'];
+    default: return [];
+  }
+}
+
+/** Style réellement appliqué : le style demandé s'il est pris en charge, sinon le style par défaut de la cible. */
+export function effectiveDimensionStyle(style: DimensionStyle, target: CadObject): DimensionStyle | null {
+  const supported = supportedDimensionStyles(target);
+  if (supported.includes(style)) return style;
+  return supported[0] ?? null;
+}
+
+/** Emprise (min/max) des sommets d'une polyligne. */
+export function polylineExtents(points: number[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  const xs = points.filter((_, i) => i % 2 === 0);
+  const ys = points.filter((_, i) => i % 2 === 1);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+}
+
+/**
+ * Valeur mesurée par une cote, en millimètres, à pleine précision.
+ * Horizontale = ΔX, verticale = ΔY, alignée = longueur vraie, rayon = diamètre.
+ */
+export function dimensionMeasure(obj: DimensionObj, target: CadObject): { value: number; prefix: '' | 'Ø ' } | null {
+  const style = effectiveDimensionStyle(obj.style, target);
+  if (!style) return null;
+  switch (target.kind) {
+    case 'circle': return { value: target.r * 2, prefix: 'Ø ' };
+    case 'rect': return { value: style === 'vertical' ? target.h : target.w, prefix: '' };
+    case 'line': {
+      const dx = Math.abs(target.x2 - target.x1);
+      const dy = Math.abs(target.y2 - target.y1);
+      return { value: style === 'horizontal' ? dx : style === 'vertical' ? dy : Math.hypot(dx, dy), prefix: '' };
+    }
+    case 'polyline': {
+      const e = polylineExtents(target.points);
+      return { value: style === 'vertical' ? e.maxY - e.minY : e.maxX - e.minX, prefix: '' };
+    }
+    default: return null;
+  }
+}
+
+export function dimensionValue(obj: DimensionObj, objects: CadObject[]): string {
+  const target = objects.find(o => o.id === obj.targetId);
+  if (!target) return 'cible absente';
+  const measure = dimensionMeasure(obj, target);
+  if (!measure) return 'cote non prise en charge';
+  return `${measure.prefix}${fmt(measure.value)} mm`;
+}
+
+/** Précision affichée par défaut : deux décimales au plus (la géométrie stockée n'est jamais arrondie). */
+export const DISPLAY_DECIMALS = 2;
+
+export function fmt(n: number, decimals = DISPLAY_DECIMALS): string {
+  const value = Object.is(n, -0) ? 0 : n;
+  return value.toLocaleString('fr-FR', { maximumFractionDigits: decimals });
 }

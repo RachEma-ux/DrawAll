@@ -1,17 +1,34 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
-// « un objet, deux lectures » (Concept §1) et paramètres géométriques éditables.
-import type { CadObject, Classification, DisplayLevel, ViewReading } from '@/types/cad';
-import { CLASSIFICATION_META, KIND_LABEL, dimensionOf, readingFor } from '@/types/cad';
+// calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
+import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchStyle, Layer, ViewReading } from '@/types/cad';
+import {
+  canHatch,
+  CLASSIFICATION_META,
+  DIMENSION_LABEL,
+  dimensionOf,
+  dimensionValue,
+  effectiveDimensionStyle,
+  HATCH_LABEL,
+  KIND_LABEL,
+  readingFor,
+  supportedDimensionStyles,
+} from '@/types/cad';
 
 interface Props {
   obj: CadObject | null;
+  objects: CadObject[];
+  layers: Layer[];
+  blocks: BlockDef[];
   view: ViewReading;
   level: DisplayLevel;
   onUpdate: (id: string, patch: Partial<CadObject>, label?: string) => void;
   onRemove: (id: string) => void;
+  onCreateBlock: (id: string) => void;
+  /** Diagnostics du projet concernant cet objet (contrôles légers, pas une validation métier). */
+  issues?: string[];
 }
 
-export default function Inspector({ obj, view, level, onUpdate, onRemove }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [] }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -27,16 +44,22 @@ export default function Inspector({ obj, view, level, onUpdate, onRemove }: Prop
 
   const bat = readingFor(obj, 'batiment');
   const ind = readingFor(obj, 'industrie');
+  const layer = layers.find(l => l.id === obj.layerId);
+  const isPrimitive = obj.kind === 'line' || obj.kind === 'rect' || obj.kind === 'circle' || obj.kind === 'polyline';
 
   const num = (v: number, apply: (n: number) => Partial<CadObject>) => (
     <input
       key={v}
       type="number"
-      defaultValue={Math.round(v)}
+      step="any"
+      defaultValue={v}
       className="w-full rounded-sm border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-cyan-400"
       onBlur={e => {
-        const n = Number(e.target.value);
-        if (Number.isFinite(n)) onUpdate(obj.id, apply(n), 'Renseigner paramètre');
+        // Valeur stockée affichée à pleine précision ; un simple passage dans le champ ne réécrit rien.
+        const raw = e.target.value.trim().replace(',', '.');
+        const n = Number(raw);
+        if (raw === '' || !Number.isFinite(n) || n === v) return;
+        onUpdate(obj.id, apply(n), 'Renseigner paramètre');
       }}
     />
   );
@@ -62,6 +85,14 @@ export default function Inspector({ obj, view, level, onUpdate, onRemove }: Prop
       { label: 'Centre Y (mm)', el: num(obj.cy, n => ({ cy: n })) },
       { label: 'Rayon (mm)', el: num(obj.r, n => ({ r: Math.max(1, n) })) },
     );
+  } else if (obj.kind === 'dimension') {
+    fields.push({ label: 'Décalage (mm)', el: num(obj.offset, n => ({ offset: n })) });
+  } else if (obj.kind === 'blockRef') {
+    fields.push(
+      { label: 'X (mm)', el: num(obj.x, n => ({ x: n })) },
+      { label: 'Y (mm)', el: num(obj.y, n => ({ y: n })) },
+      { label: 'Échelle', el: num(obj.scale, n => ({ scale: Math.max(0.1, n) })) },
+    );
   }
 
   return (
@@ -83,9 +114,28 @@ export default function Inspector({ obj, view, level, onUpdate, onRemove }: Prop
           <div className="mt-2 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
             <span>{KIND_LABEL[obj.kind]}</span>
             <span>·</span>
-            <span>{dimensionOf(obj)}</span>
+            <span>{obj.kind === 'dimension' ? dimensionValue(obj, objects) : dimensionOf(obj)}</span>
             {level === 'complet' && (<><span>·</span><span>créé à v{obj.createdSeq}</span></>)}
           </div>
+        </div>
+
+        <div>
+          <p className="ui-label mb-1.5">Calque</p>
+          <select
+            value={obj.layerId}
+            onChange={e => onUpdate(obj.id, { layerId: e.target.value }, 'Changer de calque')}
+            className="w-full rounded-sm border border-input bg-background px-2 py-1.5 text-xs outline-none focus:border-cyan-400"
+          >
+            {layers.map(l => (
+              <option key={l.id} value={l.id}>{l.name}{l.locked ? ' — verrouillé' : ''}{!l.visible ? ' — masqué' : ''}</option>
+            ))}
+          </select>
+          {layer && (
+            <p className="mt-1 flex items-center gap-1.5 font-mono text-[9px] text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: layer.color }} />
+              {layer.id} · {layer.visible ? 'visible' : 'masqué'} · {layer.locked ? 'verrouillé' : 'éditable'}
+            </p>
+          )}
         </div>
 
         <div>
@@ -109,6 +159,61 @@ export default function Inspector({ obj, view, level, onUpdate, onRemove }: Prop
           </div>
         </div>
 
+        {canHatch(obj) && (
+          <div>
+            <p className="ui-label mb-1.5">Hachures</p>
+            <div className="grid grid-cols-2 gap-1">
+              {(Object.keys(HATCH_LABEL) as HatchStyle[]).map(h => (
+                <button
+                  key={h}
+                  onClick={() => onUpdate(obj.id, { hatch: h }, 'Appliquer hachures')}
+                  className={`rounded-sm border px-2 py-1.5 font-mono text-[10px] ${
+                    (obj.hatch ?? 'none') === h ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {HATCH_LABEL[h]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {obj.kind === 'dimension' && (() => {
+          const target = objects.find(o => o.id === obj.targetId);
+          const styles = target ? supportedDimensionStyles(target) : [];
+          const current = target ? effectiveDimensionStyle(obj.style, target) : null;
+          return (
+            <div>
+              <p className="ui-label mb-1.5">Cote associative</p>
+              {styles.length > 0 ? (
+                <select
+                  value={current ?? styles[0]}
+                  onChange={e => onUpdate(obj.id, { style: e.target.value as DimensionStyle }, 'Changer type de cote')}
+                  className="w-full rounded-sm border border-input bg-background px-2 py-1.5 text-xs outline-none focus:border-cyan-400"
+                >
+                  {styles.map(s => <option key={s} value={s}>{DIMENSION_LABEL[s]}</option>)}
+                </select>
+              ) : (
+                <p className="text-[11px] text-amber-300">{target ? `Aucune cote disponible pour un objet de type ${KIND_LABEL[target.kind]}.` : `Cible ${obj.targetId} absente.`}</p>
+              )}
+              <p className="mt-1 font-mono text-[9px] text-muted-foreground">Cible : {obj.targetId} · valeur recalculée automatiquement.</p>
+            </div>
+          );
+        })()}
+
+        {obj.kind === 'blockRef' && (
+          <div>
+            <p className="ui-label mb-1.5">Définition de bloc</p>
+            <select
+              value={obj.blockId}
+              onChange={e => onUpdate(obj.id, { blockId: e.target.value }, 'Changer définition de bloc')}
+              className="w-full rounded-sm border border-input bg-background px-2 py-1.5 text-xs outline-none focus:border-cyan-400"
+            >
+              {blocks.map(b => <option key={b.id} value={b.id}>{b.id} — {b.name}</option>)}
+            </select>
+          </div>
+        )}
+
         {fields.length > 0 && (
           <div>
             <p className="ui-label mb-1.5">Paramètres géométriques</p>
@@ -121,6 +226,15 @@ export default function Inspector({ obj, view, level, onUpdate, onRemove }: Prop
               ))}
             </div>
           </div>
+        )}
+
+        {isPrimitive && (
+          <button
+            onClick={() => onCreateBlock(obj.id)}
+            className="w-full rounded-sm border border-violet-400/40 px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-violet-300 transition-colors hover:bg-violet-400/10"
+          >
+            Convertir en bloc réutilisable
+          </button>
         )}
 
         <div>
@@ -144,10 +258,17 @@ export default function Inspector({ obj, view, level, onUpdate, onRemove }: Prop
           <div>
             <p className="ui-label mb-1.5">Propriétés typées</p>
             <div className="space-y-1 font-mono text-[10px]">
-              <div className="flex justify-between border-b border-border/50 py-1"><span className="text-muted-foreground">longueur/hors-tout</span><span>{dimensionOf(obj)}</span></div>
+              <div className="flex justify-between border-b border-border/50 py-1"><span className="text-muted-foreground">longueur/hors-tout</span><span>{obj.kind === 'dimension' ? dimensionValue(obj, objects) : dimensionOf(obj)}</span></div>
               <div className="flex justify-between border-b border-border/50 py-1"><span className="text-muted-foreground">unité</span><span>millimètre (SI)</span></div>
-              <div className="flex justify-between border-b border-border/50 py-1"><span className="text-muted-foreground">couche</span><span>{obj.layer}</span></div>
-              <div className="flex justify-between py-1"><span className="text-muted-foreground">statut</span><span className="text-emerald-400">validé</span></div>
+              <div className="flex justify-between border-b border-border/50 py-1"><span className="text-muted-foreground">calque</span><span>{layer?.name ?? obj.layerId}</span></div>
+              <div className="flex justify-between py-1">
+                <span className="text-muted-foreground">contrôles</span>
+                {issues.length > 0
+                  ? <span className="text-amber-300">{issues.length} problème{issues.length > 1 ? 's' : ''}</span>
+                  : <span className="text-muted-foreground">aucun problème détecté</span>}
+              </div>
+              {issues.map(text => <p key={text} className="text-[10px] leading-relaxed text-amber-300/90">{text}</p>)}
+              <p className="pt-1 text-[9px] leading-relaxed text-muted-foreground/60">Contrôles géométriques légers — ce n'est pas une validation métier.</p>
             </div>
           </div>
         )}

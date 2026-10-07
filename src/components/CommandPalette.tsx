@@ -26,7 +26,9 @@ export default function CommandPalette({ open, onClose, commands, onOpenRequirem
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open) { setQ(''); setIndex(0); setTimeout(() => inputRef.current?.focus(), 30); }
+    if (!open) return;
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 30);
+    return () => window.clearTimeout(timer);
   }, [open]);
 
   const results = useMemo(() => {
@@ -53,7 +55,7 @@ export default function CommandPalette({ open, onClose, commands, onOpenRequirem
     return [...cmds, ...reqs, ...mods];
   }, [q, commands, onOpenRequirement]);
 
-  useEffect(() => setIndex(0), [results.length]);
+  const activeIndex = Math.min(index, Math.max(0, results.length - 1));
 
   if (!open) return null;
 
@@ -65,11 +67,11 @@ export default function CommandPalette({ open, onClose, commands, onOpenRequirem
           <input
             ref={inputRef}
             value={q}
-            onChange={e => setQ(e.target.value)}
+            onChange={e => { setQ(e.target.value); setIndex(0); }}
             onKeyDown={e => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setIndex(i => Math.min(results.length - 1, i + 1)); }
               if (e.key === 'ArrowUp') { e.preventDefault(); setIndex(i => Math.max(0, i - 1)); }
-              if (e.key === 'Enter' && results[index]) { results[index].run(); onClose(); }
+              if (e.key === 'Enter' && results[activeIndex]) { results[activeIndex].run(); onClose(); }
               if (e.key === 'Escape') onClose();
             }}
             placeholder="Rechercher un outil, une exigence (DA-07-10), un module (M05)…"
@@ -82,7 +84,7 @@ export default function CommandPalette({ open, onClose, commands, onOpenRequirem
               key={r.type + r.id}
               onClick={() => { r.run(); onClose(); }}
               onMouseEnter={() => setIndex(i)}
-              className={`flex w-full items-center gap-3 px-3 py-2 text-left ${i === index ? 'bg-cyan-400/10' : ''}`}
+              className={`flex w-full items-center gap-3 px-3 py-2 text-left ${i === activeIndex ? 'bg-cyan-400/10' : ''}`}
             >
               <span className={`font-mono text-[9px] uppercase tracking-[0.12em] ${
                 r.type === 'command' ? 'text-cyan-400' : r.type === 'requirement' ? 'text-amber-400' : 'text-emerald-400'
