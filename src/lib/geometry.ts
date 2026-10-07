@@ -345,6 +345,11 @@ function collectCurveSnaps(
       if (dist > 1e-9) {
         const p = { x: c.cx + (vx / dist) * c.r, y: c.cy + (vy / dist) * c.r };
         if (onCircleGeom(c, p)) add('nearest', p, c.objectId);
+        else if (c.arc) {
+          // Hors de l'ouverture de l'arc : le point le plus proche est l'extrémité la plus proche.
+          const [e1, e2] = arcEndpoints({ cx: c.cx, cy: c.cy, r: c.r, ...c.arc });
+          add('nearest', Math.hypot(e1.x - x, e1.y - y) <= Math.hypot(e2.x - x, e2.y - y) ? e1 : e2, c.objectId);
+        }
       }
     }
   }

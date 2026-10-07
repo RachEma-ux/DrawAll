@@ -80,7 +80,14 @@ describe('accrochage objet', () => {
     expect(findSnap([hline], layers, [], 123.4, 3, 8, 10, { types: DEFAULT_SNAP_TYPES }).type).toBe('grid');
   });
 
-  it('un type coupé n’accroche plus', () => {
+  it('proche sur un arc, hors de son ouverture : l’extrémité la plus proche', () => {
+    const arc: CadObject = { ...base, id: 'OBJ-0003', name: 'A', kind: 'arc', cx: 0, cy: 0, r: 50, start: 0, end: 90 };
+    // Juste sous l'extrémité à 0° (50 ; 0), du côté hors de l'arc (Y vers le bas = angle négatif).
+    const snap = findSnap([arc], layers, [], 49, 3, 8, 10, { types: ['nearest'] });
+    expect(snap).toMatchObject({ type: 'nearest', x: 50, y: 0 });
+  });
+
+    it('un type coupé n’accroche plus', () => {
     expect(findSnap([hline], layers, [], 3, 2, 8, 10, { types: ['midpoint'] }).type).toBe('grid');
     expect(findSnap([hline], layers, [], 3, 2, 8, 10, { types: ['endpoint'] }).type).toBe('endpoint');
   });
