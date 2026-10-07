@@ -2,6 +2,8 @@
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
 import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchStyle, Layer, ViewReading } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
+import { measureObject } from '@/lib/area';
+import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
 import {
   canHatch,
   CLASSIFICATION_META,
@@ -9,6 +11,7 @@ import {
   dimensionOf,
   dimensionValue,
   effectiveDimensionStyle,
+  fmt,
   HATCH_LABEL,
   KIND_LABEL,
   readingFor,
@@ -27,9 +30,11 @@ interface Props {
   onCreateBlock: (id: string) => void;
   /** Diagnostics du projet concernant cet objet (contrôles légers, pas une validation métier). */
   issues?: string[];
+  /** Unité d'affichage des mesures. */
+  displayUnit?: DisplayUnit;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [] }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm' }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -174,6 +179,29 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             ))}
           </div>
         </div>
+
+        {(() => {
+          const m = measureObject(obj);
+          if (!m) return null;
+          const rows: [string, string][] = m.closed
+            ? [['Aire', m.area !== undefined ? formatArea(m.area, displayUnit, fmt) : (m.areaNote ?? 'non évaluée')], ['Périmètre', formatLength(m.length, displayUnit, fmt)]]
+            : [['Longueur', formatLength(m.length, displayUnit, fmt)]];
+          if (m.sectorArea !== undefined) rows.push(['Aire du secteur', formatArea(m.sectorArea, displayUnit, fmt)]);
+          if (m.segmentArea !== undefined) rows.push(['Aire du segment', formatArea(m.segmentArea, displayUnit, fmt)]);
+          return (
+            <div>
+              <p className="ui-label mb-1.5">Mesures</p>
+              <dl aria-label="Mesures" className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                {rows.map(([k, v]) => (
+                  <div key={k} className="contents">
+                    <dt className="text-muted-foreground">{k}</dt>
+                    <dd className="text-right text-foreground">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          );
+        })()}
 
         {(
           <div>

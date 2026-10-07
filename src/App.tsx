@@ -24,7 +24,8 @@ import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
-import { DISPLAY_UNITS, GRID_SIZES, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
+import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
+import { measurePolygon, type Measure } from '@/lib/area';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
@@ -46,6 +47,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
+  { id: 'area', label: 'Aire', key: 'Q', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points du contour, puis Terminer : aire et périmètre (rien n’est créé)' },
   { id: 'measure', label: 'Mesure', key: 'M', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Cliquez-glissez pour mesurer une distance' },
   { id: 'text', label: 'Texte', key: 'T', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez ou cliquez le point d’insertion, puis saisissez le texte' },
   { id: 'trim', label: 'Ajuster', key: 'J', levels: ['contextuel', 'complet'], hint: 'Touchez la portion à retirer entre deux arêtes' },
@@ -349,6 +351,10 @@ function Workbench() {
     project.applyEdit(id, result, mode === 'trim' ? 'Ajuster' : 'Prolonger');
   }, [project, flash]);
 
+  // Outil Aire : résultat affiché sur le canevas jusqu'à la mesure suivante ou la fermeture.
+  const [areaResult, setAreaResult] = useState<Measure | null>(null);
+  const measureArea = useCallback((points: number[]) => setAreaResult(measurePolygon(points)), []);
+
   // Congé / chanfrein entre deux lignes ; refus explicite (message) sinon.
   const corner = useCallback((mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => {
     const a = project.objects.find(o => o.id === first.id);
@@ -505,6 +511,7 @@ function Workbench() {
         arc: ['arc', 'courbe', 'trois points', 'cintre'],
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
+        area: ['aire', 'surface', 'perimetre', 'area', 'mesurer'],
         fillet: ['conge', 'raccord', 'arrondi', 'fillet', 'rayon'],
         chamfer: ['chanfrein', 'biseau', 'chamfer', 'coin'],
         extend: ['prolonger', 'etendre', 'extend', 'allonger'],
@@ -614,6 +621,7 @@ function Workbench() {
       onUpdate={project.updateObject}
       onRemove={project.removeObject}
       onCreateBlock={createBlockFromSelection}
+      displayUnit={displayUnit}
     />
   );
   const historyEl = (
@@ -766,6 +774,7 @@ function Workbench() {
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
                  tool === 'trim' ? 'Ajuster : cliquez la portion à retirer, entre deux arêtes' :
                  tool === 'extend' ? 'Prolonger : cliquez près de l’extrémité à prolonger' :
+                 tool === 'area' ? 'Aire : cliquez les sommets du contour, puis Entrée ou Terminer' :
                  tool === 'fillet' ? 'Congé : cliquez la première ligne puis la seconde, du côté à conserver' :
                  tool === 'chamfer' ? 'Chanfrein : cliquez la première ligne puis la seconde, du côté à conserver' :
                  tool === 'text' ? 'Cliquez le point d’insertion puis saisissez le texte ; double-clic sur un texte pour le modifier' :
@@ -866,6 +875,7 @@ function Workbench() {
                 onEditText={editText}
                 onTrimExtend={trimExtend}
                 onCorner={corner}
+                onMeasureArea={measureArea}
                 gridSize={gridSize}
                 projectKey={projectKey}
                 snapTypes={snapTypes}
@@ -876,6 +886,16 @@ function Workbench() {
                 onSnapChange={setCurrentSnap}
                 onZoomChange={setZoom}
               />
+              {areaResult && (
+                <div role="region" aria-label="Résultat de l’aire" className="absolute right-3 top-12 z-10 rounded-sm border border-emerald-400/50 bg-[#0c1220]/95 px-3 py-2 font-mono text-[11px] text-muted-foreground shadow-lg">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="uppercase tracking-[0.12em] text-emerald-300">Aire par points</span>
+                    <button onClick={() => setAreaResult(null)} aria-label="Fermer le résultat" className="px-1 hover:text-foreground">×</button>
+                  </div>
+                  <div>Aire <span className="text-foreground">{areaResult.area !== undefined ? formatArea(areaResult.area, displayUnit, fmt) : areaResult.areaNote}</span></div>
+                  <div>Périmètre <span className="text-foreground">{formatLength(areaResult.length, displayUnit, fmt)}</span></div>
+                </div>
+              )}
               {(tool === 'fillet' || tool === 'chamfer') && (
                 <div className="absolute left-3 top-3 z-10 sm:top-12 flex items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg">
                   {tool === 'fillet' ? (

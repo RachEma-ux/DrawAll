@@ -51,6 +51,13 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
 - Une saisie relative sans point précédent est refusée avec un message ; aucune origine n'est supposée.
 - Le pas de grille (1, 5, 10, 50, 100, 500 ou 1 000 mm) commande l'accrochage à la grille et son tracé ; le trait fin disparaît quand il deviendrait illisible.
 
+### 1.6 Mesures d'aire et de périmètre (règle)
+
+- L'inspecteur donne l'aire et le périmètre des contours fermés (rectangle, cercle, polyligne fermée), la longueur des objets ouverts ; pour un arc, la longueur, l'aire du secteur et celle du segment (entre l'arc et sa corde).
+- L'outil « Aire » mesure un contour désigné par points (souris, doigt ou saisie précise) sans rien créer.
+- Un contour qui se recoupe n'a pas d'aire évidente : elle est déclarée « non évaluée » ; le périmètre reste donné.
+- Les valeurs suivent l'unité d'affichage (mm², cm², m²) ; le calcul se fait en millimètres à pleine précision. Le référentiel de surfaces métier (SIA 416, loi Carrez…) relève du lot 4.3.
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)
