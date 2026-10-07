@@ -15,8 +15,8 @@ import {
   polylineExtents,
   supportedDimensionStyles,
 } from '@/types/cad';
-import { moveObject } from '@/lib/geometry';
 import { arcBounds } from '@/lib/arc';
+import { cloneAll, translation, type Placement } from '@/lib/array';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
@@ -277,25 +277,34 @@ export function useProject() {
     return patches.size;
   }, [objects, layers, commit]);
 
-  /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
-  const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
-    const sources = ids
-      .map(id => objects.find(o => o.id === id))
-      .filter((o): o is CadObject => !!o && o.kind !== 'dimension' && !layers.find(l => l.id === o.layerId)?.locked);
-    if (sources.length === 0) return [];
-    let counter = state.counter;
-    const clones: CadObject[] = sources.map(o => {
-      counter += 1;
-      const clone = { ...o, id: `OBJ-${String(counter).padStart(4, '0')}`, createdSeq: current.seq } as CadObject;
-      return { ...clone, ...moveObject(clone, dx, dy) } as CadObject;
-    });
-    commit(`Dupliquer ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
+  /**
+   * Ajoute des copies de `sources` (objets du projet ou contenu du presse-papiers) pour chaque
+   * pose, en une seule version, avec des identifiants neufs. Une copie dont le calque n'existe
+   * plus va sur le calque actif ; rien n'est copié vers un calque verrouillé.
+   */
+  const addCopies = useCallback((sources: CadObject[], placements: Placement[], label: string) => {
+    const active = layers.find(l => l.id === activeLayerId);
+    const usable = sources
+      .map(o => (layers.some(l => l.id === o.layerId) || !active ? o : ({ ...o, layerId: active.id } as CadObject)))
+      .filter(o => !layers.find(l => l.id === o.layerId)?.locked);
+    if (usable.length === 0 || placements.length === 0) return [];
+    const { objects: clones, counter } = cloneAll(usable, placements, state.counter, current.seq);
+    if (clones.length === 0) return [];
+    commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
       objects: [...objects, ...clones],
       counter,
     });
     setSelectedIds(clones.map(c => c.id));
     return clones.map(c => c.id);
-  }, [objects, layers, state.counter, current.seq, commit, setSelectedIds]);
+  }, [objects, layers, activeLayerId, state.counter, current.seq, commit, setSelectedIds]);
+
+  /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
+  const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
+    const sources = ids
+      .map(id => objects.find(o => o.id === id))
+      .filter((o): o is CadObject => !!o);
+    return addCopies(sources, [translation(dx, dy)], 'Dupliquer');
+  }, [objects, addCopies]);
 
   /**
    * Applique une édition (ajuster / prolonger) en une seule version : modification de l'objet,
@@ -569,7 +578,7 @@ export function useProject() {
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
     addObject, updateObject, removeObject, removeObjects,
-    transformObjects, duplicateObjects, applyEdit, applyPatches,
+    transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, reset, loadState,
