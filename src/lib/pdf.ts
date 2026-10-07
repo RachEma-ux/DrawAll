@@ -9,13 +9,14 @@ import { arcSweep } from '@/lib/arc';
 import { effectiveStyle, lineTypeDef } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dimensionTextPosition } from '@/lib/annotation';
 import { pdimGeometry } from '@/lib/pdim';
+import { hatchAngles, hatchParamsOf, hatchSegments, loopOf } from '@/lib/hatch';
+import { primitiveBounds } from '@/lib/geometry';
 import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetSize } from '@/lib/sheet';
 import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
 import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import { occurrencePrimitives } from '@/lib/materials';
 
 export const MM_TO_PT = 72 / 25.4;
-const HATCH_SPACING = 3; // mm papier
 
 export interface PdfInput {
   sheet: Sheet;
@@ -190,7 +191,7 @@ export function sheetToPdf(input: PdfInput): string {
         for (const prim of occurrencePrimitives(block, o)) drawPrimitive(primitiveIn(prim, o.x, o.y, o.scale), effectiveStyle(o, layer));
         continue;
       }
-      drawPrimitive(o, effectiveStyle(o, layer));
+      drawPrimitive(o, effectiveStyle(o, layer), (o.holes ?? []).map(id => objects.find(x => x.id === id)).filter((x): x is CadObject => !!x));
     }
     out('Q');
 
@@ -213,44 +214,37 @@ export function sheetToPdf(input: PdfInput): string {
       }
     }
 
-    function drawPrimitive(o: PrimitiveObject, st: ReturnType<typeof effectiveStyle>) {
+    function drawPrimitive(o: PrimitiveObject, st: ReturnType<typeof effectiveStyle>, islands: CadObject[] = []) {
       if (o.kind === 'polyline' && o.points.length < 4) return;
       const { path, closed } = pathOf(o);
-      if (closed && o.hatch && o.hatch !== 'none') drawHatch(path, o);
+      if (closed && o.hatch && o.hatch !== 'none') drawHatch(path, o, islands);
       const def = lineTypeDef(st.lineType);
       setStroke(st.lineWeight, def.pattern.map(v => Math.abs(v) * st.lineWeight));
       out(`${path} S`);
     }
 
-    function drawHatch(path: string, o: PrimitiveObject) {
-      if (o.hatch === 'solid') { out('0.75 g'); out(`${path} f`); out('0 g'); return; }
-      // Hachures : traits fins parallèles à 45° (et 135° pour « croisées »), pas papier constant, découpés par le contour.
-      out('q');
-      out(`${path} W n`);
-      setStroke(0.18);
-      const b = boundsOf(o);
-      // Boîte en points PDF : lo en bas à gauche, hi en haut à droite.
-      const lo = toPdf({ x: b.minX, y: b.maxY }), hi = toPdf({ x: b.maxX, y: b.minY });
-      const dc = HATCH_SPACING * MM_TO_PT * Math.SQRT2; // écart perpendiculaire = dc / √2
-      // 45° : droites y = x + c ; 135° : y = −x + c ; tracées d'un bord à l'autre de la boîte.
-      for (let c = lo.y - hi.x; c <= hi.y - lo.x; c += dc) out(`${n(lo.x)} ${n(lo.x + c)} m ${n(hi.x)} ${n(hi.x + c)} l S`);
-      if (o.hatch === 'cross') {
-        for (let c = lo.y + lo.x; c <= hi.y + hi.x; c += dc) out(`${n(lo.x)} ${n(-lo.x + c)} m ${n(hi.x)} ${n(-hi.x + c)} l S`);
+    function drawHatch(path: string, o: PrimitiveObject, islands: CadObject[]) {
+      const loops = [loopOf(o as CadObject), ...islands.map(loopOf)].filter((l): l is NonNullable<typeof l> => !!l);
+      if (o.hatch === 'solid') {
+        // Aplat : contour et îlots en pair-impair.
+        const islandPaths = loops.slice(1).map(l => {
+          const q = l.map(p => toPdf(p));
+          return `${n(q[0].x)} ${n(q[0].y)} m ${q.slice(1).map(v => `${n(v.x)} ${n(v.y)} l`).join(' ')} h`;
+        }).join(' ');
+        out('0.75 g'); out(`${path} ${islandPaths} f*`); out('0 g');
+        return;
       }
-      out('Q');
-    }
-
-    function boundsOf(o: PrimitiveObject) {
-      switch (o.kind) {
-        case 'rect': return { minX: Math.min(o.x, o.x + o.w), maxX: Math.max(o.x, o.x + o.w), minY: Math.min(o.y, o.y + o.h), maxY: Math.max(o.y, o.y + o.h) };
-        case 'circle': return { minX: o.cx - o.r, maxX: o.cx + o.r, minY: o.cy - o.r, maxY: o.cy + o.r };
-        default: {
-          const xs: number[] = [], ys: number[] = [];
-          if (o.kind === 'polyline') for (let i = 0; i + 1 < o.points.length; i += 2) { xs.push(o.points[i]); ys.push(o.points[i + 1]); }
-          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-          for (const x of xs) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
-          for (const y of ys) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
-          return { minX, maxX, minY, maxY };
+      // Traits calculés sur la feuille (mm papier) : angle, pas (papier, ou modèle × échelle), origine.
+      const hp = hatchParamsOf(o);
+      const paperLoops = loops.map(l => l.map(p => modelToPaper(vp, p)));
+      const bmin = primitiveBounds(o);
+      const origin = modelToPaper(vp, { x: bmin.minX + (hp.originX ?? 0), y: bmin.minY + (hp.originY ?? 0) });
+      const step = hp.unit === 'modele' ? hp.spacing * k : hp.spacing;
+      setStroke(0.18);
+      for (const angle of hatchAngles(o.hatch, hp)) {
+        for (const [x1, y1, x2, y2] of hatchSegments(paperLoops, angle, step, origin)) {
+          const a = pt({ x: x1, y: y1 }), b = pt({ x: x2, y: y2 });
+          out(`${n(a.x)} ${n(a.y)} m ${n(b.x)} ${n(b.y)} l S`);
         }
       }
     }

@@ -11,10 +11,10 @@ test('lot 3.1 — changer de profil change le motif, jamais le matériau', async
   await expect.poll(async () => (await currentObjects(page))[0].materialId).toBe('beton');
   if (isPhone(info)) await page.keyboard.press('Escape'); // ferme le tiroir de l'inspecteur
 
-  const fill = () => page.getByTestId('canvas').locator('rect[fill^="url(#hatch-"]').first().getAttribute('fill');
-  await expect.poll(fill).toBe('url(#hatch-diagonal)');   // profil neutre
+  const motif = () => page.getByTestId('canvas').locator('path[data-hachure]').first().getAttribute('data-hachure');
+  await expect.poll(motif).toBe('diagonal');   // profil neutre
   await page.getByLabel('Profil de dessin').selectOption('enseignement');
-  await expect.poll(fill).toBe('url(#hatch-cross)');      // béton : croisillons dans ce profil
+  await expect.poll(motif).toBe('cross');      // béton : croisillons dans ce profil
   const [wall] = await currentObjects(page);
   expect(wall).toMatchObject({ materialId: 'beton', hatch: 'none' });
   const profileId = await page.evaluate(() => {
@@ -32,6 +32,6 @@ test('lot 3.1 — les hachures s’affichent aussi dans les fenêtres de feuille
   await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
   await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
   const vp = page.getByTestId('fenetre-FEN-0001');
-  await expect(vp.locator('rect[fill="url(#FEN-0001-hatch-diagonal)"]')).toHaveCount(1);
-  await expect(vp.locator('pattern#FEN-0001-hatch-diagonal')).toHaveCount(1);
+  await expect(vp.locator('path[fill="url(#FEN-0001-h-OBJ-0001)"]')).toHaveCount(1);
+  await expect(vp.locator('pattern#FEN-0001-h-OBJ-0001')).toHaveCount(1);
 });

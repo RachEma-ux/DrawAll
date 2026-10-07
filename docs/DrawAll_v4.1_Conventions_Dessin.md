@@ -149,9 +149,14 @@ DrawAll les proposera sous forme de **profils de dessin** modifiables et version
 - Un objet sans matériau garde le motif choisi à la main. Avec un matériau, le motif vient du profil ; pour le forcer, on retire le matériau.
 - Le profil est versionné avec le projet (historique, annulation).
 
-### 4.5 État actuel
+### 4.5 Hachures paramétrées (règle, lot 3.2)
 
-Motifs disponibles : diagonales, croisées, plein, sur les contours fermés ; exportés en DXF (HATCH ANSI31, ANSI37, SOLID) et en PDF. Sur une feuille, ils sont tracés au pas papier de 3 mm. Les hachures paramétrées (angle, pas, origine, trous) sont l'objet du lot 3.2.
+- Motifs : diagonales (une famille de traits), croisées (deux familles à 90°), plein ; sur les contours fermés (rectangle, cercle, polyligne fermée).
+- Paramètres : **angle** (degrés, antihoraire depuis +X), **pas** entre traits, **unité du pas** — papier (constant sur la feuille quelle que soit l'échelle ; préréglage 3 mm) ou modèle (dimension réelle, par exemple un calepinage) — et **origine** (décalage depuis le coin de l'emprise, le motif suit l'objet).
+- **Îlots** : contours fermés contenus dans l'objet, laissés vides (règle pair-impair). « Évider les contours contenus » les désigne d'un geste ; ils suivent les copies de leur contour.
+- Les transformations font suivre le motif : rotation et symétrie changent l'angle, l'échelle change un pas modèle (un pas papier reste constant).
+- Rendu : atelier (pas papier ramené à l'écran), feuilles et PDF au pas papier exact, traits de 0,18 mm.
+- DXF : HATCH défini par l'utilisateur (`_USER`, simple ou double) à l'angle, au pas et à l'origine de l'objet, îlots en boucles intérieures (cercle par arête d'arc) ; aplat en SOLID. Un pas papier est converti en pas réel à l'échelle de la première fenêtre de feuille (1:1 sans feuille), et le rapport d'export l'indique.
 
 ## 5. Cotation
 
@@ -219,7 +224,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | Segment courbe de polyligne | Approché en polyligne (≤ 0,05 mm) | — |
 | Largeur de polyligne | Perdue (signalée) | — |
 | Rectangle | — | Transformé en polyligne fermée |
-| Hachure | Non lue (signalée) | Conservée (HATCH) |
+| Hachure | Non lue (signalée) | Conservée (HATCH _USER ou SOLID : angle, pas, origine, îlots) |
 | Cote | Non lue | Transformée en traits + texte ; association perdue |
 | Occurrence de bloc | Non lue (signalée) | Éclatée en entités simples |
 | Calques | Nom, couleur, type et épaisseur de trait conservés | Nom, couleur, type et épaisseur de trait, visibilité, verrouillage |

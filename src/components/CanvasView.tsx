@@ -17,6 +17,7 @@ import type {
 import { CLASSIFICATION_META, dimensionValue, fmt, isClosedPolyline } from '@/types/cad';
 import {
   blockBounds,
+  primitiveBounds,
   constrainOrtho,
   dimensionGeometry,
   distanceSegment,
@@ -36,6 +37,7 @@ import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
 import { pdimGeometry } from '@/lib/pdim';
 import { occurrencePrimitives } from '@/lib/materials';
+import { hatchParamsOf } from '@/lib/hatch';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
@@ -996,12 +998,28 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
-  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
+  const islands = (obj.holes ?? []).map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
+  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} />;
 }
 
-function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner, paperScale, hatchPrefix = '' }: {
+/** Pixels écran par millimètre (96 ppp) : pas papier des hachures dans l'atelier. */
+const PX_PER_MM = 96 / 25.4;
+
+/** Contour SVG d'un objet fermé (rectangle, cercle, polyligne fermée) ; null sinon. */
+function closedPath(o: CadObject): string | null {
+  switch (o.kind) {
+    case 'rect': return `M ${o.x} ${o.y} H ${o.x + o.w} V ${o.y + o.h} H ${o.x} Z`;
+    case 'circle': return `M ${o.cx + o.r} ${o.cy} A ${o.r} ${o.r} 0 1 0 ${o.cx - o.r} ${o.cy} A ${o.r} ${o.r} 0 1 0 ${o.cx + o.r} ${o.cy} Z`;
+    case 'polyline': return isClosedPolyline(o) ? `M ${o.points.slice(0, 2).join(' ')} L ${o.points.slice(2).join(' ')} Z` : null;
+    default: return null;
+  }
+}
+
+function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner, paperScale, hatchPrefix = '', islands = [] }: {
   obj: PrimitiveObject;
   hatchPrefix?: string;
+  /** Contours fermés désignés comme îlots (non hachurés). */
+  islands?: CadObject[];
   paperScale?: DrawingScale;
   unit?: DisplayUnit;
   layer?: Layer;
@@ -1022,9 +1040,35 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
   const pattern = paperScale ? dashInModel(st.lineType, st.lineWeight, paperScale) : screenDash(st.lineType, widthPx)?.map(v => v / zoom);
   const dash = pattern ? pattern.join(' ')
     : colorMode === 'metier' && view === 'batiment' && obj.classification === 'electrique' ? `${8 / zoom} ${5 / zoom}` : undefined;
-  const hatchFill = obj.hatch === 'diagonal' ? `url(#${hatchPrefix}hatch-diagonal)` : obj.hatch === 'cross' ? `url(#${hatchPrefix}hatch-cross)` : undefined;
   const solidFill = obj.hatch === 'solid';
   const common = { stroke: color, strokeWidth: sw, strokeDasharray: dash };
+
+  // Hachure paramétrée : motif propre à l'objet (angle, pas, origine), contour et îlots en pair-impair.
+  const outline = closedPath(obj as CadObject);
+  let hatchLayer: React.ReactNode = null;
+  if (outline && obj.hatch && obj.hatch !== 'none') {
+    const d = [outline, ...islands.map(closedPath).filter(Boolean)].join(' ');
+    if (solidFill) {
+      hatchLayer = <path d={d} fill={color} fillOpacity={selected ? 0.28 : 0.16} fillRule="evenodd" stroke="none" />;
+    } else {
+      const hp = hatchParamsOf(obj);
+      const step = hp.unit === 'modele' ? hp.spacing : paperScale ? paperToModelSize(hp.spacing, paperScale) : (hp.spacing * PX_PER_MM) / zoom;
+      const b = primitiveBounds(obj);
+      const id = `${hatchPrefix}h-${owner ? `${owner.id}-` : ''}${obj.id}`;
+      const w = paperScale ? paperToModelSize(0.18, paperScale) : 1 / zoom;
+      hatchLayer = (
+        <>
+          <defs>
+            <pattern id={id} width={step} height={step} patternUnits="userSpaceOnUse"
+              patternTransform={`translate(${b.minX + (hp.originX ?? 0)} ${b.minY + (hp.originY ?? 0)}) rotate(${-hp.angle})`}>
+              <path d={`M 0 0 L ${step} 0${obj.hatch === 'cross' ? ` M 0 0 L 0 ${step}` : ''}`} stroke={paperScale ? '#94a3b8' : color} strokeWidth={w} opacity={paperScale ? 1 : 0.5} />
+            </pattern>
+          </defs>
+          <path d={d} fill={`url(#${id})`} fillRule="evenodd" stroke="none" data-hachure={obj.hatch} />
+        </>
+      );
+    }
+  }
 
   const label = (x: number, y: number) => (
     <text x={x} y={y - 6 / zoom} fontSize={11 / zoom} fill={selected ? '#22d3ee' : '#8b93a7'} fontFamily="JetBrains Mono, monospace">
@@ -1044,8 +1088,9 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
     case 'rect':
       return (
         <g>
-          <rect x={obj.x} y={obj.y} width={obj.w} height={obj.h} {...common} fill={color} fillOpacity={solidFill ? (selected ? 0.28 : 0.16) : selected ? 0.12 : 0.04} />
-          {hatchFill && <rect x={obj.x} y={obj.y} width={obj.w} height={obj.h} fill={hatchFill} stroke="none" />}
+          <rect x={obj.x} y={obj.y} width={obj.w} height={obj.h} fill={color} fillOpacity={selected ? 0.12 : 0.04} stroke="none" />
+          {hatchLayer}
+          <rect x={obj.x} y={obj.y} width={obj.w} height={obj.h} {...common} fill="none" />
           {showLabel && label(obj.x, obj.y)}
           {selected && (
             <text x={obj.x + obj.w / 2} y={obj.y + obj.h + 14 / zoom} fontSize={10 / zoom} fill="#5f6b85" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
@@ -1057,8 +1102,9 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
     case 'circle':
       return (
         <g>
-          <circle cx={obj.cx} cy={obj.cy} r={obj.r} {...common} fill={color} fillOpacity={solidFill ? (selected ? 0.28 : 0.16) : selected ? 0.12 : 0.04} />
-          {hatchFill && <circle cx={obj.cx} cy={obj.cy} r={obj.r} fill={hatchFill} stroke="none" />}
+          <circle cx={obj.cx} cy={obj.cy} r={obj.r} fill={color} fillOpacity={selected ? 0.12 : 0.04} stroke="none" />
+          {hatchLayer}
+          <circle cx={obj.cx} cy={obj.cy} r={obj.r} {...common} fill="none" />
           <line x1={obj.cx - 5 / zoom} y1={obj.cy} x2={obj.cx + 5 / zoom} y2={obj.cy} stroke={color} strokeWidth={1 / zoom} />
           <line x1={obj.cx} y1={obj.cy - 5 / zoom} x2={obj.cx} y2={obj.cy + 5 / zoom} stroke={color} strokeWidth={1 / zoom} />
           {showLabel && label(obj.cx - obj.r, obj.cy - obj.r)}
@@ -1083,7 +1129,8 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
       const closed = isClosedPolyline(obj);
       return (
         <g>
-          {closed && <polygon points={obj.points.join(',')} fill={hatchFill ?? color} fillOpacity={hatchFill ? 1 : solidFill ? 0.16 : 0.04} stroke="none" />}
+          {closed && <polygon points={obj.points.join(',')} fill={color} fillOpacity={0.04} stroke="none" />}
+          {hatchLayer}
           <polyline points={obj.points.join(',')} fill="none" {...common} />
           <polyline points={obj.points.join(',')} fill="none" stroke="transparent" strokeWidth={10 / zoom} />
           {showLabel && label(obj.points[0], obj.points[1])}

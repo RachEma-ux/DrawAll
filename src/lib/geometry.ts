@@ -1,6 +1,6 @@
 // Moteur géométrique 2D de l'atelier : accrochages objet, intersections,
 // contrainte orthogonale et limites de vue. Les fonctions sont pures pour être testables.
-import type { BlockDef, CadObject, DimensionObj, Layer, PrimitiveObject } from '@/types/cad';
+import type { BlockDef, CadObject, DimensionObj, HatchParams, Layer, PrimitiveObject } from '@/types/cad';
 import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExtents } from '@/types/cad';
 import { normalizeAngle, textBounds } from '@/lib/text';
 import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } from '@/lib/arc';
@@ -627,7 +627,18 @@ function rotatePoint(px: number, py: number, cx: number, cy: number, rad: number
 }
 
 /** Rotation autour d'un centre, angle en degrés (sens trigonométrique, Y descendant). */
+/** Les hachures paramétrées suivent l'objet : l'angle tourne avec lui, le pas modèle suit l'échelle. */
+function withHatch(object: CadObject, patch: Partial<CadObject> | null, change: (h: HatchParams) => HatchParams): Partial<CadObject> | null {
+  if (!patch || !object.hatchParams) return patch;
+  return { ...patch, hatchParams: change(object.hatchParams) };
+}
+
 export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg: number): Partial<CadObject> | null {
+  // angleDeg > 0 : sens horaire à l'écran ; l'angle des hachures est antihoraire.
+  return withHatch(object, rotateObjectGeometry(object, cx, cy, angleDeg), h => ({ ...h, angle: norm360(h.angle - angleDeg) }));
+}
+
+function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDeg: number): Partial<CadObject> | null {
   const rad = (angleDeg * Math.PI) / 180;
   switch (object.kind) {
     case 'line': {
@@ -676,6 +687,10 @@ export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg
 
 /** Symétrie par rapport à un axe vertical ('x' = valeur X de l'axe) ou horizontal. */
 export function mirrorObject(object: CadObject, axis: 'x' | 'y', value: number): Partial<CadObject> {
+  return withHatch(object, mirrorObjectGeometry(object, axis, value), h => ({ ...h, angle: norm360(axis === 'x' ? 180 - h.angle : -h.angle) })) ?? {};
+}
+
+function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number): Partial<CadObject> {
   const mx = (v: number) => round(2 * value - v);
   switch (object.kind) {
     case 'line':
@@ -709,6 +724,10 @@ export function mirrorObject(object: CadObject, axis: 'x' | 'y', value: number):
 
 /** Homothétie depuis un centre fixe. */
 export function scaleObject(object: CadObject, cx: number, cy: number, factor: number): Partial<CadObject> | null {
+  return withHatch(object, scaleObjectGeometry(object, cx, cy, factor), h => (h.unit === 'modele' ? { ...h, spacing: h.spacing * factor } : h));
+}
+
+function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: number): Partial<CadObject> | null {
   if (!(factor > 0) || !Number.isFinite(factor)) return null;
   const s = (v: number, c: number) => round(c + (v - c) * factor);
   switch (object.kind) {

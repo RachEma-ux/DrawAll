@@ -102,7 +102,9 @@ export function withProfileBlocks(blocks: BlockDef[], profile: DrawingProfile): 
  * Primitives d'une occurrence telles qu'elles se dessinent : un contour fermé sans matériau ni motif
  * propres prend la hachure de l'occurrence (motif que le profil donne au matériau de l'occurrence).
  */
-export function occurrencePrimitives(block: BlockDef, ref: Pick<CadObject, 'hatch'>): PrimitiveObject[] {
+export function occurrencePrimitives(block: BlockDef, ref: Pick<CadObject, 'hatch' | 'hatchParams'>): PrimitiveObject[] {
   if (!ref.hatch || ref.hatch === 'none') return block.primitives;
-  return block.primitives.map(p => (!p.materialId && (p.hatch ?? 'none') === 'none' && canHatch(p) ? { ...p, hatch: ref.hatch } as PrimitiveObject : p));
+  return block.primitives.map(p => (!p.materialId && (p.hatch ?? 'none') === 'none' && canHatch(p)
+    ? { ...p, hatch: ref.hatch, ...(ref.hatchParams ? { hatchParams: ref.hatchParams } : {}) } as PrimitiveObject
+    : p));
 }

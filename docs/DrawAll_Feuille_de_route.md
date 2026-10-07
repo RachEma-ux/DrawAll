@@ -136,7 +136,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 2.5 Export PDF calibré et impression | Fait | #21 |
 | 2.6 Cotes avancées | Fait | #22 |
 | 3.1 Matériaux et profils de dessin | Fait | #23 |
-| 3.2 → 8.4 | À faire | — |
+| 3.2 Hachures paramétrées | Fait | #24 |
+| 3.3 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

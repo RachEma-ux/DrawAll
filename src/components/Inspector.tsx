@@ -1,9 +1,10 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
-import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchStyle, Layer, ViewReading } from '@/types/cad';
+import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchParams, HatchStyle, Layer, ViewReading } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
 import { formatLevel, pdimValues } from '@/lib/pdim';
+import { containedContours, hatchParamsOf } from '@/lib/hatch';
 import { MATERIALS, effectiveHatch, materialById, profileById, type DrawingProfile } from '@/lib/materials';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
 import {
@@ -257,6 +258,51 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
               ))}
             </div>
             )}
+            {effectiveHatch(obj, profile) !== 'none' && effectiveHatch(obj, profile) !== 'solid' && (() => {
+              const hp = hatchParamsOf(obj);
+              const set = (patch: Partial<HatchParams>, label: string) => onUpdate(obj.id, { hatchParams: { ...hp, ...patch } }, label);
+              const num = (key: 'angle' | 'spacing' | 'originX' | 'originY', label: string, unitLabel: string, min?: number) => (
+                <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                  {label}
+                  <span className="flex items-center gap-1">
+                    <input key={`${obj.id}-${key}-${hp[key] ?? 0}`} aria-label={`Hachures — ${label}`} defaultValue={String(hp[key] ?? 0).replace('.', ',')} inputMode="decimal"
+                      onBlur={e => { const v = Number(e.target.value.replace(',', '.')); if (Number.isFinite(v) && (min === undefined || v > min) && v !== (hp[key] ?? 0)) set({ [key]: v }, `Hachures : ${label.toLowerCase()}`); }}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                      className="w-16 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" />
+                    <span className="w-6">{unitLabel}</span>
+                  </span>
+                </label>
+              );
+              const candidates = containedContours(obj, objects);
+              return (
+                <div className="mt-2 space-y-1">
+                  {num('angle', 'Angle', '°')}
+                  {num('spacing', 'Pas', 'mm', 0)}
+                  <div className="grid grid-cols-2 gap-1" role="group" aria-label="Unité du pas">
+                    {(['papier', 'modele'] as const).map(u => (
+                      <button key={u} onClick={() => set({ unit: u }, u === 'papier' ? 'Hachures : pas papier' : 'Hachures : pas modèle')} aria-pressed={hp.unit === u}
+                        className={`rounded-sm border px-2 py-1 font-mono text-[10px] ${hp.unit === u ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                        {u === 'papier' ? 'Pas papier' : 'Pas modèle'}
+                      </button>
+                    ))}
+                  </div>
+                  {num('originX', 'Origine X', 'mm')}
+                  {num('originY', 'Origine Y', 'mm')}
+                  <div className="flex flex-wrap items-center gap-1 pt-1">
+                    <button disabled={candidates.length === 0} onClick={() => onUpdate(obj.id, { holes: candidates }, 'Hachures : îlots')}
+                      className="rounded-sm border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-30">
+                      Évider les contours contenus ({candidates.length})
+                    </button>
+                    {(obj.holes?.length ?? 0) > 0 && (
+                      <button onClick={() => onUpdate(obj.id, { holes: undefined }, 'Hachures : sans îlot')}
+                        className="rounded-sm border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:text-foreground">
+                        Retirer les îlots ({obj.holes!.length})
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 

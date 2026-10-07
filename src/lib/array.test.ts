@@ -100,3 +100,16 @@ describe('dépendances de copie', () => {
     expect(translation(5, 5)(ref)).toEqual({ x: 15, y: 5 });
   });
 });
+
+describe('îlots de hachure copiés', () => {
+  it('les îlots suivent la copie de leur contour, à chaque pose', () => {
+    const outer: CadObject = { ...base, id: 'OBJ-0010', kind: 'rect', x: 0, y: 0, w: 100, h: 100, hatch: 'diagonal', holes: ['OBJ-0011'] };
+    const inner: CadObject = { ...base, id: 'OBJ-0011', kind: 'circle', cx: 50, cy: 50, r: 10 };
+    const { objects } = cloneAll([outer, inner], [translation(200, 0), translation(400, 0)], 20, 0);
+    const [o1, i1, o2, i2] = objects;
+    expect(o1.holes).toEqual([i1.id]);
+    expect(o2.holes).toEqual([i2.id]);
+    // Contour copié sans son îlot : plus d'îlot.
+    expect(cloneAll([outer], [translation(5, 5)], 30, 0).objects[0].holes).toBeUndefined();
+  });
+});
