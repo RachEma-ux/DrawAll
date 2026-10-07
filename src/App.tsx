@@ -778,6 +778,8 @@ function Workbench() {
       profile={project.profile}
       surfaceRule={project.surfaceRule}
       onSurfaceRule={project.setSurfaceRule}
+      onAddViews={project.addViews}
+      onSelect={project.setSelectedId}
     />
   );
   const historyEl = (

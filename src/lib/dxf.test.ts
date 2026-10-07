@@ -486,3 +486,18 @@ describe('symboles et bibliothèque (lot 4.5)', () => {
     expect(report.transformed.join(' ')).toMatch(/Occurrences de blocs : 1/);
   });
 });
+
+describe('vues liées (lot 5.2)', () => {
+  it('arêtes vues, cachées (ACAD_ISO02W100) et axes (ACAD_ISO04W100), lisibles par ezdxf', () => {
+    const objs: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'Platine', kind: 'rect', x: 0, y: 0, w: 100, h: 60, holes: ['OBJ-0002'] },
+      { ...base, id: 'OBJ-0002', name: 'Perçage', kind: 'circle', cx: 50, cy: 30, r: 6.25 },
+      { ...base, id: 'OBJ-0003', name: 'Vues', kind: 'views', sourceId: 'OBJ-0001', depth: 10, gap: 20, top: true, side: true },
+    ];
+    const { content, report } = exportDxf(objs, layers, []);
+    keepFixture('vues-liees.dxf', content);
+    expect(content).toContain('\n6\nACAD_ISO02W100\n');
+    expect(content).toContain('\n6\nACAD_ISO04W100\n');
+    expect(report.transformed.join(' ')).toMatch(/Vues liées : 1/);
+  });
+});

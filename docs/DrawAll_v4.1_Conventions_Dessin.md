@@ -229,8 +229,25 @@ Les cotes par points ne sont pas associatives : leur valeur vient de leurs point
 Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:2020) et ISO 5456-2 (projections orthogonales).
 
 - La disposition des vues dépend de la méthode de projection : **premier dièdre** (usage européen) ou **troisième dièdre** (usage nord-américain, fréquent au Japon). Un même dessin ne s'interprète donc pas « partout de la même manière » sans cette indication ; la méthode figure dans le cartouche.
-- Méthode par défaut : **à décider** (proposition : premier dièdre).
-- Les vues et coupes automatiques ne sont pas encore implémentées.
+- Méthode par défaut : **à décider** (proposition : premier dièdre, appliquée en attendant la décision §7 de la feuille de route).
+
+### 6.1 Vues liées (règle, lot 5.2)
+
+- Une pièce prismatique est décrite par sa vue de face (contour fermé : rectangle, cercle ou polyligne fermée) et son épaisseur ; ses îlots sont des perçages débouchants. Ses vues de dessus et de côté sont calculées à partir de la face et recalculées à chaque modification de celle-ci.
+- Disposition (ISO 5456-2) :
+  - premier dièdre (ISO E) : vue de dessus sous la face, vue de gauche à droite de la face ;
+  - troisième dièdre (ISO A) : vue de dessus au-dessus de la face, vue de droite à droite de la face.
+  - L'écart entre les vues est réglable ; les vues restent alignées sur la face (rappels horizontaux et verticaux).
+- Traits (ISO 128-2) :
+  - arêtes vues en trait continu fort (0,5 mm) ;
+  - arêtes cachées en trait interrompu fin (0,25 mm) ;
+  - axes des perçages circulaires en trait mixte fin (0,18 mm), dépassant la vue.
+  - Une arête de la face parallèle à l'épaisseur est vue si elle est sur le bord de la face du côté de l'observateur, cachée sinon.
+- Les vues suivent leur face : elles ne se déplacent pas seules, partent avec elle à la suppression et sont copiées avec elle (comme les cotes et les ouvertures, qui suivent toujours leur parent).
+- Échanges :
+  - DXF : traits LINE aux types ACAD_ISO02W100 (caché) et ACAD_ISO04W100 (axe) ; le lien à la face est perdu ;
+  - PDF : traits à leurs épaisseurs et motifs papier.
+- Les coupes automatiques suivent (lot 5.3).
 
 ## 7. Échanges DXF
 

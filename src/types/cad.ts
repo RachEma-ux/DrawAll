@@ -3,7 +3,7 @@
 
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -210,7 +210,36 @@ export interface RoughnessObj extends Base {
   ra?: number;
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj;
+/**
+ * Vues liées (lot 5.2) : vue de dessus et vue de côté d'une pièce prismatique dont la vue de face est
+ * le contour `sourceId` (îlots = perçages débouchants) et l'épaisseur `depth`. Elles sont recalculées
+ * à chaque modification de la face et placées selon leur méthode de projection (absente = premier
+ * dièdre, décision §7 de la feuille de route).
+ */
+export interface ViewsObj extends Base {
+  kind: 'views';
+  sourceId: string;
+  depth: number;
+  gap: number;
+  top: boolean;
+  side: boolean;
+  method?: ProjectionMethod;
+}
+
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj;
+
+/** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
+export function parentOf(o: CadObject): string | null {
+  return o.kind === 'dimension' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' ? o.sourceId : null;
+}
+
+/** Même objet, rattaché à un autre parent (copie). */
+export function withParent<T extends CadObject>(o: T, parent: string): T {
+  if (o.kind === 'dimension') return { ...o, targetId: parent };
+  if (o.kind === 'opening') return { ...o, hostId: parent };
+  if (o.kind === 'views') return { ...o, sourceId: parent };
+  return o;
+}
 
 export interface BlockDef {
   id: string;              // identifiant stable BLQ-0001
@@ -331,6 +360,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   section: 'Repère de coupe',
   levelMark: 'Cote de niveau',
   roughness: 'État de surface',
+  views: 'Vues liées',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -413,6 +443,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'section': return `Coupe ${obj.label} · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'levelMark': return `Niveau ${fmt(obj.elevation / 1000)} m`;
     case 'roughness': return obj.ra !== undefined ? `Ra ${fmt(obj.ra, 3)} µm` : 'État de surface';
+    case 'views': return `Vues de ${obj.sourceId} · ép. ${fmt(obj.depth)} mm`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }

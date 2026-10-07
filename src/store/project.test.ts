@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeProjectState, normalizeSheets } from './project';
+import type { CadObject } from '@/types/cad';
+import { normalizeProjectState, normalizeSheets, withDependents } from './project';
 
 describe('normalisation du projet enregistré', () => {
   it('conserve les propriétés de trait des calques et des objets', () => {
@@ -79,5 +80,20 @@ describe('niveaux enregistrés (lot 4.4)', () => {
     expect(v.objects.map(o => o.levelId)).toEqual(['NIV-0002', 'NIV-0003', 'NIV-0003']);
     expect(v.sheets![0].viewports.map(vp => vp.levelId)).toEqual(['NIV-0003', 'NIV-0002']);
     expect(state.activeLevelId).toBe('NIV-0002');
+  });
+});
+
+describe('suppression en cascade (lot 5.2)', () => {
+  it('cotes, ouvertures et vues partent avec leur parent, de proche en proche', () => {
+    const b = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0, name: 'o' };
+    const objs: CadObject[] = [
+      { ...b, id: 'OBJ-0001', kind: 'wall', x1: 0, y1: 0, x2: 5000, y2: 0, thickness: 200, justification: 'axe' },
+      { ...b, id: 'OBJ-0002', kind: 'opening', hostId: 'OBJ-0001', type: 'porte', position: 1500, width: 900, hinge: 'debut', side: 'droite' },
+      { ...b, id: 'OBJ-0003', kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 400 },
+      { ...b, id: 'OBJ-0004', kind: 'rect', x: 0, y: 1000, w: 100, h: 60 },
+      { ...b, id: 'OBJ-0005', kind: 'views', sourceId: 'OBJ-0004', depth: 10, gap: 20, top: true, side: true },
+    ];
+    expect([...withDependents(objs, ['OBJ-0001'])].sort()).toEqual(['OBJ-0001', 'OBJ-0002', 'OBJ-0003']);
+    expect([...withDependents(objs, ['OBJ-0004'])].sort()).toEqual(['OBJ-0004', 'OBJ-0005']);
   });
 });

@@ -131,3 +131,27 @@ describe('ouvertures copiées avec leur mur', () => {
     expect(withDependencies([wall, door], ['OBJ-0010']).map(o => o.id)).toEqual(['OBJ-0010', 'OBJ-0011']);
   });
 });
+
+describe('objets associatifs copiés avec leur parent (lot 5.2)', () => {
+  const b = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0, name: 'o' };
+  const objs: CadObject[] = [
+    { ...b, id: 'OBJ-0001', kind: 'wall', x1: 0, y1: 0, x2: 5000, y2: 0, thickness: 200, justification: 'axe' },
+    { ...b, id: 'OBJ-0002', kind: 'opening', hostId: 'OBJ-0001', type: 'porte', position: 1500, width: 900, hinge: 'debut', side: 'droite' },
+    { ...b, id: 'OBJ-0003', kind: 'rect', x: 0, y: 1000, w: 100, h: 60 },
+    { ...b, id: 'OBJ-0004', kind: 'views', sourceId: 'OBJ-0003', depth: 10, gap: 20, top: true, side: true },
+  ];
+
+  it('copier une porte copie son mur ; copier une face copie ses vues', () => {
+    expect(withDependencies(objs, ['OBJ-0002']).map(o => o.id)).toEqual(['OBJ-0001', 'OBJ-0002']);
+    expect(withDependencies(objs, ['OBJ-0003']).map(o => o.id)).toEqual(['OBJ-0003', 'OBJ-0004']);
+  });
+
+  it('la copie de la porte est hébergée par la copie du mur, pas par le mur d’origine', () => {
+    const { objects: copies } = cloneAll(withDependencies(objs, ['OBJ-0001']), [translation(0, 3000)], 10, 1);
+    const wall = copies.find(o => o.kind === 'wall')!;
+    const door = copies.find(o => o.kind === 'opening');
+    expect(door).toMatchObject({ hostId: wall.id });
+    const { objects: viewCopies } = cloneAll(withDependencies(objs, ['OBJ-0003']), [translation(0, 3000)], 20, 1);
+    expect(viewCopies.find(o => o.kind === 'views')).toMatchObject({ sourceId: viewCopies.find(o => o.kind === 'rect')!.id });
+  });
+});

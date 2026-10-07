@@ -17,6 +17,7 @@ import {
   type PaperFormat,
   type Orientation,
   KIND_LABEL,
+  parentOf,
   polylineExtents,
   supportedDimensionStyles,
 } from '@/types/cad';
@@ -232,6 +233,16 @@ export function normalizeLevels(raw: unknown): Level[] | undefined {
   return out.length ? out : undefined;
 }
 
+/** Identifiants donnés et, de proche en proche, ceux des objets associatifs qui en dépendent. */
+export function withDependents(objects: CadObject[], ids: Iterable<string>): Set<string> {
+  const out = new Set(ids);
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const o of objects) { const p = parentOf(o); if (p && out.has(p) && !out.has(o.id)) { out.add(o.id); changed = true; } }
+  }
+  return out;
+}
+
 function load(): ProjectState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -359,15 +370,8 @@ export function useProject() {
 
   const removeObjects = useCallback((ids: string[]) => {
     if (ids.length === 0) return;
-    const removed = new Set(ids);
-    // Les cotes associatives dont la cible disparaît partent avec elle.
-    // Les ouvertures d'un mur supprimé partent avec lui.
-    for (const o of allObjects) {
-      if (o.kind === 'opening' && removed.has(o.hostId)) removed.add(o.id);
-    }
-    for (const o of allObjects) {
-      if (o.kind === 'dimension' && removed.has(o.targetId)) removed.add(o.id);
-    }
+    // Les objets associatifs (cotes, ouvertures, vues liées) partent avec leur parent.
+    const removed = withDependents(allObjects, ids);
     commit(ids.length === 1 ? `Supprimer ${ids[0]}` : `Supprimer ${ids.length} objets`, {
       objects: allObjects.filter(o => !removed.has(o.id)),
     });
@@ -435,7 +439,7 @@ export function useProject() {
     const removed = new Set<string>();
     if (edit.remove) {
       removed.add(id);
-      for (const o of allObjects) if (o.kind === 'dimension' && o.targetId === id) removed.add(o.id);
+      for (const d of withDependents(allObjects, [id])) removed.add(d);
     }
     const next = allObjects
       .filter(o => !removed.has(o.id))
@@ -532,6 +536,21 @@ export function useProject() {
       offset: 40,
     };
     commit(`Coter ${targetId}`, { objects: [...allObjects, dim], counter: state.counter + 1 });
+    setSelectedId(id);
+    return id;
+  }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
+
+  /** Vues liées (dessus et côté) d'une face fermée, d'épaisseur donnée, sur le calque et le niveau de la face. */
+  const addViews = useCallback((sourceId: string, depth: number) => {
+    const source = allObjects.find(o => o.id === sourceId);
+    if (!source || !(depth > 0)) return null;
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const views: CadObject = {
+      id, name: `Vues de ${source.name}`, kind: 'views', classification: source.classification, layerId: source.layerId, hatch: 'none',
+      createdSeq: current.seq, ...(source.levelId ? { levelId: source.levelId } : {}),
+      sourceId, depth, gap: Math.max(10, Math.round(depth * 2)), top: true, side: true,
+    };
+    commit(`Vues liées de ${sourceId}`, { objects: [...allObjects, views], counter: state.counter + 1 });
     setSelectedId(id);
     return id;
   }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
@@ -697,6 +716,9 @@ export function useProject() {
           out.push({ level: 'info', text: `${o.id} : style « ${o.style} » non applicable à ${target.id} — style par défaut utilisé.` });
         }
       }
+      if (o.kind === 'views' && !allObjects.some(t => t.id === o.sourceId)) {
+        out.push({ level: 'avertissement', text: `${o.id} : vues orphelines — face ${o.sourceId} absente.` });
+      }
       if (o.kind === 'blockRef' && !blocks.some(b => b.id === o.blockId)) {
         out.push({ level: 'avertissement', text: `${o.id} : occurrence orpheline — bloc ${o.blockId} absent.` });
       }
@@ -809,10 +831,9 @@ export function useProject() {
   const removeLevel = useCallback((id: string) => {
     if (levels.length <= 1 || !levels.some(l => l.id === id)) return false;
     const rest = levels.filter(l => l.id !== id);
-    const kept = allObjects.filter(o => levelIdOf(o) !== id);
-    const gone = new Set(allObjects.filter(o => levelIdOf(o) === id).map(o => o.id));
-    // Une cote ou une ouverture qui dépendait d'un objet supprimé part avec lui.
-    const objectsLeft = kept.filter(o => !(o.kind === 'dimension' && gone.has(o.targetId)) && !(o.kind === 'opening' && gone.has(o.hostId)));
+    // Un objet associatif qui dépendait d'un objet supprimé part avec lui.
+    const gone = withDependents(allObjects, allObjects.filter(o => levelIdOf(o) === id).map(o => o.id));
+    const objectsLeft = allObjects.filter(o => !gone.has(o.id));
     commit(`Supprimer niveau ${id}`, {
       levels: rest,
       objects: objectsLeft,
@@ -848,7 +869,7 @@ export function useProject() {
     addObject, updateObject, removeObject, removeObjects,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
+    addDimension, addViews, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };

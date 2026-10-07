@@ -19,6 +19,7 @@ import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import { occurrencePrimitives, profileById, withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { onLevel, viewportLevelId } from '@/lib/levels';
 import { isSymbol, symbolGeometry } from '@/lib/symbols';
+import { linkedViews } from '@/lib/views';
 
 export const MM_TO_PT = 72 / 25.4;
 
@@ -199,6 +200,16 @@ export function sheetToPdf(input: PdfInput): string {
       const layer = layers.find(l => l.id === o.layerId);
       if (o.kind === 'dimension') { drawDimension(o); continue; }
       if (o.kind === 'pdim') { drawPointDimension(o); continue; }
+      if (o.kind === 'views') {
+        const views = linkedViews(o, objects.find(s => s.id === o.sourceId), objects);
+        for (const v of views ?? []) {
+          for (const [segs, w, t] of [[v.visible, 0.5, 'continu'], [v.hidden, 0.25, 'interrompu'], [v.axes, 0.18, 'mixte']] as const) {
+            setStroke(w, lineTypeDef(t).pattern.map(x => Math.abs(x) * w));
+            for (const [x1, y1, x2, y2] of segs) { const p = toPdf({ x: x1, y: y1 }), q = toPdf({ x: x2, y: y2 }); out(`${n(p.x)} ${n(p.y)} m ${n(q.x)} ${n(q.y)} l S`); }
+          }
+        }
+        continue;
+      }
       if (isSymbol(o)) {
         // Symbole à sa taille papier : traits fins 0,25 mm / forts 0,7 mm, surfaces pleines, textes.
         const g = symbolGeometry(o, 1 / k);

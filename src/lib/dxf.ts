@@ -20,6 +20,7 @@ import { hatchAngles, hatchParamsOf } from '@/lib/hatch';
 import { DEFAULT_LINE_TYPE, DEFAULT_LINE_WEIGHT, LINE_TYPES, dxfLineWeight, lineTypeDef, lineTypeFromDxf } from '@/lib/linestyle';
 import { occurrencePrimitives } from '@/lib/materials';
 import { isSymbol, symbolGeometry } from '@/lib/symbols';
+import { linkedViews } from '@/lib/views';
 
 /** Écart maximal entre un arc et la polyligne qui l'approche, en millimètres. */
 export const ARC_TOLERANCE_MM = 0.05;
@@ -106,7 +107,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { room: 0, symbol: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { room: 0, symbol: 0, views: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -244,6 +245,28 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       }
       continue;
     }
+    if (object.kind === 'views') {
+      // Vues liées : arêtes vues (trait continu 0,5 mm), cachées (interrompu 0,25 mm), axes (mixte 0,18 mm).
+      const views = linkedViews(object, objects.find(o => o.id === object.sourceId), objects);
+      if (!views) continue;
+      counts.views++;
+      const own = style;
+      const write = (segs: [number, number, number, number][], st: typeof style) => {
+        style = st;
+        for (const [x1, y1, x2, y2] of segs) {
+          entityHeader('LINE', layer, 'AcDbLine');
+          push(10, n(x1)); push(20, n(-y1)); push(30, 0);
+          push(11, n(x2)); push(21, n(-y2)); push(31, 0);
+        }
+      };
+      for (const v of views) {
+        write(v.visible, { ...own, lineWeight: own.lineWeight ?? 0.5 });
+        write(v.hidden, { ...own, lineType: 'interrompu', lineWeight: 0.25 });
+        write(v.axes, { ...own, lineType: 'mixte', lineWeight: 0.18 });
+      }
+      style = own;
+      continue;
+    }
     if (isSymbol(object)) {
       // Symbole : taille papier convertie à l'échelle de la feuille ; traits, cercle, surfaces pleines
       // (SOLID) et textes.
@@ -343,6 +366,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (paperHatches) report.transformed.push(`Hachures à pas papier : ${paperHatches} → pas réel à l'échelle 1:${Math.round(hatchScale * 1000) / 1000} (le DXF ne connaît que le modèle).`);
   if (counts.rect) report.transformed.push(`Rectangles : ${counts.rect} → polylignes fermées (LWPOLYLINE).`);
   if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
+  if (counts.views) report.transformed.push(`Vues liées : ${counts.views} → traits (LINE) vus, cachés (ACAD_ISO02W100) et axes (ACAD_ISO04W100) ; le lien à la vue de face est perdu.`);
   if (counts.symbol) report.transformed.push(`Symboles (nord, repères de coupe, cotes de niveau, états de surface) : ${counts.symbol} → traits, cercles, surfaces pleines (SOLID) et textes, à la taille papier de l'échelle 1:${Math.round(hatchScale * 1000) / 1000}.`);
   if (counts.room) report.transformed.push(`Pièces : ${counts.room} → contour (LWPOLYLINE) et étiquette nom + surface (TEXT) ; la surface n'est plus recalculée.`);
   if (counts.opening) report.transformed.push(`Ouvertures : ${counts.opening} → traits et arcs (baies coupées dans les murs) ; le lien au mur est perdu.`);

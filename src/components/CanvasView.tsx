@@ -16,6 +16,7 @@ import type {
   PrimitiveObject,
   TextObj,
   ViewReading,
+  ViewsObj,
 } from '@/types/cad';
 import { CLASSIFICATION_META, dimensionValue, fmt, isClosedPolyline } from '@/types/cad';
 import {
@@ -44,6 +45,7 @@ import { hatchParamsOf, pointInLoop } from '@/lib/hatch';
 import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/lib/wall';
 import { openingGeometry, swingPath } from '@/lib/opening';
 import { areaM2, centroid, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
+import { distanceToViews, linkedViews } from '@/lib/views';
 import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol, isSymbol, symbolGeometry, type SymbolObject } from '@/lib/symbols';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
@@ -1097,6 +1099,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'views') return <ViewsShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (isSymbol(obj)) return <SymbolShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'room') return <RoomShape obj={obj} poly={rooms?.get(obj.id) ?? null} selected={selected} zoom={zoom} paperScale={paperScale} />;
   if (obj.kind === 'opening') {
@@ -1151,6 +1154,35 @@ function RoomShape({ obj, poly, selected, zoom, paperScale }: { obj: RoomObj; po
       <text x={c.x} y={c.y + size(13, 3.5) * 1.2} fontSize={size(11, 2.5)} fill={color} textAnchor="middle" fontFamily="JetBrains Mono, monospace" data-surface="">
         {formatM2(areaM2(poly))}
       </text>
+    </g>
+  );
+}
+
+/**
+ * Vues liées : arêtes vues en trait continu fort (0,5 mm), cachées en trait interrompu fin (0,25 mm),
+ * axes en trait mixte fin ; tailles papier sur une feuille, constantes à l'écran.
+ */
+function ViewsShape({ obj, objects, selected, zoom, layer, colorMode, paperScale }: {
+  obj: ViewsObj; objects: CadObject[]; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale;
+}) {
+  const views = linkedViews(obj, objects.find(o => o.id === obj.sourceId), objects);
+  if (!views) return null;
+  const st = effectiveStyle(obj, layer);
+  const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
+  const width = (mm: number, px: number) => (paperScale ? Math.max(strokeInModel(mm, paperScale), 0.5 / zoom) : px / zoom);
+  const dash = (t: 'interrompu' | 'mixte', mm: number, px: number) => (paperScale ? dashInModel(t, mm, paperScale) : screenDash(t, px)?.map(v => v / zoom))?.join(' ');
+  const lines = (segs: [number, number, number, number][], w: number, d?: string) => segs.map(([x1, y1, x2, y2], i) => (
+    <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={w} strokeDasharray={d} />
+  ));
+  return (
+    <g data-vues={obj.id}>
+      {views.map(v => (
+        <g key={v.kind} data-vue={v.kind}>
+          {lines(v.visible, width(0.5, 1.6))}
+          <g data-cache="">{lines(v.hidden, width(0.25, 1), dash('interrompu', 0.25, 1))}</g>
+          <g data-axe="">{lines(v.axes, width(0.18, 0.8), dash('mixte', 0.18, 0.8))}</g>
+        </g>
+      ))}
     </g>
   );
 }
@@ -1500,6 +1532,10 @@ function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], 
       if (geom && distanceSegment(x, y, geom.x1, geom.y1, geom.x2, geom.y2) <= tol) return o;
     }
     if (o.kind === 'text' && pointInText(o, x, y, tol)) return o;
+    if (o.kind === 'views') {
+      const v = linkedViews(o, allObjects.find(s => s.id === o.sourceId), allObjects);
+      if (v && distanceToViews(v, x, y) <= tol) return o;
+    }
     if (isSymbol(o)) {
       // Géométrie à la taille écran (tol ≈ 6 px) : le symbole se désigne par ses traits ou sa lettre.
       const g = symbolGeometry(o, (tol / 6) * SCREEN_PX_PER_PAPER_MM);
