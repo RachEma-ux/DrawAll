@@ -537,6 +537,8 @@ function Workbench() {
           {/* Zone de travail + commandes — repères permanents 2 et 3 */}
           <main className="relative flex min-w-0 flex-1 flex-col border-l border-border">
             <div className={`flex shrink-0 items-center gap-1 border-b border-border bg-[#0c1220]/60 px-2 py-1 ${compact ? '' : 'overflow-x-auto'}`}>
+              {/* Petit écran : les outils fréquents défilent si besoin, « Plus » reste toujours accessible à droite. */}
+              <div className={`flex items-center gap-1 ${compact ? 'min-w-0 flex-1 overflow-x-auto' : 'contents'}`}>
               {(compact ? primaryTools : visibleTools).map(t => (
                 <button
                   key={t.id}
@@ -550,12 +552,13 @@ function Workbench() {
                   {compact && t.short ? t.short : t.label} <span className="hidden opacity-50 2xl:inline">{t.key}</span>
                 </button>
               ))}
+              </div>
               {compact && (
                 <button
                   onClick={() => setMoreOpen(o => !o)}
                   aria-expanded={moreOpen}
                   aria-label="Plus d’outils"
-                  className={`ml-auto shrink-0 whitespace-nowrap rounded-sm border px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] ${
+                  className={`shrink-0 whitespace-nowrap rounded-sm border px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] ${
                     moreTools.some(t => t.id === tool) ? 'border-cyan-400 bg-cyan-400 text-[#050810]' : moreOpen ? 'border-cyan-400/60 text-cyan-300' : 'border-border text-muted-foreground'
                   }`}
                 >

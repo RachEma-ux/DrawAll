@@ -80,6 +80,16 @@ test.describe('Atelier — téléphone', () => {
     expect(after).toBeGreaterThanOrEqual(viewport * 0.85);
   });
 
+  test('« Plus » reste accessible sur un écran de 320 px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await openAtelier(page);
+    const plus = page.getByRole('button', { name: 'Plus d’outils' });
+    const box = (await plus.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(320);
+    await plus.click();
+    await expect(page.getByTestId('more-tools')).toBeVisible();
+  });
+
   test('les outils secondaires sont dans « Plus »', async ({ page }) => {
     await openAtelier(page);
     for (const name of [/^Sélection/, /^Ligne/, /^Rectangle/, /^Cercle/, /^Polyligne/]) {
