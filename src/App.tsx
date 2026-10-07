@@ -16,16 +16,18 @@ import NotFound from '@/pages/NotFound';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { useProject } from '@/store/project';
-import type { DisplayLevel, ViewReading } from '@/types/cad';
+import type { CadObject, DisplayLevel, ViewReading } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
 import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
+import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
+import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
-import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, selectionCenter } from '@/lib/geometry';
+import { mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
 
 /** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
 const COMPACT_BREAKPOINT = 1024;
@@ -156,6 +158,59 @@ function Workbench() {
     project.duplicateObjects(selection);
   }, [project, selection]);
 
+  /** Message bref affiché sur le canevas (sans boîte de dialogue). */
+  const flash = useCallback((text: string) => {
+    setNotice(text);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 3500);
+  }, []);
+
+  // Presse-papiers interne : instantané des objets copiés (et des cotes qui les suivent).
+  const [clipboard, setClipboard] = useState<CadObject[] | null>(null);
+  const pasteCount = useRef(0);
+  const copySelection = useCallback(() => {
+    if (selection.length === 0) return;
+    const copied = withDependencies(project.objects, selection);
+    setClipboard(copied);
+    pasteCount.current = 0;
+    flash(`${copied.length} objet${copied.length > 1 ? 's' : ''} copié${copied.length > 1 ? 's' : ''}.`);
+  }, [project.objects, selection, flash]);
+
+  /** Colle au pointeur s'il est sur le canevas, sinon avec un décalage de 20 mm par collage. */
+  const pasteClipboard = useCallback(() => {
+    if (!clipboard || clipboard.length === 0) return;
+    // Une occurrence dont le bloc n'existe pas dans ce projet ou cette version n'est pas collée.
+    const pastable = clipboard.filter(o => o.kind !== 'blockRef' || project.blocks.some(b => b.id === o.blockId));
+    const orphans = clipboard.length - pastable.length;
+    if (orphans > 0) flash(`${orphans} occurrence${orphans > 1 ? 's' : ''} de bloc non collée${orphans > 1 ? 's' : ''} : bloc absent de ce projet.`);
+    if (pastable.length === 0) return;
+    let dx: number, dy: number;
+    const b = unionBounds(pastable.map(o => objectBounds(o, project.blocks, pastable)).filter((x): x is NonNullable<typeof x> => !!x));
+    if (cursor.x !== null && cursor.y !== null && b) {
+      dx = cursor.x - b.minX;
+      dy = cursor.y - b.minY;
+    } else {
+      pasteCount.current += 1;
+      dx = dy = 20 * pasteCount.current;
+    }
+    project.addCopies(pastable, [translation(dx, dy)], 'Coller');
+  }, [clipboard, cursor, project, flash]);
+
+  const [arrayMode, setArrayMode] = useState<'rect' | 'polar' | null>(null);
+  const applyArray = useCallback((p: ArrayParams): string | null => {
+    const sources = withDependencies(project.objects, selection);
+    if (sources.length === 0) return 'Sélectionnez d’abord les objets à répéter.';
+    if (p.mode === 'polar' && sources.some(o => o.kind === 'blockRef')) {
+      return 'Les occurrences de blocs ne peuvent pas encore tourner : retirez-les de la sélection pour un réseau polaire.';
+    }
+    const out = p.mode === 'rect'
+      ? rectangularArray(p.rows, p.cols, p.dx, p.dy, sources.length)
+      : polarArray(p.count, p.angle, p.cx, p.cy, sources.length);
+    if (!out.ok) return out.error;
+    const created = project.addCopies(sources, out.placements, p.mode === 'rect' ? 'Réseau rectangulaire' : 'Réseau polaire');
+    return created.length > 0 ? null : 'Aucune copie possible (calque verrouillé ?).';
+  }, [project, selection]);
+
   const selectAll = useCallback(() => {
     const ids = project.objects
       .filter(o => project.layers.find(l => l.id === o.layerId)?.visible !== false)
@@ -252,12 +307,6 @@ function Workbench() {
     project.updateObject(id, { content: content.trim() }, 'Modifier texte');
   }, [project]);
 
-  /** Message bref affiché sur le canevas (sans boîte de dialogue). */
-  const flash = useCallback((text: string) => {
-    setNotice(text);
-    window.clearTimeout(noticeTimer.current);
-    noticeTimer.current = window.setTimeout(() => setNotice(null), 3500);
-  }, []);
 
   // Ajuster / prolonger : toutes les autres entités visibles servent d'arêtes.
   const trimExtend = useCallback((mode: 'trim' | 'extend', id: string, x: number, y: number) => {
@@ -446,6 +495,10 @@ function Workbench() {
     { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
     { id: 'edit-dup', title: 'Dupliquer la sélection', hint: 'Copie décalée de 20 mm (Ctrl+D)', keywords: ['dupliquer', 'copier', 'copie', 'duplicate', 'copy'], run: duplicateSelection },
+    { id: 'edit-copy', title: 'Copier la sélection', hint: 'Presse-papiers interne (Ctrl+C)', keywords: ['copier', 'copy', 'presse-papiers'], run: copySelection },
+    { id: 'edit-paste', title: 'Coller', hint: 'Au pointeur, ou décalé de 20 mm (Ctrl+V)', keywords: ['coller', 'paste', 'presse-papiers'], run: pasteClipboard },
+    { id: 'edit-array-rect', title: 'Réseau rectangulaire', hint: 'Copies en lignes et colonnes', keywords: ['reseau', 'repetition', 'array', 'grille', 'matrice'], run: () => setArrayMode('rect') },
+    { id: 'edit-array-polar', title: 'Réseau polaire', hint: 'Copies réparties autour d’un centre', keywords: ['reseau', 'polaire', 'circulaire', 'array', 'rotation'], run: () => setArrayMode('polar') },
     { id: 'edit-rot90', title: 'Rotation +90°', hint: 'Pivote la sélection autour de son centre', keywords: ['rotation', 'pivoter', 'tourner', 'rotate'], run: () => rotateSelection(90) },
     { id: 'edit-rot-90', title: 'Rotation −90°', hint: 'Pivote la sélection autour de son centre', keywords: ['rotation', 'pivoter', 'tourner', 'rotate'], run: () => rotateSelection(-90) },
     { id: 'edit-mirror-h', title: 'Miroir horizontal', hint: 'Symétrie autour de l’axe horizontal de la sélection', keywords: ['miroir', 'symetrie', 'mirror', 'flip'], run: () => mirrorSelection('y') },
@@ -480,6 +533,8 @@ function Workbench() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAll(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelection(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && project.selectedIds.length > 0) { project.removeObjects(project.selectedIds); return; }
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && project.selectedIds.length > 0) {
         e.preventDefault();
@@ -495,7 +550,7 @@ function Workbench() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, nudgeSelection]);
+  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, copySelection, pasteClipboard, nudgeSelection]);
 
   const visibleTools = TOOLS.filter(t => t.levels.includes(level));
   const primaryTools = visibleTools.filter(t => PRIMARY_TOOLS.includes(t.id));
@@ -727,12 +782,16 @@ function Workbench() {
             )}
 
             {/* Barre d'édition — opérations sur la sélection */}
-            <div className={`shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#0a0f1c]/80 px-2 py-1 lg:flex lg:flex-wrap ${compact && !hasSelection ? 'hidden' : 'flex'}`}>
+            <div className={`shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#0a0f1c]/80 px-2 py-1 lg:flex lg:flex-wrap ${compact && !hasSelection && !clipboard ? 'hidden' : 'flex'}`}>
               <span className="shrink-0 whitespace-nowrap px-1 font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground/70">
                 Édition{hasSelection ? ` — ${selection.length} objet${selection.length > 1 ? 's' : ''}` : ''}
               </span>
               {([
+                { label: 'Copier', hint: 'Ctrl+C — presse-papiers interne', run: copySelection },
+                { label: 'Coller', hint: 'Ctrl+V — au pointeur, ou décalé de 20 mm', run: pasteClipboard, always: true },
                 { label: 'Dupliquer', hint: 'Ctrl+D', run: duplicateSelection },
+                { label: 'Réseau rect.', hint: 'Copies en lignes et colonnes, au pas saisi', run: () => setArrayMode('rect') },
+                { label: 'Réseau polaire', hint: 'Copies réparties autour d’un centre', run: () => setArrayMode('polar') },
                 { label: '↺ −90°', hint: 'Rotation anti-horaire autour du centre de la sélection', run: () => rotateSelection(-90) },
                 { label: '↻ +90°', hint: 'Rotation horaire autour du centre de la sélection', run: () => rotateSelection(90) },
                 { label: 'Miroir H', hint: 'Symétrie par rapport à l’axe horizontal de la sélection', run: () => mirrorSelection('y') },
@@ -746,7 +805,7 @@ function Workbench() {
                 <button
                   key={a.label}
                   onClick={a.run}
-                  disabled={!hasSelection}
+                  disabled={'always' in a ? !clipboard : !hasSelection}
                   title={a.hint}
                   className="shrink-0 whitespace-nowrap rounded-sm px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors lg:py-1 disabled:cursor-not-allowed disabled:opacity-30 enabled:text-muted-foreground enabled:hover:bg-accent enabled:hover:text-foreground"
                 >
@@ -900,6 +959,9 @@ function Workbench() {
         onUseCloudVersion={useCloudVersion}
         onKeepLocalVersion={keepLocalVersion}
       />
+      {arrayMode && (
+        <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
+      )}
       <CommandPalette key={paletteOpen ? 'open' : 'closed'} open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} onOpenRequirement={openRequirement} />
 
     </div>

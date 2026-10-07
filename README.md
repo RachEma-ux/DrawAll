@@ -6,7 +6,7 @@ Application web de dessin technique, de versionnement de projet et de documentat
 
 Cette branche contient une application full-stack :
 
-- **Atelier 2D** : lignes, rectangles, cercles, arcs (3 points ou centre), polylignes, textes, calques, blocs, hachures, cotes associatives et mesures ; édition par ajuster (couper à une arête), prolonger (jusqu’à une arête), congé (rayon saisi) et chanfrein (deux distances).
+- **Atelier 2D** : lignes, rectangles, cercles, arcs (3 points ou centre), polylignes, textes, calques, blocs, hachures, cotes associatives et mesures ; édition par ajuster (couper à une arête), prolonger (jusqu’à une arête), congé (rayon saisi), chanfrein (deux distances), copier-coller (presse-papiers interne) et réseaux rectangulaire et polaire.
 - **Précision de dessin** : accrochage objet (extrémités, milieux, centres, quadrants, intersections), grille 10 mm, mode ortho, saisie de coordonnées X/Y, zoom, panoramique et ajustement de vue.
 - **Interopérabilité DXF** : import `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE` (courbes comprises) avec conversion d’unités ; export DXF R2000 lisible par les lecteurs stricts, hachures comprises ; rapport conservé / transformé / perdu à chaque échange.
 - **Comptes et persistance cloud** : connexion Kimi, projets en base MySQL, révisions optimistes et résolution explicite des conflits.
