@@ -126,7 +126,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 1.5 Congé et chanfrein | Fait | #11 |
 | 1.6 Copier, coller, réseaux | Fait | #12 |
 | 1.7 Saisie précise | Fait | #13 |
-| 1.8 → 8.4 | À faire | — |
+| 1.8 Accrochages complémentaires | Fait | #14 |
+| 1.9 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

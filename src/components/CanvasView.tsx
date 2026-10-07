@@ -24,6 +24,7 @@ import {
   projectBounds,
   snapLabel,
   type Point,
+  type ObjectSnapType,
   type SnapPoint,
 } from '@/lib/geometry';
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
@@ -38,6 +39,8 @@ interface Props {
   gridSize: number;
   /** Change quand le projet est remplacé (réinitialisation, chargement) : oublie tracé et dernier point. */
   projectKey?: number;
+  /** Types d'accrochage objet actifs. */
+  snapTypes: readonly ObjectSnapType[];
   /** Unité d'affichage et de saisie ; le modèle reste en millimètres. */
   displayUnit: DisplayUnit;
   layers: Layer[];
@@ -109,6 +112,7 @@ export default function CanvasView({
   onMoveMany,
   gridSize,
   projectKey,
+  snapTypes,
   displayUnit,
   onCursor,
   onSnapChange,
@@ -171,14 +175,15 @@ export default function CanvasView({
   const resolvePoint = useCallback((point: Point, orthoOrigin?: Point): SnapPoint => {
     const tolerance = Math.max((coarse.current ? 18 : 8) / tf.k, 4);
     let snapped = snapEnabled
-      ? findSnap(objects, layers, blocks, point.x, point.y, tolerance, gridSize)
+      // Perpendiculaire et tangent partent du point précédent d'un tracé en cours.
+      ? findSnap(objects, layers, blocks, point.x, point.y, tolerance, gridSize, { types: snapTypes, from: activeDraft ? orthoOrigin : undefined })
       : { x: gridSnap(point.x, gridSize), y: gridSnap(point.y, gridSize), type: 'grid' as const, label: 'Grille', distance: 0 };
     if (orthoEnabled && orthoOrigin && snapped.type === 'grid') {
       const constrained = constrainOrtho(orthoOrigin, snapped);
       snapped = { ...snapped, x: constrained.x, y: constrained.y, label: 'Ortho' };
     }
     return snapped;
-  }, [blocks, layers, objects, orthoEnabled, snapEnabled, tf.k, gridSize]);
+  }, [blocks, layers, objects, orthoEnabled, snapEnabled, tf.k, gridSize, snapTypes, activeDraft]);
 
   const updateHover = useCallback((point: Point | null) => {
     if (!point) {
