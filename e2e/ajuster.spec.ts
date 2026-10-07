@@ -1,12 +1,5 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { chooseTool, currentObjects, isPhone, loadObjects, openAtelier, toScreen, touch } from './helpers';
-
-async function tapModel(page: Page, info: TestInfo, x: number, y: number) {
-  const at = await toScreen(page, x, y);
-  if (isPhone(info)) await (await touch(page)).tap(at);
-  else await page.mouse.click(at.x, at.y);
-  await page.waitForTimeout(100);
-}
+import { expect, test } from '@playwright/test';
+import { chooseTool, currentObjects, loadObjects, openAtelier, tapModel } from './helpers';
 
 const scene = [
   { id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 400, y2: 0 },

@@ -29,7 +29,7 @@ import {
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -54,6 +54,8 @@ interface Props {
   onEditText: (id: string) => void;
   /** Ajuster ou prolonger l'objet désigné au point donné. */
   onTrimExtend: (mode: 'trim' | 'extend', id: string, x: number, y: number) => void;
+  /** Congé ou chanfrein entre deux lignes, chacune désignée du côté à conserver. */
+  onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -97,12 +99,17 @@ export default function CanvasView({
   onPlaceText,
   onEditText,
   onTrimExtend,
+  onCorner,
   onMoveMany,
   onCursor,
   onSnapChange,
   onZoomChange,
 }: Props) {
   const ref = useRef<SVGSVGElement>(null);
+  const cornerPick = useRef<{ tool: ToolId; id: string; x: number; y: number } | null>(null);
+  // Une première ligne désignée ne vaut que pour le modèle affiché : tout changement d'outil,
+  // d'objets (édition, annulation, version) l'oublie.
+  useEffect(() => { cornerPick.current = null; }, [tool, objects]);
   const [tf, setTf] = useState({ x: 60, y: 40, k: 1 });
   const [draft, setDraft] = useState<Draft | null>(null);
   const activeDraft = draft && (
@@ -259,6 +266,20 @@ export default function CanvasView({
       // Désigner la portion à retirer (ajuster) ou l'extrémité à prolonger.
       const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
       if (hit) onTrimExtend(tool, hit.id, w.x, w.y);
+      return;
+    }
+    if (tool === 'fillet' || tool === 'chamfer') {
+      // Première ligne puis seconde, chacune touchée du côté à conserver.
+      const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
+      if (!hit) return;
+      const first = cornerPick.current;
+      if (!first || first.tool !== tool || first.id === hit.id) {
+        cornerPick.current = { tool, id: hit.id, x: w.x, y: w.y };
+        onSelectMany([hit.id]);
+        return;
+      }
+      cornerPick.current = null;
+      onCorner(tool, first, { id: hit.id, x: w.x, y: w.y });
       return;
     }
     if (tool === 'select') {
