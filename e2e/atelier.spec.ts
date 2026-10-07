@@ -46,7 +46,7 @@ test.describe('Atelier — téléphone', () => {
 
   test('le pincement zoome sans modifier le dessin', async ({ page }) => {
     await openAtelier(page);
-    await chooseTool(page, /^Bloc/).catch(() => undefined);
+    await chooseTool(page, /^Bloc/);
     const before = await objectCount(page);
     const zoomBefore = await zoomPercent(page);
     await (await touch(page)).pinch(await canvasPoint(page, 0.5, 0.5));
@@ -56,16 +56,55 @@ test.describe('Atelier — téléphone', () => {
 
   test('le navigateur du projet est plié par défaut et se déplie', async ({ page }) => {
     await openAtelier(page);
-    const expand = page.getByRole('button', { name: 'Déplier le navigateur du projet' });
+    const expand = page.getByRole('button', { name: 'Déplier le navigateur du projet', exact: true });
     await expect(expand).toBeVisible();
     await expand.click();
     await expect(page.getByText('Mur porteur A')).toBeVisible();
-    await page.getByRole('button', { name: 'Plier le navigateur du projet' }).click();
+    await page.getByRole('button', { name: 'Plier le navigateur du projet', exact: true }).click();
     await expect(expand).toBeVisible();
   });
 
   test('le dessin est cadré à l’ouverture', async ({ page }) => {
     await openAtelier(page);
+    expect(await zoomPercent(page)).toBeGreaterThanOrEqual(25);
+  });
+
+  test('le navigateur déplié passe par-dessus le canevas sans le réduire', async ({ page }) => {
+    await openAtelier(page);
+    const before = (await page.getByTestId('canvas').boundingBox())!.width;
+    await page.getByRole('button', { name: 'Déplier le navigateur du projet', exact: true }).click();
+    await expect(page.getByTestId('navigator-overlay')).toBeVisible();
+    const after = (await page.getByTestId('canvas').boundingBox())!.width;
+    expect(after).toBeGreaterThanOrEqual(before * 0.9);
+    const viewport = page.viewportSize()!.width;
+    expect(after).toBeGreaterThanOrEqual(viewport * 0.85);
+  });
+
+  test('les outils secondaires sont dans « Plus »', async ({ page }) => {
+    await openAtelier(page);
+    for (const name of [/^Sélection/, /^Ligne/, /^Rectangle/, /^Cercle/, /^Polyligne/]) {
+      await expect(page.getByRole('button', { name }).first()).toBeVisible();
+    }
+    await chooseTool(page, /^Mesure/);
+    await expect(page.getByRole('button', { name: 'Plus d’outils' })).toContainText('Mesure');
+    await page.getByRole('button', { name: 'Plus d’outils' }).click();
+    await page.getByTestId('more-tools').getByRole('button', { name: /^Ortho/ }).click();
+    await expect(page.getByTestId('more-tools').getByRole('button', { name: /^Ortho/ })).toContainText('inactif');
+  });
+});
+
+test.describe('Atelier — cadrage', () => {
+  test('« Ajuster » cadre les objets visibles, calque masqué compris', async ({ page }) => {
+    await openAtelier(page);
+    if (await page.getByRole('button', { name: 'Déplier le navigateur du projet', exact: true }).isVisible()) {
+      await page.getByRole('button', { name: 'Déplier le navigateur du projet', exact: true }).click();
+    }
+    // Masquer le calque « Équipements » (bouton VIS de sa ligne).
+    await page.getByText('Équipements', { exact: true }).locator('xpath=..').getByRole('button', { name: /^VIS$/ }).click();
+    if (await page.getByRole('button', { name: 'Plier le navigateur du projet', exact: true }).isVisible()) {
+      await page.getByRole('button', { name: 'Plier le navigateur du projet', exact: true }).click();
+    }
+    await page.getByRole('button', { name: 'Ajuster' }).click();
     expect(await zoomPercent(page)).toBeGreaterThanOrEqual(25);
   });
 });
@@ -76,7 +115,7 @@ test.describe('Atelier — ordinateur', () => {
   test('le navigateur du projet est déplié par défaut et se plie', async ({ page }) => {
     await openAtelier(page);
     await expect(page.getByText('Mur porteur A')).toBeVisible();
-    await page.getByRole('button', { name: 'Plier le navigateur du projet' }).click();
-    await expect(page.getByRole('button', { name: 'Déplier le navigateur du projet' })).toBeVisible();
+    await page.getByRole('button', { name: 'Plier le navigateur du projet', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Déplier le navigateur du projet', exact: true })).toBeVisible();
   });
 });

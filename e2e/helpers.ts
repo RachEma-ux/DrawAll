@@ -34,9 +34,15 @@ export async function zoomPercent(page: Page): Promise<number> {
   return Number(text?.match(/(\d+)/)?.[1] ?? NaN);
 }
 
-/** Choisit un outil de la barre d'outils. */
+/** Choisit un outil : barre d'outils, ou menu « Plus » sur petit écran. */
 export async function chooseTool(page: Page, label: RegExp) {
-  await page.getByRole('button', { name: label }).first().click();
+  const direct = page.getByRole('button', { name: label }).first();
+  if (await direct.isVisible().catch(() => false)) {
+    await direct.click();
+    return;
+  }
+  await page.getByRole('button', { name: 'Plus d’outils' }).click();
+  await page.getByTestId('more-tools').getByRole('button', { name: label }).first().click();
 }
 
 /** Gestes tactiles bas niveau (CDP) : un doigt ou deux. */
