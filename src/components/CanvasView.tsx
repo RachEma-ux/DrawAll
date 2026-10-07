@@ -28,11 +28,16 @@ import {
 } from '@/lib/geometry';
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
+import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 
 export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'pan';
 
 interface Props {
   objects: CadObject[];
+  /** Pas de la grille d'accrochage (mm). */
+  gridSize: number;
+  /** Unité d'affichage et de saisie ; le modèle reste en millimètres. */
+  displayUnit: DisplayUnit;
   layers: Layer[];
   blocks: BlockDef[];
   activeLayerId: string;
@@ -62,7 +67,6 @@ interface Props {
   onZoomChange: (k: number) => void;
 }
 
-const GRID = 10;
 
 /** Les points d'un arc ne sont pas contraints par Ortho (ils seraient alignés). */
 function isArcDraft(d: { kind: string } | null): boolean {
@@ -101,6 +105,8 @@ export default function CanvasView({
   onTrimExtend,
   onCorner,
   onMoveMany,
+  gridSize,
+  displayUnit,
   onCursor,
   onSnapChange,
   onZoomChange,
@@ -118,7 +124,15 @@ export default function CanvasView({
     ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle' || draft.kind === 'arc' || draft.kind === 'arcCenter') && draft.kind === tool)
   ) ? draft : null;
   const [hoverSnap, setHoverSnap] = useState<SnapPoint | null>(null);
-  const [coord, setCoord] = useState({ x: '', y: '' });
+  const [pointText, setPointText] = useState('');
+  const [pointError, setPointError] = useState<string | null>(null);
+  /** Dernier point posé (souris, doigt ou saisie) : origine des saisies relatives @. */
+  const lastPlaced = useRef<Point | null>(null);
+  const applyPointRef = useRef<(text: string) => void>(() => {});
+  const [pointFocused, setPointFocused] = useState(false);
+  /** Longueur affichée dans l'unité choisie. */
+  const showNum = (mm: number) => fmt(fromMm(mm, displayUnit), unitDecimals(displayUnit));
+  const showLen = (mm: number) => `${showNum(mm)} ${displayUnit}`;
   const [lengthInput, setLengthInput] = useState('');
   const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const drag = useRef<{
@@ -153,14 +167,14 @@ export default function CanvasView({
   const resolvePoint = useCallback((point: Point, orthoOrigin?: Point): SnapPoint => {
     const tolerance = Math.max((coarse.current ? 18 : 8) / tf.k, 4);
     let snapped = snapEnabled
-      ? findSnap(objects, layers, blocks, point.x, point.y, tolerance, GRID)
-      : { x: gridSnap(point.x, GRID), y: gridSnap(point.y, GRID), type: 'grid' as const, label: 'Grille', distance: 0 };
+      ? findSnap(objects, layers, blocks, point.x, point.y, tolerance, gridSize)
+      : { x: gridSnap(point.x, gridSize), y: gridSnap(point.y, gridSize), type: 'grid' as const, label: 'Grille', distance: 0 };
     if (orthoEnabled && orthoOrigin && snapped.type === 'grid') {
       const constrained = constrainOrtho(orthoOrigin, snapped);
       snapped = { ...snapped, x: constrained.x, y: constrained.y, label: 'Ortho' };
     }
     return snapped;
-  }, [blocks, layers, objects, orthoEnabled, snapEnabled, tf.k]);
+  }, [blocks, layers, objects, orthoEnabled, snapEnabled, tf.k, gridSize]);
 
   const updateHover = useCallback((point: Point | null) => {
     if (!point) {
@@ -198,6 +212,7 @@ export default function CanvasView({
 
   const commitDraft = useCallback((d: Draft) => {
     if (!activeLayer || activeLayer.locked) return;
+    lastPlaced.current = { x: d.cx, y: d.cy };
     const base = { classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none' as const };
     if (d.kind === 'line') {
       if (Math.hypot(d.cx - d.sx, d.cy - d.sy) > MIN_LENGTH) onAdd({ ...base, kind: 'line', x1: d.sx, y1: d.sy, x2: d.cx, y2: d.cy });
@@ -222,6 +237,7 @@ export default function CanvasView({
 
   const startOrContinueDraft = useCallback((point: SnapPoint) => {
     if (!activeLayer || activeLayer.locked) return;
+    lastPlaced.current = { x: point.x, y: point.y };
     if (tool === 'polyline') {
       setDraft(d => {
         if (d?.kind === 'polyline') return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
@@ -414,7 +430,9 @@ export default function CanvasView({
 
   /** Saisie directe de longueur : fixe l'extrémité courante à L mm le long de l'angle en cours. */
   const applyLength = useCallback(() => {
-    const L = Number(lengthInput.replace(',', '.'));
+    // Une saisie de point (x;y, @dx;dy, @L<angle) tapée dans ce champ est traitée comme telle.
+    if (/[;<@]/.test(lengthInput)) { applyPointRef.current(lengthInput); return; }
+    const L = parseLength(lengthInput, displayUnit);
     if (!Number.isFinite(L) || L <= 0 || !activeDraft) return;
     const ox = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
       ? activeDraft.points[activeDraft.points.length - 2] : activeDraft.sx;
@@ -424,6 +442,7 @@ export default function CanvasView({
     const ex = Math.round((ox + Math.cos(angle) * L) * 1000) / 1000;
     const ey = Math.round((oy + Math.sin(angle) * L) * 1000) / 1000;
     setLengthInput('');
+    lastPlaced.current = { x: ex, y: ey };
     if (activeDraft.kind === 'polyline') {
       setDraft(d => (d?.kind === 'polyline' ? { ...d, points: [...d.points, ex, ey], cx: ex, cy: ey } : d));
       return;
@@ -439,7 +458,7 @@ export default function CanvasView({
       commitDraft({ ...activeDraft, cx: ex, cy: ey });
       setDraft(null);
     }
-  }, [lengthInput, activeDraft, activeLayer, onAdd, commitDraft]);
+  }, [lengthInput, activeDraft, activeLayer, onAdd, commitDraft, displayUnit]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -451,7 +470,7 @@ export default function CanvasView({
         finishPolyline();
       }
       // Saisie dynamique : les chiffres tapés pendant un tracé alimentent la longueur directe.
-      if (activeDraft && activeDraft.kind !== 'measure' && /^[0-9.,]$/.test(e.key)) {
+      if (activeDraft && activeDraft.kind !== 'measure' && /^[0-9.,;<@-]$/.test(e.key)) {
         setLengthInput(v => v + e.key);
       }
       if (activeDraft && e.key === 'Backspace') setLengthInput(v => v.slice(0, -1));
@@ -460,10 +479,23 @@ export default function CanvasView({
     return () => window.removeEventListener('keydown', onKey);
   }, [finishPolyline, activeDraft, lengthInput, applyLength]);
 
-  const applyPrecisePoint = () => {
-    const x = Number(coord.x.replace(',', '.'));
-    const y = Number(coord.y.replace(',', '.'));
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  /** Dernier point du tracé en cours, sinon dernier point posé. */
+  const lastPoint = (): Point | null => {
+    const d = activeDraft;
+    if (d && (d.kind === 'polyline' || d.kind === 'arc' || d.kind === 'arcCenter') && d.points.length >= 2) {
+      return { x: d.points[d.points.length - 2], y: d.points[d.points.length - 1] };
+    }
+    if (d) return { x: d.sx, y: d.sy };
+    return lastPlaced.current;
+  };
+
+  const applyPrecisePoint = (text = pointText) => {
+    const parsed = parsePointInput(text, lastPoint(), displayUnit);
+    if (!parsed.ok) { setPointError(parsed.error); return; }
+    setPointError(null);
+    setPointText('');
+    setLengthInput('');
+    const { x, y } = parsed.point;
     const point: SnapPoint = { x, y, type: 'endpoint', label: 'Point saisi', distance: 0 };
     if (tool === 'dimension') {
       const hit = hitTest(editableObjects, objects, blocks, x, y, 8 / tf.k);
@@ -496,6 +528,8 @@ export default function CanvasView({
       }
     }
   };
+
+  useEffect(() => { applyPointRef.current = applyPrecisePoint; });
 
   const pinchState = () => {
     const [a, b] = [...pointers.current.values()];
@@ -664,12 +698,14 @@ export default function CanvasView({
         }}
       >
         <defs>
-          <pattern id="grid-min" width="10" height="10" patternUnits="userSpaceOnUse">
-            <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#131c31" strokeWidth="0.5" />
+          {/* Grille : trait fin au pas choisi, trait marqué tous les dix pas ; le trait fin
+              disparaît quand il deviendrait illisible (moins de 4 px entre deux lignes). */}
+          <pattern id="grid-min" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
+            <path d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} fill="none" stroke="#131c31" strokeWidth={gridSize * 0.05} />
           </pattern>
-          <pattern id="grid-maj" width="100" height="100" patternUnits="userSpaceOnUse">
-            <rect width="100" height="100" fill="url(#grid-min)" />
-            <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#1c2947" strokeWidth="1" />
+          <pattern id="grid-maj" width={gridSize * 10} height={gridSize * 10} patternUnits="userSpaceOnUse">
+            {gridSize * tf.k >= 4 && <rect width={gridSize * 10} height={gridSize * 10} fill="url(#grid-min)" />}
+            <path d={`M ${gridSize * 10} 0 L 0 0 0 ${gridSize * 10}`} fill="none" stroke="#1c2947" strokeWidth={gridSize * 0.1} />
           </pattern>
           <pattern id="hatch-diagonal" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="8" stroke="#22d3ee" strokeWidth="1" opacity="0.45" />
@@ -704,6 +740,7 @@ export default function CanvasView({
               view={view}
               selected={selectedIds.includes(o.id)}
               zoom={tf.k}
+              unit={displayUnit}
             />
           ))}
 
@@ -760,7 +797,7 @@ export default function CanvasView({
               <line x1={activeDraft.sx} y1={activeDraft.sy} x2={activeDraft.cx} y2={activeDraft.cy} stroke="#34d399" strokeWidth={1.5 / tf.k} markerStart="url(#dim-arrow)" markerEnd="url(#dim-arrow)" />
               <circle cx={activeDraft.sx} cy={activeDraft.sy} r={3 / tf.k} fill="#34d399" />
               <text x={(activeDraft.sx + activeDraft.cx) / 2} y={(activeDraft.sy + activeDraft.cy) / 2 - 8 / tf.k} fontSize={11 / tf.k} fill="#34d399" fontFamily="JetBrains Mono, monospace" textAnchor="middle">
-                {fmt(measure.d)} mm · ΔX {fmt(measure.dx)} · ΔY {fmt(measure.dy)}
+                {showLen(measure.d)} · ΔX {showNum(measure.dx)} · ΔY {showNum(measure.dy)}
               </text>
             </g>
           )}
@@ -775,7 +812,7 @@ export default function CanvasView({
             return (
               <text x={(ox + activeDraft.cx) / 2 + 10 / tf.k} y={(oy + activeDraft.cy) / 2 - 8 / tf.k}
                 fontSize={11 / tf.k} fill="#22d3ee" fontFamily="JetBrains Mono, monospace" pointerEvents="none">
-                {activeDraft.kind === 'circle' ? 'R' : 'L'} {fmt(len)} mm
+                {activeDraft.kind === 'circle' ? 'R' : 'L'} {showLen(len)}
               </text>
             );
           })()}
@@ -810,8 +847,9 @@ export default function CanvasView({
                 value={lengthInput}
                 onChange={e => setLengthInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); applyLength(); } }}
-                placeholder={activeDraft.kind === 'circle' ? 'Rayon mm' : 'L mm'}
-                autoFocus={!isCoarseDevice}
+                aria-label="Longueur ou point relatif"
+                placeholder={activeDraft.kind === 'circle' ? `Rayon ${displayUnit}` : `L ${displayUnit} · @L<a`}
+                autoFocus={!isCoarseDevice && !pointFocused}
                 className="w-24 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
               />
               <button onClick={applyLength} className="rounded-sm bg-cyan-400 px-2 py-1 font-semibold uppercase tracking-wider text-[#050810] hover:bg-cyan-300">
@@ -827,22 +865,19 @@ export default function CanvasView({
           <div className="flex max-w-full flex-wrap items-center gap-1 rounded-sm border border-border bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
             <span className="px-1 uppercase tracking-wider">Point précis</span>
             <input
-              value={coord.x}
-              onChange={e => setCoord(c => ({ ...c, x: e.target.value }))}
-              onKeyDown={e => { if (e.key === 'Enter') applyPrecisePoint(); }}
-              placeholder="X mm"
-              className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
+              aria-label="Point précis"
+              value={pointText}
+              onChange={e => { setPointText(e.target.value); setPointError(null); }}
+              onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); applyPrecisePoint(); } }}
+              onFocus={() => setPointFocused(true)}
+              onBlur={() => setPointFocused(false)}
+              placeholder={`x;y · @dx;dy · @L<a (${displayUnit})`}
+              className="w-44 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
             />
-            <input
-              value={coord.y}
-              onChange={e => setCoord(c => ({ ...c, y: e.target.value }))}
-              onKeyDown={e => { if (e.key === 'Enter') applyPrecisePoint(); }}
-              placeholder="Y mm"
-              className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
-            />
-            <button onClick={applyPrecisePoint} className="rounded-sm bg-cyan-400 px-2 py-1 font-semibold uppercase tracking-wider text-[#050810] hover:bg-cyan-300">
+            <button onClick={() => applyPrecisePoint()} className="rounded-sm bg-cyan-400 px-2 py-1 font-semibold uppercase tracking-wider text-[#050810] hover:bg-cyan-300">
               Placer
             </button>
+            {pointError && <span role="alert" className="basis-full px-1 text-amber-300">{pointError}</span>}
           </div>
         </div>
       )}
@@ -873,8 +908,9 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-function ObjectShape({ obj, objects, blocks, view, selected, zoom }: {
+function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit }: {
   obj: CadObject;
+  unit: DisplayUnit;
   objects: CadObject[];
   blocks: BlockDef[];
   view: ViewReading;
@@ -884,11 +920,12 @@ function ObjectShape({ obj, objects, blocks, view, selected, zoom }: {
   if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} />;
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} />;
-  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected} />;
+  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected} unit={unit} />;
 }
 
-function PrimitiveShape({ obj, view, selected, zoom, showLabel }: {
+function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm' }: {
   obj: PrimitiveObject;
+  unit?: DisplayUnit;
   view: ViewReading;
   selected: boolean;
   zoom: number;
@@ -925,7 +962,7 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel }: {
           {showLabel && label(obj.x, obj.y)}
           {selected && (
             <text x={obj.x + obj.w / 2} y={obj.y + obj.h + 14 / zoom} fontSize={10 / zoom} fill="#5f6b85" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
-              {fmt(obj.w)} × {fmt(obj.h)} mm
+              {fmt(fromMm(obj.w, unit), unitDecimals(unit))} × {fmt(fromMm(obj.h, unit), unitDecimals(unit))} {unit}
             </text>
           )}
         </g>
@@ -940,7 +977,7 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel }: {
           {showLabel && label(obj.cx - obj.r, obj.cy - obj.r)}
           {selected && (
             <text x={obj.cx} y={obj.cy + obj.r + 14 / zoom} fontSize={10 / zoom} fill="#5f6b85" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
-              Ø {fmt(obj.r * 2)} mm
+              Ø {fmt(fromMm(obj.r * 2, unit), unitDecimals(unit))} {unit}
             </text>
           )}
         </g>

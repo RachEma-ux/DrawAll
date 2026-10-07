@@ -24,6 +24,7 @@ import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
+import { DISPLAY_UNITS, GRID_SIZES, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
@@ -97,6 +98,16 @@ function Workbench() {
   const [panel, setPanel] = useState<'inspector' | 'history' | null>(null);
   const compactRef = useRef(compact);
   const [notice, setNotice] = useState<string | null>(null);
+  // Réglages d'affichage propres à ce navigateur : pas de grille et unité d'affichage.
+  const [gridSize, setGridSize] = useState<number>(() => {
+    try { const v = Number(localStorage.getItem('drawall-grille')); return GRID_SIZES.includes(v) ? v : 10; } catch { return 10; }
+  });
+  const [displayUnit, setDisplayUnit] = useState<DisplayUnit>(() => {
+    try { const v = localStorage.getItem('drawall-unite') as DisplayUnit | null; return DISPLAY_UNITS.some(u => u.key === v) ? v! : 'mm'; } catch { return 'mm'; }
+  });
+  useEffect(() => { try { localStorage.setItem('drawall-grille', String(gridSize)); } catch { /* préférence non conservée */ } }, [gridSize]);
+  useEffect(() => { try { localStorage.setItem('drawall-unite', displayUnit); } catch { /* préférence non conservée */ } }, [displayUnit]);
+  const showCoord = (mm: number) => `${fmt(fromMm(mm, displayUnit), unitDecimals(displayUnit))} ${displayUnit}`;
   // Paramètres du congé et du chanfrein (mm), saisis dans le panneau de l'outil.
   const [cornerParams, setCornerParams] = useState({ r: '10', d1: '10', d2: '10' });
   const noticeTimer = useRef<number | undefined>(undefined);
@@ -745,7 +756,7 @@ function Workbench() {
                  'Cliquez-glissez : l’aperçu précède la validation (UX3)'}
               </span>
               <span className="ml-auto hidden shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground 2xl:inline">
-                {currentSnap ? `${currentSnap.label} · ` : ''}{snapEnabled ? 'accrochage objet + grille 10 mm' : 'grille 10 mm'}
+                {currentSnap ? `${currentSnap.label} · ` : ''}{snapEnabled ? `accrochage objet + grille ${fmt(gridSize)} mm` : `grille ${fmt(gridSize)} mm`}
               </span>
             </div>
 
@@ -839,6 +850,8 @@ function Workbench() {
                 onEditText={editText}
                 onTrimExtend={trimExtend}
                 onCorner={corner}
+                gridSize={gridSize}
+                displayUnit={displayUnit}
                 onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
                 onSnapChange={setCurrentSnap}
@@ -882,8 +895,22 @@ function Workbench() {
             {/* Barre d'état */}
             <div className="flex h-7 shrink-0 items-center gap-4 overflow-x-auto whitespace-nowrap border-t border-border bg-[#0c1220]/90 px-3 font-mono text-[10px] text-muted-foreground">
               <span className="text-cyan-400">
-                {cursor.x === null ? '—' : `X ${fmt(cursor.x)} mm`} · {cursor.y === null ? '—' : `Y ${fmt(cursor.y)} mm`}
+                {cursor.x === null ? '—' : `X ${showCoord(cursor.x)}`} · {cursor.y === null ? '—' : `Y ${showCoord(cursor.y)}`}
               </span>
+              <label className="flex items-center gap-1">
+                unité
+                <select aria-label="Unité d’affichage" value={displayUnit} onChange={e => setDisplayUnit(e.target.value as DisplayUnit)}
+                  className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                  {DISPLAY_UNITS.map(u => <option key={u.key} value={u.key}>{u.label}</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-1">
+                grille
+                <select aria-label="Pas de grille" value={gridSize} onChange={e => setGridSize(Number(e.target.value))}
+                  className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                  {GRID_SIZES.map(g => <option key={g} value={g}>{fmt(g)} mm</option>)}
+                </select>
+              </label>
               <span>{project.objects.length} objet{project.objects.length > 1 ? 's' : ''}</span>
               {hasSelection && <span className="text-cyan-300">{selection.length} sélectionné{selection.length > 1 ? 's' : ''}</span>}
               <span>{project.layers.find(l => l.id === project.activeLayerId)?.name ?? 'Calque'}</span>
@@ -891,7 +918,7 @@ function Workbench() {
               <span>v{project.current.seq}{project.current.named ? ` · ${project.current.named}` : ''}</span>
               <span>zoom {(zoom * 100).toFixed(0)} %</span>
               <span>{orthoEnabled ? 'ORTHO' : 'libre'} · {snapEnabled ? 'SNAP objet' : 'SNAP grille'}</span>
-              <span className="ml-auto hidden lg:inline">unités : millimètre · référentiel : local projet · DXF : Y ascendant</span>
+              <span className="ml-auto hidden lg:inline">modèle en millimètres · affichage en {displayUnit} · référentiel : local projet · DXF : Y ascendant</span>
             </div>
           </main>
 
