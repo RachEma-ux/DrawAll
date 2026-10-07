@@ -7,12 +7,13 @@
 //   lecteurs stricts (ezdxf, AutoCAD). Les hachures sont exportées en entités HATCH.
 // - Chaque échange produit un rapport : ce qui est conservé, transformé ou perdu.
 // Convention : DrawAll travaille en Y descendant (SVG), DXF en Y ascendant.
-import type { BlockDef, CadObject, Layer, PrimitiveObject, TextAlign, TextObj } from '@/types/cad';
+import type { BlockDef, CadObject, Layer, PrimitiveObject, TextAlign, TextObj, WallObj } from '@/types/cad';
 import { textLines } from '@/lib/text';
 import { norm360 } from '@/lib/arc';
 import { dimensionGeometry, dimensionText } from '@/lib/geometry';
 import { pdimGeometry } from '@/lib/pdim';
 import { PAPER_DIMENSION_STYLE, arrowHead } from '@/lib/annotation';
+import { wallsGeometry } from '@/lib/wall';
 import { hatchAngles, hatchParamsOf } from '@/lib/hatch';
 import { primitiveBounds } from '@/lib/geometry';
 import { DEFAULT_LINE_TYPE, DEFAULT_LINE_WEIGHT, LINE_TYPES, dxfLineWeight, lineTypeDef, lineTypeFromDxf } from '@/lib/linestyle';
@@ -97,11 +98,12 @@ export interface DxfExportOptions {
 export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDef[], options: DxfExportOptions = {}): DxfExportResult {
   const hatchScale = options.hatchPaperScale && options.hatchPaperScale > 0 ? options.hatchPaperScale : 1;
   let paperHatches = 0;
+  const walls = wallsGeometry(objects.filter((o): o is WallObj => o.kind === 'wall'));
   const out: string[] = [];
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -239,6 +241,20 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       }
       continue;
     }
+    if (object.kind === 'wall') {
+      // Mur : traits visibles (jonctions nettoyées) en LINE, hachure éventuelle sur son contour.
+      const g = walls.get(object.id);
+      if (!g) continue;
+      counts.wall++;
+      for (const [a, b] of g.edges) {
+        entityHeader('LINE', layer, 'AcDbLine');
+        push(10, n(a.x)); push(20, n(-a.y)); push(30, 0);
+        push(11, n(b.x)); push(21, n(-b.y)); push(31, 0);
+      }
+      const pseudo = { ...object, kind: 'polyline', points: [...g.quad.flatMap(q => [q.x, q.y]), g.quad[0].x, g.quad[0].y] } as unknown as PrimitiveObject;
+      if (pseudo.hatch && pseudo.hatch !== 'none' && writeHatch(entityHeader, push, pseudo, layer, [], hatchScale)) counts.hatch++;
+      continue;
+    }
     writeOne(object, layer);
   }
   push(0, 'ENDSEC'); push(0, 'EOF');
@@ -258,6 +274,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (paperHatches) report.transformed.push(`Hachures à pas papier : ${paperHatches} → pas réel à l'échelle 1:${Math.round(hatchScale * 1000) / 1000} (le DXF ne connaît que le modèle).`);
   if (counts.rect) report.transformed.push(`Rectangles : ${counts.rect} → polylignes fermées (LWPOLYLINE).`);
   if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
+  if (counts.wall) report.transformed.push(`Murs : ${counts.wall} → traits (LINE, jonctions nettoyées) et hachures ; épaisseur et justification ne sont plus éditables comme mur.`);
   if (counts.pdim) report.transformed.push(`Cotes par points (série, cumulées, angulaires, niveaux) : ${counts.pdim} → traits, arcs et textes ; la mesure n'est plus recalculée.`);
   if (counts.dimension) report.transformed.push(`Cotes : ${counts.dimension} → traits + texte (LINE + TEXT) ; l'association à l'objet coté est perdue.`);
   report.lost.push('Identifiants OBJ-, classification métier, noms d\'objets et historique des versions (non représentables en DXF).');

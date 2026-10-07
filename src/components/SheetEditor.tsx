@@ -2,12 +2,13 @@
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
+import type { WallObj, BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
 import { pdfBytes, sheetToPdf } from '@/lib/pdf';
 import { withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
+import { wallsGeometry } from '@/lib/wall';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
   PAPER_FORMATS, STANDARD_SCALES, fitScale, formatScale, layerVisibleInViewport, parseScale, printableArea,
@@ -66,6 +67,7 @@ export default function SheetEditor(p: Props) {
     coupe: withProfile(p.objects, p.profile, 'coupe', p.blocks),
     vue: withProfile(p.objects, p.profile, 'vue', p.blocks),
   }), [p.objects, p.profile, p.blocks]);
+  const wallGeom = useMemo(() => wallsGeometry(p.objects.filter((o): o is WallObj => o.kind === 'wall')), [p.objects]);
   const blocksByContext = useMemo(() => ({
     coupe: withProfileBlocks(p.blocks, p.profile, 'coupe'),
     vue: withProfileBlocks(p.blocks, p.profile, 'vue'),
@@ -384,7 +386,7 @@ export default function SheetEditor(p: Props) {
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
                     {drawn.filter(o => visibleLayer.get(o.layerId)).map(o => (
                       <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false}
-                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} />
+                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={wallGeom} />
                     ))}
                   </svg>
                   <rect

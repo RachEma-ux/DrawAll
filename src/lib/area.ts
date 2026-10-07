@@ -86,6 +86,8 @@ export function measurePolygon(points: number[]): Measure {
 export function measureObject(o: CadObject): Measure | null {
   switch (o.kind) {
     case 'line': return { closed: false, length: Math.hypot(o.x2 - o.x1, o.y2 - o.y1) };
+    // Mur : longueur du tracé et aire de son emprise (sans les jonctions).
+    case 'wall': { const l = Math.hypot(o.x2 - o.x1, o.y2 - o.y1); return { closed: false, length: l, area: l * o.thickness }; }
     case 'rect': return { closed: true, length: 2 * (Math.abs(o.w) + Math.abs(o.h)), area: Math.abs(o.w * o.h) };
     case 'circle': return { closed: true, length: 2 * Math.PI * o.r, area: Math.PI * o.r * o.r };
     case 'arc': {

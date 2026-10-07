@@ -410,3 +410,16 @@ describe('hachures paramétrées (lot 3.2)', () => {
     expect(report.transformed.join(' ')).toMatch(/pas papier : 1 → pas réel à l'échelle 1:50/);
   });
 });
+
+describe('murs (lot 4.1)', () => {
+  it('exportés en traits nettoyés et hachures, lisibles par ezdxf', () => {
+    const wall = (id: string, x1: number, y1: number, x2: number, y2: number): CadObject =>
+      ({ ...base, id, name: id, kind: 'wall', x1, y1, x2, y2, thickness: 200, justification: 'axe', hatch: 'diagonal' });
+    const { content, report } = exportDxf([wall('OBJ-0001', 0, 0, 5000, 0), wall('OBJ-0002', 5000, 0, 5000, 3000)], layers, []);
+    keepFixture('murs.dxf', content);
+    // L : 2 faces + 1 about libre par mur = 6 traits ; 2 hachures.
+    expect(content.match(/\nLINE\n/g)).toHaveLength(6);
+    expect(content.match(/\nHATCH\n/g)).toHaveLength(2);
+    expect(report.transformed.join(' ')).toMatch(/Murs : 2/);
+  });
+});

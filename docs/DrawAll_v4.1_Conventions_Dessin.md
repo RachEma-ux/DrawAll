@@ -243,7 +243,17 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 
 - Version DXF visée par défaut (R2000 retenue pour sa compatibilité ; R2018 possible).
 
-## 8. Références
+## 8. Métier bâtiment
+
+### 8.1 Murs (règle, lot 4.1)
+
+- Un mur est un trait de référence, une épaisseur et une justification : le trait est l'**axe** du mur, ou son **nu gauche** / **nu droit** (côté vu à l'écran en parcourant le trait).
+- Outil « Mur » : points successifs, un mur par segment (souris, doigt ou saisie précise).
+- Jonctions nettoyées automatiquement : **L** (extrémités communes : faces prolongées jusqu'à leur intersection, sans about), **T** (extrémité sur un autre mur : prolongée jusqu'à son axe), **croix** ; continuation dans l'alignement sans about ; nœud de trois murs ou plus sans onglet. Toute portion de face strictement à l'intérieur d'un autre mur est retirée.
+- Contour vu fort par défaut (0,5 mm), matériau et hachures comme tout contour fermé ; les faces servent d'arêtes pour Ajuster / Prolonger et d'accrochages (coins).
+- DXF : traits visibles (LINE) et hachures ; le mur n'est plus éditable comme tel (rapport « transformé »).
+
+## 9. Références
 
 | Sujet | Référence |
 | --- | --- |

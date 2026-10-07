@@ -3,6 +3,7 @@
 // Repère écran (Y vers le bas) ; angles d'arc en degrés, repère DXF (cf. arc.ts).
 import type { ArcObj, CadObject, LineObj } from '@/types/cad';
 import { isClosedPolyline } from '@/types/cad';
+import { wallQuad } from '@/lib/wall';
 import { angleInArc, angleOf, arcPointAt, arcSweep, norm360 } from '@/lib/arc';
 
 export interface P { x: number; y: number }
@@ -19,6 +20,12 @@ export function edgesOf(o: CadObject): Edges {
   const circs: Circ[] = [];
   switch (o.kind) {
     case 'line': segs.push({ x1: o.x1, y1: o.y1, x2: o.x2, y2: o.y2 }); break;
+    case 'wall': {
+      // Les faces d'un mur servent d'arêtes de coupe.
+      const q = wallQuad(o);
+      if (q) for (let i = 0; i < 4; i++) segs.push({ x1: q[i].x, y1: q[i].y, x2: q[(i + 1) % 4].x, y2: q[(i + 1) % 4].y });
+      break;
+    }
     case 'rect': {
       const c = [[o.x, o.y], [o.x + o.w, o.y], [o.x + o.w, o.y + o.h], [o.x, o.y + o.h]];
       for (let i = 0; i < 4; i++) segs.push({ x1: c[i][0], y1: c[i][1], x2: c[(i + 1) % 4][0], y2: c[(i + 1) % 4][1] });

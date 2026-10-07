@@ -2,7 +2,7 @@
 // de la feuille, sans dépendance. Les fenêtres sont découpées (chemin de découpe) ; traits, motifs
 // et annotations sont à leurs tailles papier. Impression monochrome (noir), usage du dessin technique.
 // Repère PDF : origine en bas à gauche, Y vers le haut, unités en points (1 pt = 25,4 / 72 mm).
-import type { BlockDef, CadObject, Layer, MicroVersion, PrimitiveObject, Sheet, TextObj, Viewport } from '@/types/cad';
+import type { BlockDef, CadObject, Layer, MicroVersion, PrimitiveObject, Sheet, TextObj, Viewport, WallObj } from '@/types/cad';
 import { dimensionValue, isClosedPolyline } from '@/types/cad';
 import { dimensionGeometry } from '@/lib/geometry';
 import { arcSweep } from '@/lib/arc';
@@ -10,6 +10,7 @@ import { effectiveStyle, lineTypeDef } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dimensionTextPosition } from '@/lib/annotation';
 import { pdimGeometry } from '@/lib/pdim';
 import { hatchAngles, hatchParamsOf, hatchSegments, loopOf } from '@/lib/hatch';
+import { wallsGeometry } from '@/lib/wall';
 import { primitiveBounds } from '@/lib/geometry';
 import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetSize } from '@/lib/sheet';
 import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
@@ -184,11 +185,25 @@ export function sheetToPdf(input: PdfInput): string {
     out('q');
     { const a = pt({ x: vp.x, y: vp.y + vp.h }); out(`${n(a.x)} ${n(a.y)} ${n(vp.w * MM_TO_PT)} ${n(vp.h * MM_TO_PT)} re W n`); }
     const visible = new Map(layers.map(l => [l.id, layerVisibleInViewport(vp, l)]));
+    const walls = wallsGeometry(objects.filter((o): o is WallObj => o.kind === 'wall' && !!visible.get(o.layerId)));
     for (const o of objects) {
       if (!visible.get(o.layerId)) continue;
       const layer = layers.find(l => l.id === o.layerId);
       if (o.kind === 'dimension') { drawDimension(o); continue; }
       if (o.kind === 'pdim') { drawPointDimension(o); continue; }
+      if (o.kind === 'wall') {
+        const g = walls.get(o.id);
+        if (!g) continue;
+        const pseudo = { ...o, kind: 'polyline', points: [...g.quad.flatMap(q => [q.x, q.y]), g.quad[0].x, g.quad[0].y] } as unknown as PrimitiveObject;
+        if (pseudo.hatch && pseudo.hatch !== 'none') drawHatch(pathOf(pseudo).path, pseudo, []);
+        const st = effectiveStyle(o, layer);
+        setStroke(o.lineWeight ?? layer?.lineWeight ?? 0.5, lineTypeDef(st.lineType).pattern.map(v => Math.abs(v) * st.lineWeight));
+        for (const [a, b] of g.edges) {
+          const p = toPdf(a), q = toPdf(b);
+          out(`${n(p.x)} ${n(p.y)} m ${n(q.x)} ${n(q.y)} l S`);
+        }
+        continue;
+      }
       if (o.kind === 'text') { drawText(o); continue; }
       if (o.kind === 'blockRef') {
         const block = vpBlocks.find(b => b.id === o.blockId);
