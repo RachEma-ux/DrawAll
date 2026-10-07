@@ -7,8 +7,8 @@ import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { DisplayLevel, ViewReading } from '@/types/cad';
 
 interface Props {
-  mode: 'atelier' | 'docs';
-  setMode: (m: 'atelier' | 'docs') => void;
+  mode: 'atelier' | 'feuilles' | 'docs';
+  setMode: (m: 'atelier' | 'feuilles' | 'docs') => void;
   level: DisplayLevel;
   setLevel: (l: DisplayLevel) => void;
   view: ViewReading;
@@ -155,7 +155,7 @@ export default function Header(p: Props) {
       </div>
 
       <nav className="flex gap-1 sm:ml-2">
-        {(['atelier', 'docs'] as const).map(m => (
+        {(['atelier', 'feuilles', 'docs'] as const).map(m => (
           <button
             key={m}
             onClick={() => p.setMode(m)}
@@ -163,7 +163,7 @@ export default function Header(p: Props) {
               p.mode === m ? 'bg-cyan-400/15 text-cyan-300' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {m === 'atelier' ? 'Atelier' : <><span className="sm:hidden">Docs</span><span className="hidden sm:inline">Documentation</span></>}
+            {m === 'atelier' ? 'Atelier' : m === 'feuilles' ? 'Feuilles' : <><span className="sm:hidden">Docs</span><span className="hidden sm:inline">Documentation</span></>}
           </button>
         ))}
       </nav>
