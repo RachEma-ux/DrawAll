@@ -11,6 +11,7 @@ import {
   type NewCadObject,
   type PrimitiveObject,
   type ProjectState,
+  KIND_LABEL,
   polylineExtents,
   supportedDimensionStyles,
 } from '@/types/cad';
@@ -233,7 +234,7 @@ export function useProject() {
   const addObject = useCallback((partial: NewCadObject, name?: string) => {
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
     const obj = { ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject;
-    commit(`Créer ${obj.kind === 'line' ? 'ligne' : obj.kind === 'rect' ? 'rectangle' : obj.kind === 'circle' ? 'cercle' : obj.kind === 'polyline' ? 'polyligne' : obj.kind === 'dimension' ? 'cote' : 'bloc'} ${id}`, {
+    commit(`Créer ${KIND_LABEL[obj.kind].toLowerCase()} ${id}`, {
       objects: [...objects, obj],
       counter: state.counter + 1,
     });

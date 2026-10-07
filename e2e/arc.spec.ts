@@ -8,6 +8,13 @@ async function tapAt(page: Page, info: TestInfo, fx: number, fy: number) {
   await page.waitForTimeout(80);
 }
 
+async function lastLabel(page: Page) {
+  return page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    return s.versions[s.pointer].label as string;
+  });
+}
+
 async function lastObject(page: Page) {
   return page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
@@ -21,12 +28,15 @@ test('lot 1.3 — arc par trois points', async ({ page }, info) => {
   const before = await objectCount(page);
   await chooseTool(page, /^Arc 3 points/);
   await tapAt(page, info, 0.3, 0.85);
+  // Pas de longueur directe pour un arc (elle n'aurait aucun effet).
+  await expect(page.getByText('Longueur', { exact: true })).toHaveCount(0);
   await tapAt(page, info, 0.5, 0.75);
   await tapAt(page, info, 0.7, 0.85);
   await expect.poll(() => objectCount(page)).toBe(before + 1);
   const arc = await lastObject(page);
   expect(arc.kind).toBe('arc');
   expect(arc.r).toBeGreaterThan(0);
+  expect(await lastLabel(page)).toBe(`Créer arc ${arc.id}`);
   expect(errors).toEqual([]);
 });
 

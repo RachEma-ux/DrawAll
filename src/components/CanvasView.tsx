@@ -417,7 +417,7 @@ export default function CanvasView({
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'Escape') { setDraft(null); setLengthInput(''); }
       if (e.key === 'Enter') {
-        if (lengthInput && activeDraft && activeDraft.kind !== 'measure') { applyLength(); return; }
+        if (lengthInput && activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft)) { applyLength(); return; }
         finishPolyline();
       }
       // Saisie dynamique : les chiffres tapés pendant un tracé alimentent la longueur directe.
@@ -772,7 +772,8 @@ export default function CanvasView({
 
       {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
-          {activeDraft && activeDraft.kind !== 'measure' && (
+          {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
+          {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
             <div className="flex max-w-full flex-wrap items-center gap-1 rounded-sm border border-cyan-400/50 bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
               <span className="px-1 uppercase tracking-wider text-cyan-300">Longueur</span>
               <input
