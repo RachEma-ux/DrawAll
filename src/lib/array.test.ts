@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject } from '@/types/cad';
-import { MAX_COPIES, cloneAll, polarAngles, polarArray, rectangularArray, rotation, translation } from './array';
+import { MAX_COPIES, cloneAll, polarAngles, polarArray, rectangularArray, rotation, translation, withDependencies } from './array';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0, name: 'o' };
 const line: CadObject = { ...base, id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 10, y2: 0 };
@@ -83,5 +83,20 @@ describe('identifiants des copies', () => {
     const dims = objects.filter(o => o.kind === 'dimension');
     expect(dims.map(d => d.kind === 'dimension' && d.targetId)).toEqual(lines.map(l => l.id));
     expect(cloneAll([dim], [translation(5, 5)], 10, 0).objects).toEqual([]);
+  });
+});
+
+describe('dépendances de copie', () => {
+  it('une cote choisie seule emporte sa cible ; une cible emporte ses cotes', () => {
+    expect(withDependencies([line, rect, dim], ['OBJ-0003']).map(o => o.id)).toEqual(['OBJ-0001', 'OBJ-0003']);
+    expect(withDependencies([line, rect, dim], ['OBJ-0001']).map(o => o.id)).toEqual(['OBJ-0001', 'OBJ-0003']);
+    expect(withDependencies([line, rect, dim], ['OBJ-0002']).map(o => o.id)).toEqual(['OBJ-0002']);
+  });
+
+  it('une occurrence de bloc ne tourne pas (pas d’orientation) ; elle reste copiable par translation', () => {
+    const ref: CadObject = { ...base, id: 'OBJ-0009', kind: 'blockRef', blockId: 'BLQ-0001', x: 10, y: 0, scale: 1 };
+    expect(rotation(0, 0, 90)(ref)).toBeNull();
+    expect(rotation(0, 0, 360)(ref)).not.toBeNull();
+    expect(translation(5, 5)(ref)).toEqual({ x: 15, y: 5 });
   });
 });

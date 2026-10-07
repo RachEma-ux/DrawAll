@@ -7,6 +7,18 @@ import { moveObject, rotateObject } from '@/lib/geometry';
 /** Transformation appliquée à une copie : renvoie la modification, ou null si impossible. */
 export type Placement = (o: CadObject) => Partial<CadObject> | null;
 
+const norm = (deg: number) => { const a = ((deg % 360) + 360) % 360; return a > 360 - 1e-9 ? 0 : a; };
+
+/**
+ * Objets à copier pour une sélection : les objets choisis, les cotes qui les suivent et la cible
+ * de chaque cote choisie (une cote seule ne peut pas être copiée sans ce qu'elle mesure).
+ */
+export function withDependencies(objects: CadObject[], selected: Iterable<string>): CadObject[] {
+  const ids = new Set(selected);
+  for (const o of objects) if (o.kind === 'dimension' && ids.has(o.id)) ids.add(o.targetId);
+  return objects.filter(o => ids.has(o.id) || (o.kind === 'dimension' && ids.has(o.targetId)));
+}
+
 /** Au-delà, l'opération est refusée (protection de l'atelier). */
 export const MAX_COPIES = 5000;
 
@@ -21,6 +33,9 @@ export const translation = (dx: number, dy: number): Placement => o => moveObjec
  * à l'écran). Un rectangle tourné d'un angle quelconque devient une polyligne fermée.
  */
 export const rotation = (cx: number, cy: number, deg: number): Placement => o => {
+  // Une occurrence de bloc n'a pas d'orientation : la tourner déplacerait son point d'insertion
+  // sans tourner son contenu. Elle n'est donc pas transformée (l'appelant le signale).
+  if (o.kind === 'blockRef' && Math.abs(norm(deg)) > 1e-9) return null;
   // rotateObject compte les angles positifs dans le sens horaire à l'écran.
   const patch = rotateObject(o, cx, cy, -deg);
   if (patch || o.kind !== 'rect') return patch;

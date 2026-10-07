@@ -23,7 +23,7 @@ import { fmt } from '@/types/cad';
 import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
-import { polarArray, rectangularArray, translation } from '@/lib/array';
+import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
@@ -170,8 +170,7 @@ function Workbench() {
   const pasteCount = useRef(0);
   const copySelection = useCallback(() => {
     if (selection.length === 0) return;
-    const ids = new Set(selection);
-    const copied = project.objects.filter(o => ids.has(o.id) || (o.kind === 'dimension' && ids.has(o.targetId)));
+    const copied = withDependencies(project.objects, selection);
     setClipboard(copied);
     pasteCount.current = 0;
     flash(`${copied.length} objet${copied.length > 1 ? 's' : ''} copié${copied.length > 1 ? 's' : ''}.`);
@@ -180,8 +179,13 @@ function Workbench() {
   /** Colle au pointeur s'il est sur le canevas, sinon avec un décalage de 20 mm par collage. */
   const pasteClipboard = useCallback(() => {
     if (!clipboard || clipboard.length === 0) return;
+    // Une occurrence dont le bloc n'existe pas dans ce projet ou cette version n'est pas collée.
+    const pastable = clipboard.filter(o => o.kind !== 'blockRef' || project.blocks.some(b => b.id === o.blockId));
+    const orphans = clipboard.length - pastable.length;
+    if (orphans > 0) flash(`${orphans} occurrence${orphans > 1 ? 's' : ''} de bloc non collée${orphans > 1 ? 's' : ''} : bloc absent de ce projet.`);
+    if (pastable.length === 0) return;
     let dx: number, dy: number;
-    const b = unionBounds(clipboard.map(o => objectBounds(o, project.blocks, clipboard)).filter((x): x is NonNullable<typeof x> => !!x));
+    const b = unionBounds(pastable.map(o => objectBounds(o, project.blocks, pastable)).filter((x): x is NonNullable<typeof x> => !!x));
     if (cursor.x !== null && cursor.y !== null && b) {
       dx = cursor.x - b.minX;
       dy = cursor.y - b.minY;
@@ -189,14 +193,16 @@ function Workbench() {
       pasteCount.current += 1;
       dx = dy = 20 * pasteCount.current;
     }
-    project.addCopies(clipboard, [translation(dx, dy)], 'Coller');
-  }, [clipboard, cursor, project]);
+    project.addCopies(pastable, [translation(dx, dy)], 'Coller');
+  }, [clipboard, cursor, project, flash]);
 
   const [arrayMode, setArrayMode] = useState<'rect' | 'polar' | null>(null);
   const applyArray = useCallback((p: ArrayParams): string | null => {
-    const ids = new Set(selection);
-    const sources = project.objects.filter(o => ids.has(o.id) || (o.kind === 'dimension' && ids.has(o.targetId)));
+    const sources = withDependencies(project.objects, selection);
     if (sources.length === 0) return 'Sélectionnez d’abord les objets à répéter.';
+    if (p.mode === 'polar' && sources.some(o => o.kind === 'blockRef')) {
+      return 'Les occurrences de blocs ne peuvent pas encore tourner : retirez-les de la sélection pour un réseau polaire.';
+    }
     const out = p.mode === 'rect'
       ? rectangularArray(p.rows, p.cols, p.dx, p.dy, sources.length)
       : polarArray(p.count, p.angle, p.cx, p.cy, sources.length);
