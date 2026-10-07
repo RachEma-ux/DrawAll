@@ -122,6 +122,17 @@ export interface Viewport {
   hiddenLayerIds: string[];           // calques masqués dans cette fenêtre seulement
 }
 
+/** Méthode de projection orthogonale (ISO 5456-2) indiquée au cartouche. */
+export type ProjectionMethod = 'premier-diedre' | 'troisieme-diedre';
+
+/** Champs saisis du cartouche ; échelle, date et indice sont tirés du projet. */
+export interface TitleBlock {
+  project: string;
+  title: string;
+  author: string;
+  projection: ProjectionMethod;
+}
+
 export interface Sheet {
   id: string;              // identifiant stable FEU-0001
   name: string;
@@ -129,6 +140,7 @@ export interface Sheet {
   orientation: Orientation;
   margins: { top: number; right: number; bottom: number; left: number };
   viewports: Viewport[];
+  titleBlock?: TitleBlock; // absent = pas de cartouche
 }
 
 export interface MicroVersion {
@@ -136,6 +148,7 @@ export interface MicroVersion {
   label: string;
   time: number;
   named?: string;          // version nommée (jalon, livrable)
+  index?: string;          // indice émis sur cette version (lot 2.3) : lettre figée, jamais réattribuée
   objects: CadObject[];
   layers: Layer[];
   blocks: BlockDef[];

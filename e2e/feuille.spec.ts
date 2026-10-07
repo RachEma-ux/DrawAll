@@ -80,6 +80,33 @@ test('lot 2.2 — déplacer une fenêtre au geste (souris ou doigt)', async ({ p
   expect([vp.w, vp.h]).toEqual([150, 100]);
 });
 
+test('lot 2.3 — cartouche : champs du projet, l’indice suit l’indice émis', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, plan);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  await page.getByLabel('Échelle de la fenêtre').selectOption('1:50');
+  const cartouche = page.getByRole('region', { name: 'Cartouche' });
+  await cartouche.getByRole('button', { name: 'Ajouter' }).click();
+  await setField(page, 'Cartouche — Projet', 'Logement Rue Haute');
+  await setField(page, 'Cartouche — Titre', 'Plan du rez');
+  const block = page.getByTestId('cartouche');
+  await expect(block.locator('[data-champ="project"]')).toContainText('Logement Rue Haute');
+  await expect(block.locator('[data-champ="scale"]')).toContainText('1:50');
+  await expect(block.locator('[data-champ="projection"]')).toContainText('Premier dièdre');
+  await expect(block.locator('[data-champ="index"]')).toContainText('aucun indice émis');
+
+  page.once('dialog', d => d.accept('Indice A — dépôt'));
+  await cartouche.getByRole('button', { name: 'Émettre l’indice A' }).click();
+  await expect(block.locator('[data-champ="index"]')).toHaveText(/IndiceA$/);
+  await expect(cartouche.getByText('Indice A émis sur cette version.')).toBeVisible();
+  // Une modification ultérieure : l'indice reste A, signalé modifié ; le prochain sera B.
+  await setField(page, 'Cartouche — Titre', 'Plan du rez-de-chaussée');
+  await expect(block.locator('[data-champ="index"]')).toContainText('A (modifié depuis)');
+  await expect(cartouche.getByRole('button', { name: 'Émettre l’indice B' })).toBeVisible();
+});
+
 test('lot 2.2 — annuler une modification de feuille sans quitter le mode Feuilles', async ({ page }) => {
   await openAtelier(page);
   await loadObjects(page, plan);

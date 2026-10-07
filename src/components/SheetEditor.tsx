@@ -2,10 +2,11 @@
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { BlockDef, CadObject, Layer, Orientation, PaperFormat, Sheet, ViewReading, Viewport } from '@/types/cad';
+import type { BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
+import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
   PAPER_FORMATS, STANDARD_SCALES, fitScale, formatScale, layerVisibleInViewport, parseScale, printableArea,
   scaleRatio, sheetIssues, sheetSize, viewportModelRect, type Rect,
@@ -24,6 +25,12 @@ interface Props {
   onAddViewport: (sheetId: string, vp: Partial<Omit<Viewport, 'id'>>) => string | null;
   onUpdateViewport: (sheetId: string, id: string, patch: Partial<Omit<Viewport, 'id'>>, label?: string) => void;
   onRemoveViewport: (sheetId: string, id: string) => void;
+  /** Historique : le cartouche en tire la date et l'indice. */
+  versions: MicroVersion[];
+  pointer: number;
+  onNameVersion: (name: string) => void;
+  /** Émet l'indice suivant sur la version affichée (lettre figée). */
+  onIssueIndex: (name: string) => void;
 }
 
 const MIN_VIEWPORT = 10; // mm papier
@@ -171,6 +178,53 @@ export default function SheetEditor(p: Props) {
         </section>
       )}
 
+      {sheet && (() => {
+        const tb = sheet.titleBlock;
+        const setTb = (patch: Partial<TitleBlock>, label: string) =>
+          p.onUpdateSheet(sheet.id, { titleBlock: { ...(tb ?? DEFAULT_TITLE_BLOCK), ...patch } }, label);
+        const next = nextIndexLetter(p.versions, p.pointer);
+        const text = (key: 'project' | 'title' | 'author', label: string) => (
+          <label className="block text-muted-foreground">{label}
+            <input key={`${sheet.id}-${key}-${tb?.[key] ?? ''}`} aria-label={`Cartouche — ${label}`} defaultValue={tb?.[key] ?? ''}
+              onBlur={e => { const v = e.target.value.trim(); if (v !== (tb?.[key] ?? '')) setTb({ [key]: v }, `Cartouche : ${label.toLowerCase()}`); }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+              className={input} />
+          </label>
+        );
+        return (
+          <section aria-label="Cartouche" className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="ui-label">Cartouche</span>
+              {tb
+                ? <button onClick={() => p.onUpdateSheet(sheet.id, { titleBlock: undefined }, 'Retirer le cartouche')} className={btn}>Retirer</button>
+                : <button onClick={() => setTb({}, 'Ajouter le cartouche')} className={btn}>Ajouter</button>}
+            </div>
+            {tb && (
+              <>
+                {text('project', 'Projet')}
+                {text('title', 'Titre')}
+                {text('author', 'Auteur')}
+                <select aria-label="Méthode de projection" value={tb.projection}
+                  onChange={e => setTb({ projection: e.target.value as ProjectionMethod }, 'Cartouche : méthode de projection')} className={input}>
+                  {(Object.keys(PROJECTION_LABEL) as ProjectionMethod[]).map(k => <option key={k} value={k}>{PROJECTION_LABEL[k]}</option>)}
+                </select>
+                <p className="text-muted-foreground/70">Échelle, date et indice suivent les fenêtres et l’historique.</p>
+                {p.versions[p.pointer]?.index ? (
+                  <p className="text-muted-foreground">Indice {p.versions[p.pointer].index} émis sur cette version.</p>
+                ) : (
+                  <button
+                    onClick={() => { const label = window.prompt(`Émettre l’indice ${next} — libellé de la version`, `Indice ${next}`); if (label?.trim()) p.onIssueIndex(label.trim()); }}
+                    className={btn}
+                  >
+                    Émettre l’indice {next}
+                  </button>
+                )}
+              </>
+            )}
+          </section>
+        );
+      })()}
+
       {sheet && (
         <section className="space-y-1.5">
           <div className="flex items-center justify-between">
@@ -311,6 +365,34 @@ export default function SheetEditor(p: Props) {
                 </g>
               );
             })}
+            {sheet.titleBlock && (() => {
+              const r = titleBlockRect(sheet);
+              const fields = titleBlockFields(sheet, p.versions, p.pointer);
+              const cols = 4, rows = 2, cw = r.w / cols, rh = r.h / rows;
+              return (
+                <g data-testid="cartouche" pointerEvents="none" fontFamily="JetBrains Mono, monospace">
+                  <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="#0e1526" stroke="#94a3b8" strokeWidth={0.5} />
+                  {fields.map((f, i) => {
+                    const cx = r.x + (i % cols) * cw, cy = r.y + Math.floor(i / cols) * rh;
+                    return (
+                      <g key={f.key} data-champ={f.key}>
+                        <rect x={cx} y={cy} width={cw} height={rh} fill="none" stroke="#475569" strokeWidth={0.25} />
+                        <text x={cx + 1.5} y={cy + 4} fontSize={2.5} fill="#64748b">{f.label}</text>
+                        {(() => {
+                          // Texte long : resserré pour tenir dans la case (largeur estimée à 0,6 em par caractère).
+                          const fs = f.value.length > 18 ? 2.6 : 3.5;
+                          const fits = f.value.length * fs * 0.6 <= cw - 3;
+                          return (
+                            <text x={cx + 1.5} y={cy + 11} fontSize={fs} fill="#e2e8f0"
+                              {...(fits ? {} : { textLength: cw - 3, lengthAdjust: 'spacingAndGlyphs' })}>{f.value}</text>
+                          );
+                        })()}
+                      </g>
+                    );
+                  })}
+                </g>
+              );
+            })()}
             <text x={size.w - 2} y={size.h - 2} fontSize={3.5} textAnchor="end" fill="#64748b" fontFamily="JetBrains Mono, monospace">
               {sheet.id} · {sheet.format} {sheet.orientation}
             </text>

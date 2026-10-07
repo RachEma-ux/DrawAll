@@ -47,6 +47,7 @@ describe('feuilles enregistrées (lot 2.1)', () => {
     const full = {
       id: 'FEU-0002', name: 'Plans', format: 'A1', orientation: 'portrait', margins: { top: 5, right: 5, bottom: 5, left: 25 },
       viewports: [{ id: 'FEN-0003', name: 'Détail', x: 30, y: 40, w: 100, h: 80, scale: { paper: 5, model: 1 }, center: { x: 12.5, y: -3 }, hiddenLayerIds: [] }],
+      titleBlock: { project: 'P', title: 'T', author: 'A', projection: 'troisieme-diedre' },
     };
     expect(normalizeSheets([full], layers)).toEqual([full]);
   });
