@@ -26,8 +26,9 @@ import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
+import SnapSettings from '@/components/SnapSettings';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
-import type { SnapPoint } from '@/lib/geometry';
+import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint } from '@/lib/geometry';
 import { mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
 
 /** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
@@ -109,6 +110,14 @@ function Workbench() {
   });
   useEffect(() => { try { localStorage.setItem('drawall-grille', String(gridSize)); } catch { /* préférence non conservée */ } }, [gridSize]);
   useEffect(() => { try { localStorage.setItem('drawall-unite', displayUnit); } catch { /* préférence non conservée */ } }, [displayUnit]);
+  const [snapTypes, setSnapTypes] = useState<ObjectSnapType[]>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('drawall-accrochages') ?? 'null');
+      return Array.isArray(v) ? OBJECT_SNAP_TYPES.filter(t => v.includes(t)) : DEFAULT_SNAP_TYPES;
+    } catch { return DEFAULT_SNAP_TYPES; }
+  });
+  useEffect(() => { try { localStorage.setItem('drawall-accrochages', JSON.stringify(snapTypes)); } catch { /* préférence non conservée */ } }, [snapTypes]);
+  const [snapPanelOpen, setSnapPanelOpen] = useState(false);
   const showCoord = (mm: number) => `${fmt(fromMm(mm, displayUnit), unitDecimals(displayUnit))} ${displayUnit}`;
   // Paramètres du congé et du chanfrein (mm), saisis dans le panneau de l'outil.
   const [cornerParams, setCornerParams] = useState({ r: '10', d1: '10', d2: '10' });
@@ -855,6 +864,7 @@ function Workbench() {
                 onCorner={corner}
                 gridSize={gridSize}
                 projectKey={projectKey}
+                snapTypes={snapTypes}
                 displayUnit={displayUnit}
                 onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
@@ -908,6 +918,9 @@ function Workbench() {
                   {DISPLAY_UNITS.map(u => <option key={u.key} value={u.key}>{u.label}</option>)}
                 </select>
               </label>
+              <button onClick={() => setSnapPanelOpen(true)} className="rounded-sm border border-border px-1.5 py-0.5 hover:text-foreground">
+                accrochages {snapEnabled ? `${snapTypes.length}/${OBJECT_SNAP_TYPES.length}` : 'coupés'}
+              </button>
               <label className="flex items-center gap-1">
                 grille
                 <select aria-label="Pas de grille" value={gridSize} onChange={e => setGridSize(Number(e.target.value))}
@@ -990,6 +1003,7 @@ function Workbench() {
         onUseCloudVersion={useCloudVersion}
         onKeepLocalVersion={keepLocalVersion}
       />
+      {snapPanelOpen && <SnapSettings active={snapTypes} onChange={setSnapTypes} onClose={() => setSnapPanelOpen(false)} />}
       {arrayMode && (
         <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
       )}

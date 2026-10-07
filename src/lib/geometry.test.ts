@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject, DimensionObj, DimensionStyle, Layer } from '@/types/cad';
 import { dimensionMeasure, dimensionOf, dimensionValue, fmt, supportedDimensionStyles } from '@/types/cad';
-import { constrainOrtho, dimensionGeometry, findSnap, moveObject } from './geometry';
+import { DEFAULT_SNAP_TYPES, constrainOrtho, dimensionGeometry, findSnap, moveObject } from './geometry';
 
 const layers: Layer[] = [
   { id: 'LAY-0001', name: 'Dessin', color: '#22d3ee', visible: true, locked: false },
@@ -32,6 +32,57 @@ describe('accrochage objet', () => {
     expect(snap.type).toBe('intersection');
     expect(snap.x).toBe(50);
     expect(snap.y).toBe(50);
+  });
+
+  const hline: CadObject = { ...base, id: 'OBJ-0001', name: 'H', kind: 'line', x1: 0, y1: 0, x2: 200, y2: 0 };
+  const circle: CadObject = { ...base, id: 'OBJ-0002', name: 'C', kind: 'circle', cx: 0, cy: 0, r: 50 };
+
+  it('perpendiculaire : pied de la perpendiculaire depuis le point précédent', () => {
+    const snap = findSnap([hline], layers, [], 73, 4, 8, 10, { from: { x: 70, y: 80 } });
+    expect(snap.type).toBe('perpendicular');
+    expect(snap).toMatchObject({ x: 70, y: 0 });
+  });
+
+  it('perpendiculaire hors du segment : pas d’accrochage', () => {
+    const snap = findSnap([hline], layers, [], 250, 2, 8, 10, { from: { x: 250, y: 80 } });
+    expect(snap.type).toBe('grid');
+  });
+
+  it('perpendiculaire à un cercle : sur le rayon qui passe par le point précédent', () => {
+    const snap = findSnap([circle], layers, [], 33, -37, 8, 10, { from: { x: 200, y: -200 } });
+    expect(snap.type).toBe('perpendicular');
+    expect(snap.x).toBeCloseTo(35.355, 3);
+    expect(snap.y).toBeCloseTo(-35.355, 3);
+  });
+
+  it('tangent : le rayon au point trouvé est perpendiculaire à la droite qui vient du point précédent', () => {
+    const from = { x: 100, y: 0 };
+    // Tangentes depuis (100, 0) au cercle r = 50 : points (25, ±43,30).
+    const snap = findSnap([circle], layers, [], 27, 41, 8, 10, { from });
+    expect(snap.type).toBe('tangent');
+    expect(snap.x).toBeCloseTo(25, 3);
+    expect(snap.y).toBeCloseTo(43.30127, 3);
+    const dot = (snap.x - 0) * (snap.x - from.x) + (snap.y - 0) * (snap.y - from.y);
+    expect(Math.abs(dot)).toBeLessThan(0.1);
+  });
+
+  it('tangent impossible depuis l’intérieur du cercle', () => {
+    const snap = findSnap([circle], layers, [], 25, 43, 8, 10, { from: { x: 10, y: 0 }, types: ['tangent'] });
+    expect(snap.type).toBe('grid');
+  });
+
+  it('proche : point de la courbe le plus près du curseur, seulement s’il est activé', () => {
+    const on = findSnap([hline], layers, [], 123.4, 3, 8, 10, { types: ['nearest'] });
+    expect(on).toMatchObject({ type: 'nearest', x: 123.4, y: 0 });
+    const onCircle = findSnap([circle], layers, [], 37, 37, 8, 10, { types: ['nearest'] });
+    expect(onCircle.type).toBe('nearest');
+    expect(Math.hypot(onCircle.x, onCircle.y)).toBeCloseTo(50, 3);
+    expect(findSnap([hline], layers, [], 123.4, 3, 8, 10, { types: DEFAULT_SNAP_TYPES }).type).toBe('grid');
+  });
+
+  it('un type coupé n’accroche plus', () => {
+    expect(findSnap([hline], layers, [], 3, 2, 8, 10, { types: ['midpoint'] }).type).toBe('grid');
+    expect(findSnap([hline], layers, [], 3, 2, 8, 10, { types: ['endpoint'] }).type).toBe('endpoint');
   });
 
   it('contraind le point en mode ortho', () => {

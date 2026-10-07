@@ -8,7 +8,10 @@ import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } fr
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
 
-export type SnapType = 'intersection' | 'endpoint' | 'center' | 'midpoint' | 'corner' | 'quadrant' | 'insertion' | 'grid';
+export type SnapType = 'intersection' | 'endpoint' | 'center' | 'midpoint' | 'corner' | 'quadrant' | 'insertion' | 'perpendicular' | 'tangent' | 'nearest' | 'grid';
+
+/** Types d'accrochage objet que l'utilisateur peut activer ou couper (la grille reste toujours active). */
+export type ObjectSnapType = Exclude<SnapType, 'grid'>;
 
 export interface SnapPoint extends Point {
   type: SnapType;
@@ -28,6 +31,9 @@ const SNAP_PRIORITY: Record<SnapType, number> = {
   corner: 4,
   quadrant: 5,
   insertion: 6,
+  perpendicular: 7,
+  tangent: 7,
+  nearest: 8,
   grid: 9,
 };
 
@@ -39,8 +45,24 @@ const SNAP_LABEL: Record<SnapType, string> = {
   corner: 'Coin',
   quadrant: 'Quadrant',
   insertion: 'Insertion',
+  perpendicular: 'Perpendiculaire',
+  tangent: 'Tangent',
+  nearest: 'Proche',
   grid: 'Grille',
 };
+
+/** Ordre de présentation des accrochages objet. */
+export const OBJECT_SNAP_TYPES: ObjectSnapType[] = ['endpoint', 'midpoint', 'center', 'intersection', 'corner', 'quadrant', 'insertion', 'perpendicular', 'tangent', 'nearest'];
+
+/** Accrochages actifs par défaut : tous sauf « proche », qui masquerait la grille près des objets. */
+export const DEFAULT_SNAP_TYPES: ObjectSnapType[] = OBJECT_SNAP_TYPES.filter(t => t !== 'nearest');
+
+export interface SnapOptions {
+  /** Types actifs ; tous les types objet si absent. */
+  types?: readonly ObjectSnapType[];
+  /** Point précédent du tracé : origine des accrochages perpendiculaire et tangent. */
+  from?: Point;
+}
 
 export function snapLabel(type: SnapType): string {
   return SNAP_LABEL[type];
@@ -68,13 +90,18 @@ export function findSnap(
   y: number,
   tolerance: number,
   gridSize = 10,
+  options: SnapOptions = {},
 ): SnapPoint {
   const visible = objects.filter(o => layers.find(l => l.id === o.layerId)?.visible !== false);
+  const active = new Set<SnapType>(options.types ?? OBJECT_SNAP_TYPES);
   const candidates: SnapPoint[] = [];
   for (const object of visible) collectObjectSnaps(object, visible, blocks, x, y, tolerance, candidates);
-  collectIntersections(visible, blocks, x, y, tolerance, candidates);
+  if (active.has('intersection')) collectIntersections(visible, blocks, x, y, tolerance, candidates);
+  if (active.has('perpendicular') || active.has('tangent') || active.has('nearest')) {
+    collectCurveSnaps(visible, blocks, x, y, tolerance, active, options.from, candidates);
+  }
 
-  const unique = dedupeSnaps(candidates);
+  const unique = dedupeSnaps(candidates.filter(c => active.has(c.type)));
   unique.sort((a, b) => SNAP_PRIORITY[a.type] - SNAP_PRIORITY[b.type] || a.distance - b.distance);
   const objectSnap = unique.find(s => s.distance <= tolerance);
   if (objectSnap) return objectSnap;
@@ -241,6 +268,85 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
     case 'dimension':
     case 'text':
       return;
+  }
+}
+
+/**
+ * Accrochages qui dépendent de la courbe entière : perpendiculaire et tangent (depuis le point
+ * précédent du tracé), et point le plus proche du curseur.
+ */
+function collectCurveSnaps(
+  objects: CadObject[],
+  blocks: BlockDef[],
+  x: number,
+  y: number,
+  tolerance: number,
+  active: Set<SnapType>,
+  from: Point | undefined,
+  out: SnapPoint[],
+): void {
+  const segments: Segment[] = [];
+  const circles: CircleGeom[] = [];
+  for (const object of objects) collectGeometry(object, blocks, segments, circles);
+  const add = (type: SnapType, p: Point, objectId: string) => {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d <= tolerance) out.push({ x: round(p.x), y: round(p.y), type, label: SNAP_LABEL[type], objectId, distance: d });
+  };
+
+  for (const s of segments) {
+    const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-12) continue;
+    const foot = (p: Point) => {
+      const t = ((p.x - s.x1) * dx + (p.y - s.y1) * dy) / len2;
+      return { t, p: { x: s.x1 + t * dx, y: s.y1 + t * dy } };
+    };
+    if (active.has('perpendicular') && from) {
+      const f = foot(from);
+      if (f.t >= -1e-9 && f.t <= 1 + 1e-9 && Math.hypot(f.p.x - from.x, f.p.y - from.y) > 1e-9) add('perpendicular', f.p, s.objectId);
+    }
+    if (active.has('nearest')) {
+      const f = foot({ x, y });
+      const t = Math.max(0, Math.min(1, f.t));
+      add('nearest', { x: s.x1 + t * dx, y: s.y1 + t * dy }, s.objectId);
+    }
+  }
+
+  for (const c of circles) {
+    if (c.r <= 0) continue;
+    if (from) {
+      const vx = from.x - c.cx, vy = from.y - c.cy;
+      const dist = Math.hypot(vx, vy);
+      if (dist > 1e-9) {
+        const ux = vx / dist, uy = vy / dist;
+        if (active.has('perpendicular')) {
+          // Le rayon passant par le point précédent coupe le cercle à angle droit.
+          for (const k of [1, -1]) {
+            const p = { x: c.cx + k * ux * c.r, y: c.cy + k * uy * c.r };
+            if (onCircleGeom(c, p)) add('perpendicular', p, c.objectId);
+          }
+        }
+        if (active.has('tangent') && dist > c.r + 1e-9) {
+          // Points de tangence : angle α = acos(r / d) de part et d'autre de la direction centre → point.
+          const alpha = Math.acos(c.r / dist);
+          const base = Math.atan2(uy, ux);
+          for (const sgn of [1, -1]) {
+            const a = base + sgn * alpha;
+            const p = { x: c.cx + c.r * Math.cos(a), y: c.cy + c.r * Math.sin(a) };
+            if (onCircleGeom(c, p)) add('tangent', p, c.objectId);
+          }
+        }
+      }
+    }
+    if (active.has('nearest')) {
+      const vx = x - c.cx, vy = y - c.cy;
+      const dist = Math.hypot(vx, vy);
+      if (dist > 1e-9) {
+        const p = { x: c.cx + (vx / dist) * c.r, y: c.cy + (vy / dist) * c.r };
+        if (onCircleGeom(c, p)) add('nearest', p, c.objectId);
+      }
+    }
   }
 }
 
