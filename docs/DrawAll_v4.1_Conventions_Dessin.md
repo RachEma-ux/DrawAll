@@ -80,9 +80,13 @@ Ces valeurs sont des points de départ, choisis selon l'étendue du dessin, son 
 
 Remarque : le support pédagogique « Dessin Technique » associe dans un premier tableau les plans de masse au 1:50 – 1:100 ; c'est une erreur, corrigée par son second tableau (1:200 – 1:500), repris ici.
 
-### 2.3 État actuel
+### 2.3 Feuilles et fenêtres (règle, lot 2.1)
 
-L'échelle de représentation (vues, fenêtres de présentation, feuilles, export PDF calibré) n'est pas encore implémentée : c'est l'objet du lot 2.
+- Une **feuille** a un format ISO 216 (A4 à A0), une orientation et des marges (par défaut 20 mm à gauche pour la reliure, 10 mm ailleurs, ISO 5457). Ses grandeurs sont en millimètres papier.
+- Une **fenêtre** occupe un rectangle de la feuille et montre le modèle à une échelle (rapport papier : réel), centrée sur un point du modèle ; elle peut masquer des calques pour elle seule.
+- Passage papier ↔ modèle : longueur papier = longueur réelle × échelle (5 000 mm au 1:50 = 100 mm ; au 1:100 = 50 mm). L'échelle ne modifie jamais le modèle.
+- Les feuilles sont versionnées avec le projet (historique, annulation) ; une fenêtre qui déborde de la zone utile est signalée.
+- L'éditeur de feuille (lot 2.2), le cartouche (2.3) et l'export PDF calibré (2.5) suivent.
 
 ## 3. Traits
 

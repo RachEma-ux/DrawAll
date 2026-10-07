@@ -102,6 +102,35 @@ export type NewCadObject = DistributiveOmit<CadObject, 'id' | 'createdSeq' | 'na
 
 // Microversion — versionnement Git-like (Concept §8). Chaque microversion
 // capture les objets, les calques et les définitions de blocs.
+// ─── Feuilles et fenêtres (présentations) ─────────────────────────────────────
+// Une feuille est un support papier ; une fenêtre y montre une partie du modèle à une échelle.
+// Toutes les grandeurs de feuille sont en millimètres papier, origine en haut à gauche.
+
+export type PaperFormat = 'A4' | 'A3' | 'A2' | 'A1' | 'A0';
+export type Orientation = 'portrait' | 'paysage';
+
+/** Échelle de représentation : `paper` mm sur la feuille pour `model` mm réels (1:50 → 1 / 50). */
+export interface DrawingScale { paper: number; model: number }
+
+export interface Viewport {
+  id: string;              // identifiant stable FEN-0001
+  name: string;
+  x: number; y: number;    // coin haut gauche sur la feuille (mm papier)
+  w: number; h: number;    // taille sur la feuille (mm papier)
+  scale: DrawingScale;
+  center: { x: number; y: number };   // point du modèle au centre de la fenêtre (mm)
+  hiddenLayerIds: string[];           // calques masqués dans cette fenêtre seulement
+}
+
+export interface Sheet {
+  id: string;              // identifiant stable FEU-0001
+  name: string;
+  format: PaperFormat;
+  orientation: Orientation;
+  margins: { top: number; right: number; bottom: number; left: number };
+  viewports: Viewport[];
+}
+
 export interface MicroVersion {
   seq: number;
   label: string;
@@ -110,6 +139,7 @@ export interface MicroVersion {
   objects: CadObject[];
   layers: Layer[];
   blocks: BlockDef[];
+  sheets?: Sheet[];        // absent dans les projets antérieurs au lot 2.1
 }
 
 export interface ProjectState {
