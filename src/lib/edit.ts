@@ -1,7 +1,8 @@
 // Ajuster (couper) et prolonger : fonctions pures sur la géométrie de l'atelier.
 // Mode rapide : toutes les autres entités visibles servent d'arêtes de coupe ou de limites.
 // Repère écran (Y vers le bas) ; angles d'arc en degrés, repère DXF (cf. arc.ts).
-import type { ArcObj, CadObject, LineObj, PolylineObj } from '@/types/cad';
+import type { ArcObj, CadObject, LineObj } from '@/types/cad';
+import { isClosedPolyline } from '@/types/cad';
 import { angleInArc, angleOf, arcPointAt, arcSweep, norm360 } from '@/lib/arc';
 
 export interface P { x: number; y: number }
@@ -133,7 +134,7 @@ export function trimObject(target: CadObject, others: CadObject[], pick: P): Edi
     case 'line': return trimLine(target, edges, pick);
     case 'arc': return trimArc(target, edges, pick);
     case 'circle': return trimCircle(target.cx, target.cy, target.r, edges, pick);
-    case 'polyline': return trimPolyline(target.points, isClosed(target), edges, pick);
+    case 'polyline': return trimPolyline(target.points, isClosedPolyline(target), edges, pick);
     case 'rect': {
       const pts = [target.x, target.y, target.x + target.w, target.y, target.x + target.w, target.y + target.h, target.x, target.y + target.h, target.x, target.y];
       const res = trimPolyline(pts, true, edges, pick);
@@ -198,11 +199,6 @@ function trimCircle(cx: number, cy: number, r: number, edges: Edges, pick: P): E
   const removedFrom = angles[k], removedTo = angles[(k + 1) % angles.length];
   // Le cercle devient un arc : de la fin de la partie retirée jusqu'à son début.
   return { patch: null, remove: true, added: [{ kind: 'arc', cx, cy, r, start: norm360(removedTo), end: norm360(removedFrom) } as Partial<CadObject>] };
-}
-
-function isClosed(p: PolylineObj): boolean {
-  const n = p.points.length;
-  return n >= 6 && Math.hypot(p.points[0] - p.points[n - 2], p.points[1] - p.points[n - 1]) < 1e-6;
 }
 
 /** Abscisses curvilignes cumulées des sommets. */
@@ -322,7 +318,7 @@ export function extendObject(target: CadObject, others: CadObject[], pick: P): E
     if (!Number.isFinite(ext)) return null;
     return { patch: { start: norm360(target.start - ext) }, remove: false, added: [] };
   }
-  if (target.kind === 'polyline' && !isClosed(target) && target.points.length >= 4) {
+  if (target.kind === 'polyline' && !isClosedPolyline(target as CadObject) && target.points.length >= 4) {
     const p = target.points, n = p.length;
     const first = { x: p[0], y: p[1] }, last = { x: p[n - 2], y: p[n - 1] };
     const atEnd = Math.hypot(pick.x - last.x, pick.y - last.y) <= Math.hypot(pick.x - first.x, pick.y - first.y);

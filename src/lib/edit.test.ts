@@ -49,6 +49,20 @@ describe('ajuster', () => {
     expect(r.added).toEqual([{ kind: 'polyline', points: [60, 0, 100, 0, 100, 100] }]);
   });
 
+  it('traite comme fermée une polyligne dont les bouts sont à moins de 0,01 mm (règle commune)', () => {
+    const p: CadObject = { ...base, id: 'P', kind: 'polyline', points: [0, 0, 100, 0, 100, 100, 0, 100, 0.005, 0] };
+    const v = line('V', 50, -50, 50, 50);
+    const h = line('H', -50, 30, 150, 30);
+    const r = trimObject(p, [p, v, h], { x: 75, y: 0 })!;
+    // Contour fermé : on retire la portion entre les deux arêtes et il reste une seule polyligne ouverte.
+    expect(r.remove).toBe(false);
+    expect(r.added).toEqual([]);
+    const kept = (r.patch as { points: number[] }).points;
+    expect(kept.slice(0, 2)).toEqual([100, 30]);
+    expect(kept.slice(-2)).toEqual([50, 0]);
+    expect(extendObject(p, [p, v], { x: 0, y: 99 })).toBeNull();
+  });
+
   it('ouvre un rectangle en polyligne en retirant le côté désigné', () => {
     const rect: CadObject = { ...base, id: 'R', kind: 'rect', x: 0, y: 0, w: 100, h: 50 };
     const r = trimObject(rect, [rect, line('C1', 30, -10, 30, 10), line('C2', 70, -10, 70, 10)], { x: 50, y: 0 })!;
