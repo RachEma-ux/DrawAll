@@ -146,8 +146,9 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 ### 7.1 Règles
 
 - Export au format **DXF R2000 (AC1015)**, unité déclarée millimètre (`$INSUNITS = 4`), lisible par les lecteurs stricts (vérifié avec ezdxf à chaque intégration continue).
-- Import des entités LINE, CIRCLE, ARC et LWPOLYLINE, y compris les segments courbes (`bulge`) et les entités en repère symétrique (extrusion 0,0,−1).
+- Import des entités LINE, CIRCLE, ARC, LWPOLYLINE, TEXT et MTEXT, y compris les segments courbes (`bulge`) et les entités en repère symétrique (extrusion 0,0,−1).
 - Chaque import et chaque export produit un rapport : **conservé / transformé / perdu**.
+- Les caractères hors ASCII (accents, Ø, ±, m², noms de calques) s'écrivent `\U+XXXX` (convention DXF R2000) et sont décodés à l'import.
 
 ### 7.2 Matrice actuelle
 
@@ -165,7 +166,9 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | Occurrence de bloc | Non lue (signalée) | Éclatée en entités simples |
 | Calques | Nom et couleur conservés | Nom, couleur, visibilité, verrouillage |
 | Identifiants, classification, historique | — | Perdus (non représentables en DXF) |
-| Autres entités (SPLINE, TEXT, INSERT…) | Ignorées et signalées | — |
+| Texte sur une ligne | Conservé (TEXT : contenu, hauteur, rotation, alignement ; %%c %%d %%p décodés) | Conservé (TEXT) |
+| Texte sur plusieurs lignes | Conservé (MTEXT : mise en forme simplifiée en texte brut) | Conservé (MTEXT, point d'attache en haut) |
+| Autres entités (SPLINE, INSERT, DIMENSION…) | Ignorées et signalées | — |
 
 ### 7.3 À décider
 

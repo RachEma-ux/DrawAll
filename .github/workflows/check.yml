@@ -7,7 +7,13 @@ name: Contrôle
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+# Une seule exécution par branche : une nouvelle poussée annule la précédente.
+concurrency:
+  group: controle-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -46,8 +52,17 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Cache des navigateurs Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Les bibliothèques système de Chromium sont déjà présentes sur ubuntu-latest :
+      # on ne télécharge que le navigateur (l'installation apt pouvait bloquer de longues minutes).
       - name: Installer Chromium pour la recette
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 5
+        run: npx playwright install chromium
 
       - name: Recette navigateur (ordinateur et téléphone)
         run: npm run e2e

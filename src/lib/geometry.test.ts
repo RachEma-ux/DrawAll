@@ -154,3 +154,28 @@ describe('précision affichée', () => {
     expect(line.kind === 'line' && line.x2).toBe(12.345);
   });
 });
+
+describe('transformations du texte', () => {
+  const text: CadObject = { ...base, id: 'OBJ-0010', name: 'Séjour', kind: 'text', x: 100, y: 100, content: 'Séjour', height: 20, rotation: 0, align: 'left' };
+
+  it('déplace le point d’insertion', () => {
+    expect(moveObject(text, 10, -5)).toEqual({ x: 110, y: 95 });
+  });
+
+  it('tourne le point et l’orientation (+90° = sens horaire à l’écran)', () => {
+    expect(rotateObject(text, 0, 0, 90)).toEqual({ x: -100, y: 100, rotation: -90 });
+  });
+
+  it('met la hauteur à l’échelle', () => {
+    expect(scaleObject(text, 0, 0, 2)).toEqual({ x: 200, y: 200, height: 40 });
+  });
+
+  it('garde un texte lisible en miroir (seul le point est symétrisé)', () => {
+    expect(mirrorObject(text, 'x', 0)).toEqual({ x: -100 });
+  });
+
+  it('s’accroche à son point d’insertion', () => {
+    const snap = findSnap([text], layers, [], 102, 101, 8, 10);
+    expect(snap).toMatchObject({ type: 'insertion', x: 100, y: 100 });
+  });
+});

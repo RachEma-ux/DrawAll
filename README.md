@@ -64,7 +64,7 @@ Les variables attendues sont documentées dans `.env.example`. Ne jamais committ
 
 Le format DXF est pris en charge de façon volontairement limitée et explicite :
 
-- import : `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE` ; les arcs et segments courbes (`bulge`) sont approchés par des polylignes avec un écart de corde ≤ 0,05 mm ; les entités en repère symétrique (extrusion 0,0,−1) sont replacées ;
+- import : `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE`, `TEXT`, `MTEXT` ; les arcs et segments courbes (`bulge`) sont approchés par des polylignes avec un écart de corde ≤ 0,05 mm ; les entités en repère symétrique (extrusion 0,0,−1) sont replacées ;
 - unités : l’unité déclarée par le fichier (`$INSUNITS`) est convertie en millimètres ; un fichier sans unité fait demander l’unité ;
 - export : DXF R2000 (`AC1015`) en millimètres — primitives, hachures (`HATCH`), calques ; cotes converties en traits + texte et occurrences de blocs éclatées ;
 - chaque import et export affiche un rapport de ce qui est conservé, transformé ou perdu ;

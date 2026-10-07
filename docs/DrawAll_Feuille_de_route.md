@@ -120,8 +120,9 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | J0 — Interface mobile | Fait | #4, #5 |
 | 1.0 Recette navigateur automatisée | Fait | #6 |
 | 1.1 Cadrage et ergonomie mobile | Fait | #7 |
-| 1.2 Texte | En cours | — |
-| 1.3 → 8.4 | À faire | — |
+| 1.2 Texte | Fait | #8 |
+| 1.3 Arc | En cours | — |
+| 1.4 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 
