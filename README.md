@@ -10,7 +10,7 @@ Cette branche contient une application full-stack :
 - **Précision de dessin** : accrochage objet activable type par type (extrémités, milieux, centres, intersections, coins, quadrants, insertion, perpendiculaire, tangent, proche), grille réglable (1 à 1 000 mm), mode ortho, saisie de points absolue, relative (`@dx;dy`) et polaire (`@L<angle`), unité d’affichage mm, cm ou m (modèle toujours en millimètres) ; mesures d’aire et de périmètre (inspecteur et outil « Aire » par points), zoom, panoramique et ajustement de vue.
 - **Interopérabilité DXF** : import `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE` (courbes comprises) avec conversion d’unités ; export DXF R2000 lisible par les lecteurs stricts, hachures comprises ; rapport conservé / transformé / perdu à chaque échange.
 - **Comptes et persistance cloud** : connexion Kimi, projets en base MySQL, révisions optimistes et résolution explicite des conflits.
-- **Feuilles** : mise en page A4–A0, cadre, fenêtres à l’échelle (ISO 5455) déplaçables au geste, calques par fenêtre ; cartouche (projet, titre, échelle, date, indice émis et figé sur la version, auteur, méthode de projection).
+- **Feuilles** : mise en page A4–A0, cadre, fenêtres à l’échelle (ISO 5455) déplaçables au geste, calques par fenêtre ; cartouche (projet, titre, échelle, date, indice émis et figé sur la version, auteur, méthode de projection) ; export PDF vectoriel aux dimensions exactes de la feuille et impression.
 - **Historique** : microversions, annulation/rétablissement, versions nommées et diagnostics de cohérence.
 - **Documentation intégrée** : Concept, Architecture de référence et explorateur des 324 exigences.
 
@@ -69,7 +69,7 @@ Le format DXF est pris en charge de façon volontairement limitée et explicite 
 - unités : l’unité déclarée par le fichier (`$INSUNITS`) est convertie en millimètres ; un fichier sans unité fait demander l’unité ;
 - export : DXF R2000 (`AC1015`) en millimètres — primitives, hachures (`HATCH`), calques, types de ligne ISO 128-2 (`LTYPE`), épaisseurs et couleurs (calque ou objet) ; cotes converties en traits + texte et occurrences de blocs éclatées ;
 - chaque import et export affiche un rapport de ce qui est conservé, transformé ou perdu ;
-- l’intégration continue vérifie les exports avec ezdxf (`scripts/check-dxf.py`).
+- l’intégration continue vérifie les exports avec ezdxf (`scripts/check-dxf.py`) et les PDF avec pypdf (`scripts/check-pdf.py`).
 
 Détail et matrice : [`docs/DrawAll_v4.1_Conventions_Dessin.md`](docs/DrawAll_v4.1_Conventions_Dessin.md).
 

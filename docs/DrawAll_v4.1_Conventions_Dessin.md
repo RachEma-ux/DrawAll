@@ -88,7 +88,7 @@ Remarque : le support pédagogique « Dessin Technique » associe dans un premie
 - Les feuilles sont versionnées avec le projet (historique, annulation) ; une fenêtre qui déborde de la zone utile est signalée.
 - Éditeur (mode « Feuilles », lot 2.2) : feuilles A4 à A0 en portrait ou paysage, cadre de la zone utile, fenêtres ajoutées cadrées sur le dessin à l'échelle normalisée qui le fait tenir, déplacées et redimensionnées au geste (accrochage au millimètre papier) ou par saisie ; échelle, centre et calques propres à chaque fenêtre.
 - **Cartouche** (lot 2.3) : 180 × 32 mm au coin inférieur droit de la zone utile (ISO 7200, ISO 5457). Champs saisis : projet, titre, auteur, méthode de projection (premier dièdre par défaut, décision §6). Champs tirés du projet : échelle(s) des fenêtres, date et **indice** de la version affichée. L'indice est émis sur une version (« Émettre l'indice A ») et sa lettre (A, B…, AA) y est enregistrée : nommer plus tard une version plus ancienne ne change aucun indice émis, et une lettre n'est jamais attribuée deux fois. Une modification après le dernier indice émis est signalée « modifié depuis ». Un champ non renseigné s'affiche « — » : rien n'est inventé.
-- L'export PDF calibré (2.5) suit.
+- **Export PDF** (lot 2.5) : PDF 1.4 vectoriel d'une page aux dimensions exactes de la feuille (1 mm = 72 / 25,4 pt) ; fenêtres découpées, traits et motifs à leurs épaisseurs papier, hachures en traits fins à 45° au pas papier de 3 mm, textes en Helvetica (WinAnsi), cartouche. Impression monochrome (noir), usage du dessin technique. « Imprimer » ouvre le PDF : imprimer à 100 % (taille réelle). L'intégration continue relit les PDF avec pypdf en mode strict.
 
 ## 3. Traits
 

@@ -6,6 +6,7 @@ import type { BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
+import { pdfBytes, sheetToPdf } from '@/lib/pdf';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
   PAPER_FORMATS, STANDARD_SCALES, fitScale, formatScale, layerVisibleInViewport, parseScale, printableArea,
@@ -79,6 +80,24 @@ export default function SheetEditor(p: Props) {
     const m = el.getScreenCTM();
     const q = m ? pt.matrixTransform(m.inverse()) : pt;
     return { x: q.x, y: q.y };
+  };
+
+  /** PDF vectoriel aux dimensions exactes de la feuille : téléchargé, ou ouvert pour impression à 100 %. */
+  const exportPdf = (print: boolean) => {
+    if (!sheet) return;
+    const pdf = sheetToPdf({ sheet, objects: p.objects, layers: p.layers, blocks: p.blocks, versions: p.versions, pointer: p.pointer });
+    const blob = new Blob([pdfBytes(pdf)], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    if (print) {
+      window.open(url, '_blank');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${sheet.id}.pdf`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const createSheet = () => {
@@ -174,6 +193,10 @@ export default function SheetEditor(p: Props) {
             </select>
           </div>
           <p className="text-muted-foreground/70">{fmt(size.w)} × {fmt(size.h)} mm · zone utile {fmt(area!.w)} × {fmt(area!.h)} mm</p>
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => exportPdf(false)} className={`${btn} border-cyan-400/50 text-cyan-300`}>Exporter en PDF</button>
+            <button onClick={() => exportPdf(true)} className={btn} title="Ouvre le PDF : imprimer à 100 % (taille réelle)">Imprimer</button>
+          </div>
           <button onClick={() => { if (confirm(`Supprimer ${sheet.id} ?`)) { p.onRemoveSheet(sheet.id); setSheetId(null); setVpId(null); } }} className={`${btn} border-red-400/30 text-red-400`}>Supprimer la feuille</button>
         </section>
       )}

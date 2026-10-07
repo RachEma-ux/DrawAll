@@ -1,0 +1,323 @@
+// Export PDF calibré d'une feuille (lot 2.5) : PDF 1.4 vectoriel, une page aux dimensions exactes
+// de la feuille, sans dépendance. Les fenêtres sont découpées (chemin de découpe) ; traits, motifs
+// et annotations sont à leurs tailles papier. Impression monochrome (noir), usage du dessin technique.
+// Repère PDF : origine en bas à gauche, Y vers le haut, unités en points (1 pt = 25,4 / 72 mm).
+import type { BlockDef, CadObject, Layer, MicroVersion, PrimitiveObject, Sheet, TextObj, Viewport } from '@/types/cad';
+import { dimensionValue, isClosedPolyline } from '@/types/cad';
+import { dimensionGeometry } from '@/lib/geometry';
+import { arcSweep } from '@/lib/arc';
+import { effectiveStyle, lineTypeDef } from '@/lib/linestyle';
+import { PAPER_DIMENSION_STYLE, arrowHead, dimensionTextPosition } from '@/lib/annotation';
+import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetSize } from '@/lib/sheet';
+import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
+import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
+
+export const MM_TO_PT = 72 / 25.4;
+const HATCH_SPACING = 3; // mm papier
+
+export interface PdfInput {
+  sheet: Sheet;
+  objects: CadObject[];
+  layers: Layer[];
+  blocks: BlockDef[];
+  versions: MicroVersion[];
+  pointer: number;
+  /** Date de création inscrite dans le fichier (pour des sorties reproductibles en test). */
+  date?: Date;
+}
+
+interface P { x: number; y: number }
+
+/** Nombre PDF compact : 3 décimales au plus (1/1000 pt ≈ 0,35 µm). */
+const n = (v: number) => {
+  const r = Math.round(v * 1000) / 1000;
+  return Object.is(r, -0) ? '0' : String(r);
+};
+
+// ─── Texte : WinAnsi et largeurs Helvetica ─────────────────────────────────────
+
+const WIN_ANSI_EXTRA: Record<string, number> = {
+  '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85, '†': 0x86, '‡': 0x87, 'ˆ': 0x88, '‰': 0x89, 'Š': 0x8a, '‹': 0x8b, 'Œ': 0x8c,
+  'Ž': 0x8e, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95, '–': 0x96, '—': 0x97, '˜': 0x98, '™': 0x99, 'š': 0x9a, '›': 0x9b,
+  'œ': 0x9c, 'ž': 0x9e, 'Ÿ': 0x9f, ' ': 0xa0,
+};
+
+/** Chaîne PDF littérale encodée en WinAnsi ; un caractère non représentable devient « ? ». */
+export function pdfString(text: string): string {
+  let out = '(';
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    const b = WIN_ANSI_EXTRA[ch] ?? (code < 0x80 || (code >= 0xa0 && code <= 0xff) ? code : 0x3f);
+    if (b === 0x28 || b === 0x29 || b === 0x5c) out += `\\${String.fromCharCode(b)}`;
+    else if (b < 0x20 || b > 0x7e) out += `\\${b.toString(8).padStart(3, '0')}`;
+    else out += String.fromCharCode(b);
+  }
+  return `${out})`;
+}
+
+// Largeurs Helvetica (1/1000 em) pour les caractères 32 à 126.
+const HELVETICA = [
+  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556,
+  278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667,
+  611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833,
+  556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+];
+
+/** Largeur d'un texte en Helvetica, en unités de la taille de police. */
+export function textWidthEm(text: string): number {
+  let w = 0;
+  for (const ch of text) {
+    const base = ch.normalize('NFD')[0];
+    const c = base.charCodeAt(0);
+    w += (c >= 32 && c <= 126 ? HELVETICA[c - 32] : 556) / 1000;
+  }
+  return w;
+}
+
+// ─── Géométrie ────────────────────────────────────────────────────────────────
+
+/** Arc de cercle en courbes de Bézier (≤ 90° par courbe), angles en degrés dans le sens trigonométrique. */
+export function arcPath(c: P, r: number, startDeg: number, sweepDeg: number, moveTo = true): string {
+  const parts: string[] = [];
+  const segs = Math.max(1, Math.ceil(Math.abs(sweepDeg) / 90 - 1e-9));
+  const step = (sweepDeg / segs) * (Math.PI / 180);
+  let a = startDeg * (Math.PI / 180);
+  const k = (4 / 3) * Math.tan(step / 4);
+  if (moveTo) parts.push(`${n(c.x + r * Math.cos(a))} ${n(c.y + r * Math.sin(a))} m`);
+  for (let i = 0; i < segs; i++) {
+    const b = a + step;
+    const p1 = { x: c.x + r * (Math.cos(a) - k * Math.sin(a)), y: c.y + r * (Math.sin(a) + k * Math.cos(a)) };
+    const p2 = { x: c.x + r * (Math.cos(b) + k * Math.sin(b)), y: c.y + r * (Math.sin(b) - k * Math.cos(b)) };
+    parts.push(`${n(p1.x)} ${n(p1.y)} ${n(p2.x)} ${n(p2.y)} ${n(c.x + r * Math.cos(b))} ${n(c.y + r * Math.sin(b))} c`);
+    a = b;
+  }
+  return parts.join('\n');
+}
+
+function primitiveIn(p: PrimitiveObject, x: number, y: number, s: number): PrimitiveObject {
+  switch (p.kind) {
+    case 'line': return { ...p, x1: x + p.x1 * s, y1: y + p.y1 * s, x2: x + p.x2 * s, y2: y + p.y2 * s };
+    case 'rect': return { ...p, x: x + p.x * s, y: y + p.y * s, w: p.w * s, h: p.h * s };
+    case 'circle': return { ...p, cx: x + p.cx * s, cy: y + p.cy * s, r: p.r * s };
+    case 'arc': return { ...p, cx: x + p.cx * s, cy: y + p.cy * s, r: p.r * s };
+    case 'polyline': return { ...p, points: p.points.map((v, i) => (i % 2 === 0 ? x + v * s : y + v * s)) };
+  }
+}
+
+// ─── Écriture de la feuille ───────────────────────────────────────────────────
+
+export function sheetToPdf(input: PdfInput): string {
+  const { sheet, objects, layers, blocks } = input;
+  const size = sheetSize(sheet.format, sheet.orientation);
+  const W = size.w * MM_TO_PT, H = size.h * MM_TO_PT;
+  /** Point de la feuille (mm, Y vers le bas) → point PDF (pt, Y vers le haut). */
+  const pt = (q: P): P => ({ x: q.x * MM_TO_PT, y: H - q.y * MM_TO_PT });
+  const ops: string[] = [];
+  const out = (s: string) => ops.push(s);
+
+  const setStroke = (lineWeightMm: number, dashMm?: number[]) => {
+    out(`${n(lineWeightMm * MM_TO_PT)} w`);
+    out(dashMm && dashMm.length ? `[${dashMm.map(d => n(d * MM_TO_PT)).join(' ')}] 0 d` : '[] 0 d');
+  };
+
+  const text = (s: string, at: P, heightMm: number, rotationDeg = 0, align: 'left' | 'center' | 'right' = 'left') => {
+    const size = heightMm * TEXT_FONT_SCALE * MM_TO_PT;
+    const width = textWidthEm(s) * size;
+    const r = (rotationDeg * Math.PI) / 180;
+    const shift = align === 'center' ? width / 2 : align === 'right' ? width : 0;
+    const p = pt(at);
+    const x = p.x - Math.cos(r) * shift, y = p.y - Math.sin(r) * shift;
+    out(`BT /F1 ${n(size)} Tf ${n(Math.cos(r))} ${n(Math.sin(r))} ${n(-Math.sin(r))} ${n(Math.cos(r))} ${n(x)} ${n(y)} Tm ${pdfString(s)} Tj ET`);
+  };
+
+  out('0 G 0 g 1 J 1 j');
+
+  // Cadre de la zone utile (trait fort 0,5 mm).
+  const area = printableArea(sheet);
+  setStroke(0.5);
+  {
+    const a = pt({ x: area.x, y: area.y + area.h });
+    out(`${n(a.x)} ${n(a.y)} ${n(area.w * MM_TO_PT)} ${n(area.h * MM_TO_PT)} re S`);
+  }
+
+  for (const vp of sheet.viewports) drawViewport(vp);
+
+  // Cartouche.
+  if (sheet.titleBlock) {
+    const r = titleBlockRect(sheet);
+    const fields = titleBlockFields(sheet, input.versions, input.pointer);
+    const cols = 4, rows = 2, cw = r.w / cols, rh = r.h / rows;
+    out('1 g');
+    { const a = pt({ x: r.x, y: r.y + r.h }); out(`${n(a.x)} ${n(a.y)} ${n(r.w * MM_TO_PT)} ${n(r.h * MM_TO_PT)} re f`); }
+    out('0 g');
+    setStroke(0.5);
+    { const a = pt({ x: r.x, y: r.y + r.h }); out(`${n(a.x)} ${n(a.y)} ${n(r.w * MM_TO_PT)} ${n(r.h * MM_TO_PT)} re S`); }
+    setStroke(0.18);
+    fields.forEach((f, i) => {
+      const cx = r.x + (i % cols) * cw, cy = r.y + Math.floor(i / cols) * rh;
+      const a = pt({ x: cx, y: cy + rh });
+      out(`${n(a.x)} ${n(a.y)} ${n(cw * MM_TO_PT)} ${n(rh * MM_TO_PT)} re S`);
+      text(f.label, { x: cx + 1.5, y: cy + 4 }, 1.8);
+      // Valeur réduite si elle dépasse la case.
+      let h = 2.5;
+      const room = cw - 3;
+      const wmm = textWidthEm(f.value) * h * TEXT_FONT_SCALE;
+      if (wmm > room) h *= room / wmm;
+      text(f.value, { x: cx + 1.5, y: cy + 11 }, h);
+    });
+  }
+
+  const content = ops.join('\n');
+  return assemble(W, H, content, sheet, input.date ?? new Date());
+
+  function drawViewport(vp: Viewport) {
+    const k = scaleRatio(vp.scale);
+    const toPdf = (q: P) => pt(modelToPaper(vp, q));
+    out('q');
+    { const a = pt({ x: vp.x, y: vp.y + vp.h }); out(`${n(a.x)} ${n(a.y)} ${n(vp.w * MM_TO_PT)} ${n(vp.h * MM_TO_PT)} re W n`); }
+    const visible = new Map(layers.map(l => [l.id, layerVisibleInViewport(vp, l)]));
+    for (const o of objects) {
+      if (!visible.get(o.layerId)) continue;
+      const layer = layers.find(l => l.id === o.layerId);
+      if (o.kind === 'dimension') { drawDimension(o); continue; }
+      if (o.kind === 'text') { drawText(o); continue; }
+      if (o.kind === 'blockRef') {
+        const block = blocks.find(b => b.id === o.blockId);
+        if (!block) continue;
+        for (const prim of block.primitives) drawPrimitive(primitiveIn(prim, o.x, o.y, o.scale), effectiveStyle(o, layer));
+        continue;
+      }
+      drawPrimitive(o, effectiveStyle(o, layer));
+    }
+    out('Q');
+
+    function pathOf(o: PrimitiveObject): { path: string; closed: boolean } {
+      switch (o.kind) {
+        case 'line': { const a = toPdf({ x: o.x1, y: o.y1 }), b = toPdf({ x: o.x2, y: o.y2 }); return { path: `${n(a.x)} ${n(a.y)} m ${n(b.x)} ${n(b.y)} l`, closed: false }; }
+        case 'rect': {
+          const c = [{ x: o.x, y: o.y }, { x: o.x + o.w, y: o.y }, { x: o.x + o.w, y: o.y + o.h }, { x: o.x, y: o.y + o.h }].map(toPdf);
+          return { path: `${n(c[0].x)} ${n(c[0].y)} m ${c.slice(1).map(q => `${n(q.x)} ${n(q.y)} l`).join(' ')} h`, closed: true };
+        }
+        case 'circle': return { path: `${arcPath(toPdf({ x: o.cx, y: o.cy }), o.r * k * MM_TO_PT, 0, 360)} h`, closed: true };
+        // Les angles d'arc sont dans le repère DXF (Y vers le haut), comme le repère PDF : rien à inverser.
+        case 'arc': return { path: arcPath(toPdf({ x: o.cx, y: o.cy }), o.r * k * MM_TO_PT, o.start, arcSweep(o)), closed: false };
+        case 'polyline': {
+          const pts: P[] = [];
+          for (let i = 0; i + 1 < o.points.length; i += 2) pts.push(toPdf({ x: o.points[i], y: o.points[i + 1] }));
+          const closed = isClosedPolyline(o);
+          return { path: `${n(pts[0].x)} ${n(pts[0].y)} m ${pts.slice(1).map(q => `${n(q.x)} ${n(q.y)} l`).join(' ')}${closed ? ' h' : ''}`, closed };
+        }
+      }
+    }
+
+    function drawPrimitive(o: PrimitiveObject, st: ReturnType<typeof effectiveStyle>) {
+      if (o.kind === 'polyline' && o.points.length < 4) return;
+      const { path, closed } = pathOf(o);
+      if (closed && o.hatch && o.hatch !== 'none') drawHatch(path, o);
+      const def = lineTypeDef(st.lineType);
+      setStroke(st.lineWeight, def.pattern.map(v => Math.abs(v) * st.lineWeight));
+      out(`${path} S`);
+    }
+
+    function drawHatch(path: string, o: PrimitiveObject) {
+      if (o.hatch === 'solid') { out('0.75 g'); out(`${path} f`); out('0 g'); return; }
+      // Hachures : traits fins parallèles à 45° (et 135° pour « croisées »), pas papier constant, découpés par le contour.
+      out('q');
+      out(`${path} W n`);
+      setStroke(0.18);
+      const b = boundsOf(o);
+      // Boîte en points PDF : lo en bas à gauche, hi en haut à droite.
+      const lo = toPdf({ x: b.minX, y: b.maxY }), hi = toPdf({ x: b.maxX, y: b.minY });
+      const dc = HATCH_SPACING * MM_TO_PT * Math.SQRT2; // écart perpendiculaire = dc / √2
+      // 45° : droites y = x + c ; 135° : y = −x + c ; tracées d'un bord à l'autre de la boîte.
+      for (let c = lo.y - hi.x; c <= hi.y - lo.x; c += dc) out(`${n(lo.x)} ${n(lo.x + c)} m ${n(hi.x)} ${n(hi.x + c)} l S`);
+      if (o.hatch === 'cross') {
+        for (let c = lo.y + lo.x; c <= hi.y + hi.x; c += dc) out(`${n(lo.x)} ${n(-lo.x + c)} m ${n(hi.x)} ${n(-hi.x + c)} l S`);
+      }
+      out('Q');
+    }
+
+    function boundsOf(o: PrimitiveObject) {
+      switch (o.kind) {
+        case 'rect': return { minX: Math.min(o.x, o.x + o.w), maxX: Math.max(o.x, o.x + o.w), minY: Math.min(o.y, o.y + o.h), maxY: Math.max(o.y, o.y + o.h) };
+        case 'circle': return { minX: o.cx - o.r, maxX: o.cx + o.r, minY: o.cy - o.r, maxY: o.cy + o.r };
+        default: {
+          const xs: number[] = [], ys: number[] = [];
+          if (o.kind === 'polyline') for (let i = 0; i + 1 < o.points.length; i += 2) { xs.push(o.points[i]); ys.push(o.points[i + 1]); }
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          for (const x of xs) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
+          for (const y of ys) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+          return { minX, maxX, minY, maxY };
+        }
+      }
+    }
+
+    function drawText(t: TextObj) {
+      // Hauteur réelle (modèle) ramenée à l'échelle de la fenêtre.
+      const lines = textLines(t.content);
+      const r = (t.rotation * Math.PI) / 180;
+      lines.forEach((line, i) => {
+        const down = i * TEXT_LINE_SPACING * t.height;
+        // Ligne suivante : vers le bas dans le repère du texte. Écriture u = (cos r, −sin r) en Y vers le bas ;
+        // « vers le bas » du texte = (sin r, cos r) (à r = 90°, le texte monte et la ligne suivante est à droite).
+        const at = { x: t.x + Math.sin(r) * down, y: t.y + Math.cos(r) * down };
+        text(line, modelToPaper(vp, at), t.height * k, t.rotation, t.align);
+      });
+    }
+
+    function drawDimension(d: Extract<CadObject, { kind: 'dimension' }>) {
+      const target = objects.find(o => o.id === d.targetId);
+      const g = target ? dimensionGeometry(d, target) : null;
+      if (!g) return;
+      const S = PAPER_DIMENSION_STYLE;
+      // Épaisseur et type de trait propres à la cote, comme sur la feuille à l'écran (Conventions §5.2).
+      const w = d.lineWeight ?? S.lineWeight;
+      setStroke(w);
+      for (const [x1, y1, x2, y2] of g.ext) {
+        const a = toPdf({ x: x1, y: y1 }), b = toPdf({ x: x2, y: y2 });
+        out(`${n(a.x)} ${n(a.y)} m ${n(b.x)} ${n(b.y)} l S`);
+      }
+      // Ligne, flèches et texte calculés sur la feuille (mm papier), puis convertis en points.
+      const a = modelToPaper(vp, { x: g.x1, y: g.y1 }), b = modelToPaper(vp, { x: g.x2, y: g.y2 });
+      if (d.lineType !== undefined) setStroke(w, lineTypeDef(d.lineType).pattern.map(v => Math.abs(v) * w));
+      { const pa = pt(a), pb = pt(b); out(`${n(pa.x)} ${n(pa.y)} m ${n(pb.x)} ${n(pb.y)} l S`); }
+      setStroke(w);
+      for (const tri of [arrowHead(a, b, S.arrowLength, S.arrowHalfWidth), arrowHead(b, a, S.arrowLength, S.arrowHalfWidth)]) {
+        const q = tri.map(pt);
+        out(`${n(q[0].x)} ${n(q[0].y)} m ${n(q[1].x)} ${n(q[1].y)} l ${n(q[2].x)} ${n(q[2].y)} l h f`);
+      }
+      const t = dimensionTextPosition({ x1: a.x, y1: a.y, x2: b.x, y2: b.y }, S.textGap);
+      text(dimensionValue(d, objects), t, S.textHeight, 0, t.anchor === 'middle' ? 'center' : 'left');
+    }
+  }
+}
+
+function assemble(W: number, H: number, content: string, sheet: Sheet, date: Date): string {
+  const d = date.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(W)} ${n(H)}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+    `<< /Title ${pdfString(`${sheet.id} - ${sheet.name}`)} /Producer (DrawAll) /CreationDate (D:${d}Z) >>`,
+  ];
+  let body = '%PDF-1.4\n%âãÏÓ\n';
+  const offsets: number[] = [];
+  objs.forEach((o, i) => {
+    offsets.push(body.length);
+    body += `${i + 1} 0 obj\n${o}\nendobj\n`;
+  });
+  const xref = body.length;
+  body += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets) body += `${String(off).padStart(10, '0')} 00000 n \n`;
+  body += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info 6 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return body;
+}
+
+/** Octets du PDF (chaque caractère de la chaîne est un octet, ≤ 0xFF par construction). */
+export function pdfBytes(pdf: string): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(pdf.length));
+  for (let i = 0; i < pdf.length; i++) out[i] = pdf.charCodeAt(i) & 0xff;
+  return out;
+}
