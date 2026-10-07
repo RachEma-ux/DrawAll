@@ -30,3 +30,19 @@ test('lot 1.10 — l’inspecteur donne l’aire et le périmètre d’un contou
   await expect(measures).toHaveText('10 000 000 mm²');
   await expect(page.getByText('13 000 mm', { exact: true })).toBeVisible();
 });
+
+test('lot 1.10 — un contour d’Aire ne devient jamais une polyligne en changeant d’outil', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, []);
+  await chooseTool(page, /^Aire/);
+  const point = page.getByLabel('Point précis');
+  for (const entry of ['0;0', '1000;0', '1000;1000']) { await point.fill(entry); await point.press('Enter'); }
+  await chooseTool(page, /^Polyligne/);
+  // Entrée termine un tracé : il ne doit rien créer (le contour d'Aire n'est pas une polyligne).
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Terminer' }).click({ timeout: 1000 }).catch(() => {});
+  expect(await currentObjects(page)).toHaveLength(0);
+  // Un double-clic sur place avec l'outil Polyligne ne crée pas de polyligne de longueur nulle.
+  await page.getByTestId('canvas').dblclick();
+  expect(await currentObjects(page)).toHaveLength(0);
+});

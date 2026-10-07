@@ -90,6 +90,15 @@ interface Draft {
   sx: number; sy: number;
   cx: number; cy: number;
   points: number[];
+  /** Outil qui a commencé le tracé (une suite de points d'Aire ne devient jamais une polyligne). */
+  origin?: ToolId;
+}
+
+/** Longueur d'une suite de sommets (une polyligne de longueur nulle n'est pas créée). */
+function pathLength(p: number[]): number {
+  let l = 0;
+  for (let i = 2; i + 1 < p.length; i += 2) l += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+  return l;
 }
 
 /** Longueur en deçà de laquelle un tracé est considéré comme nul (mm) — aucune taille minimale métier. */
@@ -135,7 +144,7 @@ export default function CanvasView({
   const [tf, setTf] = useState({ x: 60, y: 40, k: 1 });
   const [draft, setDraft] = useState<Draft | null>(null);
   const activeDraft = draft && (
-    (draft.kind === 'polyline' && (tool === 'polyline' || tool === 'area')) ||
+    (draft.kind === 'polyline' && (draft.origin ?? 'polyline') === tool) ||
     (draft.kind === 'measure' && tool === 'measure') ||
     ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle' || draft.kind === 'arc' || draft.kind === 'arcCenter') && draft.kind === tool)
   ) ? draft : null;
@@ -221,7 +230,7 @@ export default function CanvasView({
     setDraft(d => {
       if (!d) return d;
       const compatible =
-        (d.kind === 'polyline' && (tool === 'polyline' || tool === 'area')) ||
+        (d.kind === 'polyline' && (d.origin ?? 'polyline') === tool) ||
         (d.kind === 'measure' && tool === 'measure') ||
         ((d.kind === 'line' || d.kind === 'rect' || d.kind === 'circle' || d.kind === 'arc' || d.kind === 'arcCenter') && d.kind === tool);
       return compatible ? d : null;
@@ -252,7 +261,8 @@ export default function CanvasView({
       return;
     }
     setDraft(d => {
-      if (d?.kind === 'polyline' && d.points.length >= 4 && activeLayer && !activeLayer.locked) {
+      // Seul un tracé commencé par l'outil Polyligne crée une polyligne.
+      if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === 'polyline' && d.points.length >= 4 && pathLength(d.points) > MIN_LENGTH && activeLayer && !activeLayer.locked) {
         onAdd({ kind: 'polyline', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', points: d.points });
       }
       return null;
@@ -265,8 +275,8 @@ export default function CanvasView({
     lastPlaced.current = { x: point.x, y: point.y };
     if (tool === 'polyline' || tool === 'area') {
       setDraft(d => {
-        if (d?.kind === 'polyline') return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
-        return { kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y] };
+        if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === tool) return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
+        return { kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y], origin: tool };
       });
       return;
     }
