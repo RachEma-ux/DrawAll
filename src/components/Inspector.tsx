@@ -7,9 +7,11 @@ import {
   DIMENSION_LABEL,
   dimensionOf,
   dimensionValue,
+  effectiveDimensionStyle,
   HATCH_LABEL,
   KIND_LABEL,
   readingFor,
+  supportedDimensionStyles,
 } from '@/types/cad';
 
 interface Props {
@@ -22,9 +24,11 @@ interface Props {
   onUpdate: (id: string, patch: Partial<CadObject>, label?: string) => void;
   onRemove: (id: string) => void;
   onCreateBlock: (id: string) => void;
+  /** Diagnostics du projet concernant cet objet (contrôles légers, pas une validation métier). */
+  issues?: string[];
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [] }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -47,11 +51,15 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
     <input
       key={v}
       type="number"
-      defaultValue={Math.round(v * 100) / 100}
+      step="any"
+      defaultValue={v}
       className="w-full rounded-sm border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-cyan-400"
       onBlur={e => {
-        const n = Number(e.target.value);
-        if (Number.isFinite(n)) onUpdate(obj.id, apply(n), 'Renseigner paramètre');
+        // Valeur stockée affichée à pleine précision ; un simple passage dans le champ ne réécrit rien.
+        const raw = e.target.value.trim().replace(',', '.');
+        const n = Number(raw);
+        if (raw === '' || !Number.isFinite(n) || n === v) return;
+        onUpdate(obj.id, apply(n), 'Renseigner paramètre');
       }}
     />
   );
@@ -170,19 +178,28 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           </div>
         )}
 
-        {obj.kind === 'dimension' && (
-          <div>
-            <p className="ui-label mb-1.5">Cote associative</p>
-            <select
-              value={obj.style}
-              onChange={e => onUpdate(obj.id, { style: e.target.value as DimensionStyle }, 'Changer type de cote')}
-              className="w-full rounded-sm border border-input bg-background px-2 py-1.5 text-xs outline-none focus:border-cyan-400"
-            >
-              {(Object.keys(DIMENSION_LABEL) as DimensionStyle[]).map(s => <option key={s} value={s}>{DIMENSION_LABEL[s]}</option>)}
-            </select>
-            <p className="mt-1 font-mono text-[9px] text-muted-foreground">Cible : {obj.targetId} · valeur recalculée automatiquement.</p>
-          </div>
-        )}
+        {obj.kind === 'dimension' && (() => {
+          const target = objects.find(o => o.id === obj.targetId);
+          const styles = target ? supportedDimensionStyles(target) : [];
+          const current = target ? effectiveDimensionStyle(obj.style, target) : null;
+          return (
+            <div>
+              <p className="ui-label mb-1.5">Cote associative</p>
+              {styles.length > 0 ? (
+                <select
+                  value={current ?? styles[0]}
+                  onChange={e => onUpdate(obj.id, { style: e.target.value as DimensionStyle }, 'Changer type de cote')}
+                  className="w-full rounded-sm border border-input bg-background px-2 py-1.5 text-xs outline-none focus:border-cyan-400"
+                >
+                  {styles.map(s => <option key={s} value={s}>{DIMENSION_LABEL[s]}</option>)}
+                </select>
+              ) : (
+                <p className="text-[11px] text-amber-300">{target ? `Aucune cote disponible pour un objet de type ${KIND_LABEL[target.kind]}.` : `Cible ${obj.targetId} absente.`}</p>
+              )}
+              <p className="mt-1 font-mono text-[9px] text-muted-foreground">Cible : {obj.targetId} · valeur recalculée automatiquement.</p>
+            </div>
+          );
+        })()}
 
         {obj.kind === 'blockRef' && (
           <div>
@@ -244,7 +261,14 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
               <div className="flex justify-between border-b border-border/50 py-1"><span className="text-muted-foreground">longueur/hors-tout</span><span>{obj.kind === 'dimension' ? dimensionValue(obj, objects) : dimensionOf(obj)}</span></div>
               <div className="flex justify-between border-b border-border/50 py-1"><span className="text-muted-foreground">unité</span><span>millimètre (SI)</span></div>
               <div className="flex justify-between border-b border-border/50 py-1"><span className="text-muted-foreground">calque</span><span>{layer?.name ?? obj.layerId}</span></div>
-              <div className="flex justify-between py-1"><span className="text-muted-foreground">statut</span><span className="text-emerald-400">validé</span></div>
+              <div className="flex justify-between py-1">
+                <span className="text-muted-foreground">contrôles</span>
+                {issues.length > 0
+                  ? <span className="text-amber-300">{issues.length} problème{issues.length > 1 ? 's' : ''}</span>
+                  : <span className="text-muted-foreground">aucun problème détecté</span>}
+              </div>
+              {issues.map(text => <p key={text} className="text-[10px] leading-relaxed text-amber-300/90">{text}</p>)}
+              <p className="pt-1 text-[9px] leading-relaxed text-muted-foreground/60">Contrôles géométriques légers — ce n'est pas une validation métier.</p>
             </div>
           </div>
         )}

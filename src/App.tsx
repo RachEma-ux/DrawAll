@@ -20,7 +20,7 @@ import type { DisplayLevel, ViewReading } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
-import { exportToDxf, parseDxf } from '@/lib/dxf';
+import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, selectionCenter } from '@/lib/geometry';
 
@@ -149,25 +149,42 @@ function Workbench() {
   }, [project]);
 
   const exportDxf = useCallback(() => {
-    const content = exportToDxf(project.objects, project.layers, project.blocks);
+    const { content, report } = exportDxfFile(project.objects, project.layers, project.blocks);
     const blob = new Blob([content], { type: 'application/dxf' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${cloudName.trim() || 'drawall-projet'}.dxf`;
     a.click();
     URL.revokeObjectURL(a.href);
+    if (report.transformed.length > 0 || report.lost.length > 0) {
+      window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report));
+    }
   }, [cloudName, project.objects, project.layers, project.blocks]);
 
   const importDxfFile = useCallback(async (file: File) => {
     const text = await file.text();
-    const result = parseDxf(text, {
+    const options = {
       objectStart: project.state.counter,
       layerStart: project.state.layerCounter,
       createdSeq: project.current.seq,
       existingLayers: project.layers,
-    });
+    };
+    let result = parseDxf(text, options);
+    if (result.unitMissing) {
+      // Unité absente ou inconnue : décision explicite de l'utilisateur (aucune unité supposée en silence).
+      const choices = DXF_UNITS.map(u => u.key).join(', ');
+      const answer = window.prompt(`Le fichier ${file.name} ne déclare pas d'unité exploitable.\nDans quelle unité ses coordonnées sont-elles exprimées ? (${choices})`, 'mm');
+      if (answer === null) return;
+      const unit = dxfUnitByKey(answer);
+      if (!unit) {
+        window.alert(`Unité « ${answer} » non reconnue. Import annulé.`);
+        return;
+      }
+      result = parseDxf(text, { ...options, sourceUnit: unit.key });
+    }
     const count = project.importObjects(result.objects, result.layers, `Importer ${file.name}`);
-    if (result.warnings.length > 0) window.alert(result.warnings.join('\n'));
+    const notes = result.warnings.filter(w => !w.startsWith('Entités DXF ignorées') && !w.startsWith('Le fichier ne déclare pas'));
+    window.alert([formatExchangeReport(`Import DXF — ${file.name} (${count} objet${count > 1 ? 's' : ''})`, result.report), ...notes].join('\n'));
     if (count > 0) setMode('atelier');
   }, [project]);
 
@@ -573,6 +590,7 @@ function Workbench() {
           <aside className="w-64 shrink-0 border-l border-border">
             <Inspector
               obj={selected}
+              issues={selected ? project.diagnostics.filter(d => d.level === 'avertissement' && new RegExp(`\\b${selected.id}\\b`).test(d.text)).map(d => d.text) : []}
               objects={project.objects}
               layers={project.layers}
               blocks={project.blocks}

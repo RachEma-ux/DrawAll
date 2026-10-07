@@ -188,16 +188,70 @@ export function dimensionOf(obj: CadObject): string {
   }
 }
 
+/**
+ * Styles de cote pris en charge pour chaque type de cible — définition unique
+ * utilisée par la création, l'inspecteur, la mesure, le rendu et l'export.
+ * Le premier style de la liste est le style par défaut.
+ */
+export function supportedDimensionStyles(target: CadObject): DimensionStyle[] {
+  switch (target.kind) {
+    case 'line': return ['aligned', 'horizontal', 'vertical'];
+    case 'rect': return ['horizontal', 'vertical'];
+    case 'polyline': return ['horizontal', 'vertical'];
+    case 'circle': return ['radial'];
+    default: return [];
+  }
+}
+
+/** Style réellement appliqué : le style demandé s'il est pris en charge, sinon le style par défaut de la cible. */
+export function effectiveDimensionStyle(style: DimensionStyle, target: CadObject): DimensionStyle | null {
+  const supported = supportedDimensionStyles(target);
+  if (supported.includes(style)) return style;
+  return supported[0] ?? null;
+}
+
+/** Emprise (min/max) des sommets d'une polyligne. */
+export function polylineExtents(points: number[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  const xs = points.filter((_, i) => i % 2 === 0);
+  const ys = points.filter((_, i) => i % 2 === 1);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+}
+
+/**
+ * Valeur mesurée par une cote, en millimètres, à pleine précision.
+ * Horizontale = ΔX, verticale = ΔY, alignée = longueur vraie, rayon = diamètre.
+ */
+export function dimensionMeasure(obj: DimensionObj, target: CadObject): { value: number; prefix: '' | 'Ø ' } | null {
+  const style = effectiveDimensionStyle(obj.style, target);
+  if (!style) return null;
+  switch (target.kind) {
+    case 'circle': return { value: target.r * 2, prefix: 'Ø ' };
+    case 'rect': return { value: style === 'vertical' ? target.h : target.w, prefix: '' };
+    case 'line': {
+      const dx = Math.abs(target.x2 - target.x1);
+      const dy = Math.abs(target.y2 - target.y1);
+      return { value: style === 'horizontal' ? dx : style === 'vertical' ? dy : Math.hypot(dx, dy), prefix: '' };
+    }
+    case 'polyline': {
+      const e = polylineExtents(target.points);
+      return { value: style === 'vertical' ? e.maxY - e.minY : e.maxX - e.minX, prefix: '' };
+    }
+    default: return null;
+  }
+}
+
 export function dimensionValue(obj: DimensionObj, objects: CadObject[]): string {
   const target = objects.find(o => o.id === obj.targetId);
   if (!target) return 'cible absente';
-  if (obj.style === 'radial' && target.kind === 'circle') return `Ø ${fmt(target.r * 2)} mm`;
-  if (obj.style === 'horizontal' && target.kind === 'rect') return `${fmt(target.w)} mm`;
-  if (obj.style === 'vertical' && target.kind === 'rect') return `${fmt(target.h)} mm`;
-  if (target.kind === 'line') return `${fmt(Math.hypot(target.x2 - target.x1, target.y2 - target.y1))} mm`;
-  return dimensionOf(target);
+  const measure = dimensionMeasure(obj, target);
+  if (!measure) return 'cote non prise en charge';
+  return `${measure.prefix}${fmt(measure.value)} mm`;
 }
 
-export function fmt(n: number): string {
-  return Math.round(n).toLocaleString('fr-FR');
+/** Précision affichée par défaut : deux décimales au plus (la géométrie stockée n'est jamais arrondie). */
+export const DISPLAY_DECIMALS = 2;
+
+export function fmt(n: number, decimals = DISPLAY_DECIMALS): string {
+  const value = Object.is(n, -0) ? 0 : n;
+  return value.toLocaleString('fr-FR', { maximumFractionDigits: decimals });
 }

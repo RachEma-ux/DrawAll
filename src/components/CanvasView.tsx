@@ -60,6 +60,11 @@ interface Draft {
   points: number[];
 }
 
+/** Longueur en deçà de laquelle un tracé est considéré comme nul (mm) — aucune taille minimale métier. */
+const MIN_LENGTH = 1e-6;
+/** Déplacement minimal de la souris pour qu'un tracé soit pris en compte (pixels écran). */
+const DRAG_THRESHOLD_PX = 3;
+
 export default function CanvasView({
   objects,
   layers,
@@ -68,11 +73,9 @@ export default function CanvasView({
   activeBlockId,
   tool,
   view,
-  selectedId: _selectedId, // conservé pour compatibilité d'appel — la sélection pilote est selectedIds
   selectedIds,
   snapEnabled,
   orthoEnabled,
-  onSelect: _onSelect,
   onSelectMany,
   onAdd,
   onAddDimension,
@@ -163,14 +166,14 @@ export default function CanvasView({
     if (!activeLayer || activeLayer.locked) return;
     const base = { classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none' as const };
     if (d.kind === 'line') {
-      if (Math.hypot(d.cx - d.sx, d.cy - d.sy) >= 1) onAdd({ ...base, kind: 'line', x1: d.sx, y1: d.sy, x2: d.cx, y2: d.cy });
+      if (Math.hypot(d.cx - d.sx, d.cy - d.sy) > MIN_LENGTH) onAdd({ ...base, kind: 'line', x1: d.sx, y1: d.sy, x2: d.cx, y2: d.cy });
     } else if (d.kind === 'rect') {
       const x = Math.min(d.sx, d.cx), y = Math.min(d.sy, d.cy);
       const w = Math.abs(d.cx - d.sx), h = Math.abs(d.cy - d.sy);
-      if (w >= 1 && h >= 1) onAdd({ ...base, kind: 'rect', x, y, w, h });
+      if (w > MIN_LENGTH && h > MIN_LENGTH) onAdd({ ...base, kind: 'rect', x, y, w, h });
     } else if (d.kind === 'circle') {
       const r = Math.hypot(d.cx - d.sx, d.cy - d.sy);
-      if (r >= 1) onAdd({ ...base, kind: 'circle', cx: d.sx, cy: d.sy, r });
+      if (r > MIN_LENGTH) onAdd({ ...base, kind: 'circle', cx: d.sx, cy: d.sy, r });
     }
   }, [activeLayer, onAdd]);
 
@@ -182,25 +185,6 @@ export default function CanvasView({
       return null;
     });
   }, [activeLayer, onAdd]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (e.key === 'Escape') { setDraft(null); setLengthInput(''); }
-      if (e.key === 'Enter') {
-        if (lengthInput && activeDraft && activeDraft.kind !== 'measure') { applyLength(); return; }
-        finishPolyline();
-      }
-      // Saisie dynamique : les chiffres tapés pendant un tracé alimentent la longueur directe.
-      if (activeDraft && activeDraft.kind !== 'measure' && /^[0-9.,]$/.test(e.key)) {
-        setLengthInput(v => v + e.key);
-      }
-      if (activeDraft && e.key === 'Backspace') setLengthInput(v => v.slice(0, -1));
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [finishPolyline, activeDraft, lengthInput]);
 
   const startOrContinueDraft = useCallback((point: SnapPoint) => {
     if (!activeLayer || activeLayer.locked) return;
@@ -329,7 +313,12 @@ export default function CanvasView({
     if (activeDraft && (activeDraft.kind === 'line' || activeDraft.kind === 'rect' || activeDraft.kind === 'circle')) {
       const point = resolvePoint(w, { x: activeDraft.sx, y: activeDraft.sy });
       const finalDraft = { ...activeDraft, cx: point.x, cy: point.y };
-      commitDraft(finalDraft);
+      // Seuil de geste à la souris (en pixels écran) : un clic tremblé ne crée pas de micro-objet.
+      // Les saisies chiffrées (longueur, coordonnées, inspecteur) n'ont aucun minimum.
+      const minDrag = DRAG_THRESHOLD_PX / tf.k;
+      const dx = Math.abs(finalDraft.cx - finalDraft.sx), dy = Math.abs(finalDraft.cy - finalDraft.sy);
+      const intentional = finalDraft.kind === 'rect' ? dx >= minDrag && dy >= minDrag : Math.hypot(dx, dy) >= minDrag;
+      if (intentional) commitDraft(finalDraft);
       setDraft(null);
     } else if (activeDraft?.kind === 'measure') {
       const point = resolvePoint(w, { x: activeDraft.sx, y: activeDraft.sy });
@@ -348,9 +337,9 @@ export default function CanvasView({
   };
 
   /** Saisie directe de longueur : fixe l'extrémité courante à L mm le long de l'angle en cours. */
-  const applyLength = () => {
+  const applyLength = useCallback(() => {
     const L = Number(lengthInput.replace(',', '.'));
-    if (!Number.isFinite(L) || L < 1 || !activeDraft) return;
+    if (!Number.isFinite(L) || L <= 0 || !activeDraft) return;
     const ox = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
       ? activeDraft.points[activeDraft.points.length - 2] : activeDraft.sx;
     const oy = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
@@ -374,9 +363,29 @@ export default function CanvasView({
       commitDraft({ ...activeDraft, cx: ex, cy: ey });
       setDraft(null);
     }
-  };
+  }, [lengthInput, activeDraft, activeLayer, onAdd, commitDraft]);
 
-  const applyPrecisePoint = () => {    const x = Number(coord.x.replace(',', '.'));
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'Escape') { setDraft(null); setLengthInput(''); }
+      if (e.key === 'Enter') {
+        if (lengthInput && activeDraft && activeDraft.kind !== 'measure') { applyLength(); return; }
+        finishPolyline();
+      }
+      // Saisie dynamique : les chiffres tapés pendant un tracé alimentent la longueur directe.
+      if (activeDraft && activeDraft.kind !== 'measure' && /^[0-9.,]$/.test(e.key)) {
+        setLengthInput(v => v + e.key);
+      }
+      if (activeDraft && e.key === 'Backspace') setLengthInput(v => v.slice(0, -1));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [finishPolyline, activeDraft, lengthInput, applyLength]);
+
+  const applyPrecisePoint = () => {
+    const x = Number(coord.x.replace(',', '.'));
     const y = Number(coord.y.replace(',', '.'));
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const point: SnapPoint = { x, y, type: 'endpoint', label: 'Point saisi', distance: 0 };
@@ -531,7 +540,7 @@ export default function CanvasView({
             const oy = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
               ? activeDraft.points[activeDraft.points.length - 1] : activeDraft.sy;
             const len = Math.hypot(activeDraft.cx - ox, activeDraft.cy - oy);
-            if (len < 1) return null;
+            if (len <= MIN_LENGTH) return null;
             return (
               <text x={(ox + activeDraft.cx) / 2 + 10 / tf.k} y={(oy + activeDraft.cy) / 2 - 8 / tf.k}
                 fontSize={11 / tf.k} fill="#22d3ee" fontFamily="JetBrains Mono, monospace" pointerEvents="none">

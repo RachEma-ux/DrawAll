@@ -1,0 +1,46 @@
+name: Contrôle
+
+# Contrôle de qualité à chaque poussée et demande de fusion : types, lint, tests,
+# build, et lisibilité des DXF exportés par un lecteur strict (ezdxf).
+# Indépendant du workflow de déploiement (main.yml).
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci --no-audit --no-fund
+
+      - name: Vérifier les types
+        run: npm run check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests (et export des DXF de référence)
+        run: npm test
+        env:
+          DXF_FIXTURES_DIR: ${{ runner.temp }}/dxf
+
+      - name: Lire les DXF exportés avec ezdxf
+        run: |
+          python3 -m pip install --quiet ezdxf
+          python3 scripts/check-dxf.py "${{ runner.temp }}/dxf"
+
+      - name: Build
+        run: npm run build
