@@ -1,10 +1,11 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
-import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchParams, HatchStyle, Layer, ViewReading } from '@/types/cad';
+import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ViewReading } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
 import { formatLevel, pdimValues } from '@/lib/pdim';
 import { containedContours, hatchParamsOf } from '@/lib/hatch';
+import { openingFits } from '@/lib/opening';
 import { MATERIALS, effectiveHatch, materialById, profileById, type DrawingProfile } from '@/lib/materials';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
 import {
@@ -364,6 +365,47 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             </div>
           </div>
         )}
+
+        {obj.kind === 'opening' && (() => {
+          const host = objects.find(o => o.id === obj.hostId);
+          const num = (key: 'width' | 'position', label: string) => (
+            <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              {label}
+              <span className="flex items-center gap-1">
+                <input key={`${obj.id}-${key}-${obj[key]}`} aria-label={`Ouverture — ${label}`} defaultValue={String(Math.round(obj[key] * 1000) / 1000).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => {
+                    const v = Number(e.target.value.replace(',', '.'));
+                    if (!Number.isFinite(v) || v === obj[key] || host?.kind !== 'wall') return;
+                    const next = { position: obj.position, width: obj.width, [key]: v };
+                    if (!openingFits(next, host)) onUpdate(obj.id, { [key]: v }, `Ouverture : ${label.toLowerCase()}`);
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+              </span>
+            </label>
+          );
+          const toggle = <K extends 'type' | 'hinge' | 'side'>(key: K, values: readonly [OpeningObj[K], string][]) => (
+            <div className="grid grid-cols-2 gap-1">
+              {values.map(([v, label]) => (
+                <button key={String(v)} onClick={() => onUpdate(obj.id, { [key]: v } as Partial<CadObject>, `Ouverture : ${label.toLowerCase()}`)} aria-pressed={obj[key] === v}
+                  className={`rounded-sm border px-1.5 py-1 font-mono text-[10px] ${obj[key] === v ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          );
+          return (
+            <div className="space-y-1">
+              <p className="ui-label mb-1.5">Ouverture — mur {obj.hostId}</p>
+              {toggle('type', [['porte', 'Porte'], ['fenetre', 'Fenêtre']])}
+              {num('width', 'Largeur')}
+              {num('position', 'Position')}
+              {obj.type === 'porte' && toggle('hinge', [['debut', 'Charnière début'], ['fin', 'Charnière fin']])}
+              {obj.type === 'porte' && toggle('side', [['droite', 'Ouvre à droite'], ['gauche', 'Ouvre à gauche']])}
+              <p className="font-mono text-[9px] text-muted-foreground">Position : centre de la baie depuis le début du mur. L’ouverture suit son mur.</p>
+            </div>
+          );
+        })()}
 
         {obj.kind === 'pdim' && (() => {
           const values = pdimValues(obj);

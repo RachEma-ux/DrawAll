@@ -6,7 +6,8 @@
 // - T (extrémité sur un autre mur) : le mur est prolongé jusqu'à l'axe du mur porteur ;
 // - croix : rien à prolonger.
 // Puis toute portion de face ou d'about strictement à l'intérieur d'un autre mur est retirée.
-import type { WallObj } from '@/types/cad';
+import type { OpeningObj, WallObj } from '@/types/cad';
+import { openingGeometry } from '@/lib/opening';
 
 export interface Pt { x: number; y: number }
 type Seg = [Pt, Pt];
@@ -61,7 +62,7 @@ function lineLine(p: Pt, d: Pt, q: Pt, e: Pt): Pt | null {
  * Géométrie de tous les murs, jonctions nettoyées. Les murs dégénérés (longueur ou épaisseur nulle)
  * sont ignorés.
  */
-export function wallsGeometry(walls: WallObj[]): Map<string, WallGeometry> {
+export function wallsGeometry(walls: WallObj[], openings: OpeningObj[] = []): Map<string, WallGeometry> {
   const frames = new Map<string, Frame>();
   for (const w of walls) { const f = frameOf(w); if (f) frames.set(w.id, f); }
   const ids = [...frames.keys()];
@@ -149,8 +150,31 @@ export function wallsGeometry(walls: WallObj[]): Map<string, WallGeometry> {
       const other = quads.get(oid)!;
       edges = edges.flatMap(s => clipOutside(s, other));
     }
+    // Ouvertures : faces coupées sur la largeur de la baie, tableaux ajoutés.
+    const w = walls.find(v => v.id === id)!;
+    const f = frames.get(id)!;
+    for (const op of openings.filter(o => o.hostId === id)) {
+      const g = openingGeometry(op, w);
+      if (!g) continue;
+      edges = edges.flatMap(s => cutAlong(s, f, g.from, g.to));
+      edges.push(...g.jambs);
+    }
     out.set(id, { quad: q, edges: edges.filter(([a, b]) => dist(a, b) > EPS) });
   }
+  return out;
+}
+
+/** Retire d'un trait parallèle au mur la portion comprise entre les abscisses t0 et t1 (le long du mur). */
+function cutAlong([a, b]: Seg, f: Frame, t0: number, t1: number): Seg[] {
+  const ta = dot(sub(a, f.a), f.u), tb = dot(sub(b, f.a), f.u);
+  // Trait en travers du mur (about) : inchangé.
+  if (Math.abs(ta - tb) < EPS) return [[a, b]];
+  const lo = Math.min(ta, tb), hi = Math.max(ta, tb);
+  if (t1 <= lo + EPS || t0 >= hi - EPS) return [[a, b]];
+  const at = (t: number) => add(a, mul(sub(b, a), (t - ta) / (tb - ta)));
+  const out: Seg[] = [];
+  if (t0 > lo + EPS) out.push(ta < tb ? [a, at(t0)] : [at(t0), b]);
+  if (t1 < hi - EPS) out.push(ta < tb ? [at(t1), b] : [a, at(t1)]);
   return out;
 }
 

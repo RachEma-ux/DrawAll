@@ -1,7 +1,7 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -134,7 +134,21 @@ export interface WallObj extends Base {
   justification: 'axe' | 'gauche' | 'droite';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj;
+/**
+ * Ouverture (lot 4.2) : porte ou fenêtre hébergée par un mur, à `position` mm de son début (centre
+ * de la baie). Porte : charnière au début ou à la fin de la baie, ouverture du côté gauche ou droit.
+ */
+export interface OpeningObj extends Base {
+  kind: 'opening';
+  hostId: string;
+  type: 'porte' | 'fenetre';
+  position: number;
+  width: number;
+  hinge: 'debut' | 'fin';
+  side: 'gauche' | 'droite';
+}
+
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj;
 
 export interface BlockDef {
   id: string;              // identifiant stable BLQ-0001
@@ -240,6 +254,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   text: 'Texte',
   pdim: 'Cote par points',
   wall: 'Mur',
+  opening: 'Ouverture',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -316,6 +331,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'dimension': return `cote → ${obj.targetId}`;
     case 'pdim': return `cote par points (${obj.points.length / 2} points)`;
     case 'wall': return `Mur ép. ${fmt(obj.thickness)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
+    case 'opening': return `${obj.type === 'porte' ? 'Porte' : 'Fenêtre'} ${fmt(obj.width)} mm · ${obj.hostId}`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }

@@ -312,6 +312,10 @@ export function useProject() {
     if (ids.length === 0) return;
     const removed = new Set(ids);
     // Les cotes associatives dont la cible disparaît partent avec elle.
+    // Les ouvertures d'un mur supprimé partent avec lui.
+    for (const o of objects) {
+      if (o.kind === 'opening' && removed.has(o.hostId)) removed.add(o.id);
+    }
     for (const o of objects) {
       if (o.kind === 'dimension' && removed.has(o.targetId)) removed.add(o.id);
     }
