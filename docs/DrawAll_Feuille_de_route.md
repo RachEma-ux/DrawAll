@@ -132,7 +132,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 2.1 Modèle feuille / fenêtre | Fait | #17 |
 | 2.2 Éditeur de feuille | Fait | #18 |
 | 2.3 Cartouche | Fait | #19 |
-| 2.4 → 8.4 | À faire | — |
+| 2.4 Styles d'annotation papier | Fait | #20 |
+| 2.5 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

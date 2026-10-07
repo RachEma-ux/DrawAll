@@ -107,6 +107,39 @@ test('lot 2.3 — cartouche : champs du projet, l’indice suit l’indice émis
   await expect(cartouche.getByRole('button', { name: 'Émettre l’indice B' })).toBeVisible();
 });
 
+test('lot 2.4 — cote : texte et flèches de même taille sur la feuille au 1:50 et au 1:5', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, [
+    { id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 2000, y2: 0 },
+    { id: 'OBJ-0002', kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 100 },
+  ]);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  await page.getByLabel('Échelle de la fenêtre').selectOption('1:50');
+  await setField(page, 'Largeur', '190');
+  await setField(page, 'Centre X', '1000');
+  await setField(page, 'Centre Y', '100');
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  await page.getByLabel('Échelle de la fenêtre').selectOption('1:5');
+  await setField(page, 'Position X', '220');
+  await setField(page, 'Largeur', '180');
+  await setField(page, 'Centre X', '1000');
+  await setField(page, 'Centre Y', '100');
+
+  const sizes = await page.evaluate(() => ['FEN-0001', 'FEN-0002'].map(id => {
+    const g = document.querySelector(`[data-testid="fenetre-${id}"] [data-cote-papier]`)!;
+    const text = g.querySelector('text')!.getBoundingClientRect();
+    const arrow = g.querySelector('polygon')!.getBoundingClientRect();
+    return { text: text.height, arrow: Math.hypot(arrow.width, arrow.height) };
+  }));
+  expect(sizes[0].text).toBeGreaterThan(0);
+  expect(sizes[1].text / sizes[0].text).toBeGreaterThan(0.95);
+  expect(sizes[1].text / sizes[0].text).toBeLessThan(1.05);
+  expect(sizes[1].arrow / sizes[0].arrow).toBeGreaterThan(0.95);
+  expect(sizes[1].arrow / sizes[0].arrow).toBeLessThan(1.05);
+});
+
 test('lot 2.2 — annuler une modification de feuille sans quitter le mode Feuilles', async ({ page }) => {
   await openAtelier(page);
   await loadObjects(page, plan);

@@ -164,6 +164,13 @@ Référence : **ISO 129-1:2018** (indication des dimensions et tolérances).
 
 - La valeur affichée suit la précision affichée (§1.3) ; la valeur mesurée reste à pleine précision.
 
+### 5.2 Styles d'annotation papier (règle, lot 2.4)
+
+- Sur une feuille, une cote se dessine avec des tailles **papier** identiques quelle que soit l'échelle de la fenêtre : chiffres de 2,5 mm, flèches fermées remplies de 2,5 mm (ouverture 30°), lignes de cote et d'attache de 0,18 mm, texte à 1 mm de la ligne de cote.
+- Les traits des objets sont tracés à leur épaisseur papier exacte et leurs motifs ISO 128-2 en multiples de cette épaisseur (02 à 0,25 mm : trait 3 mm, espace 0,75 mm).
+- Conversion : taille dans le modèle = taille papier ÷ échelle (2,5 mm au 1:50 → 125 mm ; au 1:5 → 12,5 mm).
+- Dans l'atelier, les annotations gardent une taille constante à l'écran. Un objet texte garde sa hauteur réelle (modèle) ; les textes annotatifs (hauteur papier) restent à décider avec les profils de dessin.
+
 ## 6. Vues, coupes et projection
 
 Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:2020) et ISO 5456-2 (projections orthogonales).

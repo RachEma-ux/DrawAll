@@ -339,7 +339,7 @@ export default function SheetEditor(p: Props) {
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
                     {p.objects.filter(o => visibleLayer.get(o.layerId)).map(o => (
                       <ObjectShape key={o.id} obj={o} objects={p.objects} blocks={p.blocks} view={p.view} selected={false}
-                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} />
+                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} />
                     ))}
                   </svg>
                   <rect

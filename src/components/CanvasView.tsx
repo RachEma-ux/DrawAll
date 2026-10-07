@@ -6,6 +6,7 @@ import type {
   CadObject,
   Classification,
   DimensionObj,
+  DrawingScale,
   Layer,
   NewCadObject,
   PrimitiveObject,
@@ -31,6 +32,7 @@ import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
+import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
@@ -950,25 +952,28 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode }: {
+export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale }: {
   obj: CadObject;
   unit: DisplayUnit;
   layer: Layer | undefined;
   colorMode: ColorMode;
+  /** Rendu dans une fenêtre de feuille : traits et annotations à leurs tailles papier (lot 2.4). */
+  paperScale?: DrawingScale;
   objects: CadObject[];
   blocks: BlockDef[];
   view: ViewReading;
   selected: boolean;
   zoom: number;
 }) {
-  if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
-  if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
+  if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
-  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected} unit={unit} layer={layer} colorMode={colorMode} />;
+  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
 }
 
-function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner }: {
+function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner, paperScale }: {
   obj: PrimitiveObject;
+  paperScale?: DrawingScale;
   unit?: DisplayUnit;
   layer?: Layer;
   colorMode?: ColorMode;
@@ -982,10 +987,11 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
   const meta = CLASSIFICATION_META[obj.classification];
   const st = effectiveStyle(owner ?? obj, layer);
   const widthPx = screenWidth(st.lineWeight);
-  const sw = (widthPx + (selected ? 1 : 0)) / zoom;
+  // Sur une feuille : épaisseur et motif à leurs valeurs papier exactes (au moins 0,5 px écran).
+  const sw = paperScale ? Math.max(strokeInModel(st.lineWeight, paperScale), 0.5 / zoom) : (widthPx + (selected ? 1 : 0)) / zoom;
   const color = selected ? '#22d3ee' : colorMode === 'metier' ? meta.color : st.color;
-  const pattern = screenDash(st.lineType, widthPx);
-  const dash = pattern ? pattern.map(v => v / zoom).join(' ')
+  const pattern = paperScale ? dashInModel(st.lineType, st.lineWeight, paperScale) : screenDash(st.lineType, widthPx)?.map(v => v / zoom);
+  const dash = pattern ? pattern.join(' ')
     : colorMode === 'metier' && view === 'batiment' && obj.classification === 'electrique' ? `${8 / zoom} ${5 / zoom}` : undefined;
   const hatchFill = obj.hatch === 'diagonal' ? 'url(#hatch-diagonal)' : obj.hatch === 'cross' ? 'url(#hatch-cross)' : undefined;
   const solidFill = obj.hatch === 'solid';
@@ -1058,7 +1064,7 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
   }
 }
 
-function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calque' }: { obj: DimensionObj; objects: CadObject[]; selected: boolean; zoom: number; layer?: Layer; colorMode?: ColorMode }) {
+function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calque', paperScale }: { obj: DimensionObj; objects: CadObject[]; selected: boolean; zoom: number; layer?: Layer; colorMode?: ColorMode; paperScale?: DrawingScale }) {
   const target = objects.find(o => o.id === obj.targetId);
   const geom = target ? dimensionGeometry(obj, target) : null;
   if (!geom) {
@@ -1072,6 +1078,25 @@ function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calq
   // (une cote reste en trait fin continu par défaut, Conventions §5).
   const st = effectiveStyle(obj, layer);
   const color = selected ? '#22d3ee' : colorMode === 'calque' ? st.color : '#fbbf24';
+  if (paperScale) {
+    // Style papier : texte, flèches et traits à leurs tailles sur la feuille, quelle que soit l'échelle.
+    const S = PAPER_DIMENSION_STYLE;
+    const m = (mm: number) => paperToModelSize(mm, paperScale);
+    const w = Math.max(m(obj.lineWeight ?? S.lineWeight), 0.5 / zoom);
+    const a = { x: geom.x1, y: geom.y1 }, b = { x: geom.x2, y: geom.y2 };
+    const arrows = [arrowHead(a, b, m(S.arrowLength), m(S.arrowHalfWidth)), arrowHead(b, a, m(S.arrowLength), m(S.arrowHalfWidth))];
+    const t = dimensionTextPosition(geom, m(S.textGap));
+    return (
+      <g data-cote-papier="">
+        {geom.ext.map(([x1, y1, x2, y2], i) => <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={w} />)}
+        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={w} />
+        {arrows.map((tri, i) => <polygon key={i} points={tri.map(q => `${q.x},${q.y}`).join(' ')} fill={color} />)}
+        <text x={t.x} y={t.y} fontSize={m(S.textHeight) * TEXT_FONT_SCALE} fill={color} fontFamily="JetBrains Mono, monospace" textAnchor={t.anchor}>
+          {dimensionValue(obj, objects)}
+        </text>
+      </g>
+    );
+  }
   const widthPx = obj.lineWeight !== undefined ? screenWidth(obj.lineWeight) : 1.1;
   const sw = (widthPx + (selected ? 0.7 : 0)) / zoom;
   const dash = obj.lineType !== undefined ? screenDash(obj.lineType, widthPx)?.map(v => v / zoom).join(' ') : undefined;
@@ -1094,7 +1119,7 @@ function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calq
   );
 }
 
-function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode }: { obj: Extract<CadObject, { kind: 'blockRef' }>; blocks: BlockDef[]; view: ViewReading; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode }) {
+function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, paperScale }: { obj: Extract<CadObject, { kind: 'blockRef' }>; blocks: BlockDef[]; view: ViewReading; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale }) {
   const block = blocks.find(b => b.id === obj.blockId);
   if (!block) {
     return (
@@ -1109,7 +1134,8 @@ function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode }: 
     <g>
       <g transform={`translate(${obj.x},${obj.y}) scale(${obj.scale})`}>
         {block.primitives.map(p => (
-          <PrimitiveShape key={p.id} obj={p} view={view} selected={false} zoom={zoom / obj.scale} showLabel={false} layer={layer} colorMode={colorMode} owner={obj} />
+          <PrimitiveShape key={p.id} obj={p} view={view} selected={false} zoom={zoom / obj.scale} showLabel={false} layer={layer} colorMode={colorMode} owner={obj}
+            paperScale={paperScale && { paper: paperScale.paper * obj.scale, model: paperScale.model }} />
         ))}
       </g>
       <rect
