@@ -50,3 +50,17 @@ test('lot 1.5 — chanfrein à deux distances', async ({ page }, info) => {
   const cut = (await currentObjects(page)).find(o => o.kind === 'line' && o.id !== 'OBJ-0001' && o.id !== 'OBJ-0002')!;
   expect(near(cut.x1, 170) && near(cut.y1, 0) && near(cut.x2, 200) && near(cut.y2, 50)).toBe(true);
 });
+
+test('lot 1.5 — une première ligne désignée est oubliée si le dessin change', async ({ page }, info) => {
+  test.skip(info.project.name === 'telephone', 'Déplacement au clavier : recette sur bureau.');
+  await openAtelier(page);
+  await loadObjects(page, corner);
+  await chooseTool(page, /^Congé/);
+  await tapModel(page, info, 50, 0);
+  // La première ligne est sélectionnée : la déplacer au clavier modifie le dessin.
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => (await currentObjects(page)).find(o => o.id === 'OBJ-0001')?.y1).toBe(10);
+  await tapModel(page, info, 200, 150);
+  // Aucun congé avec l'ancienne désignation : la seconde touche devient une nouvelle première ligne.
+  expect(await currentObjects(page)).toHaveLength(2);
+});

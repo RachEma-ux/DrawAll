@@ -107,7 +107,9 @@ export default function CanvasView({
 }: Props) {
   const ref = useRef<SVGSVGElement>(null);
   const cornerPick = useRef<{ tool: ToolId; id: string; x: number; y: number } | null>(null);
-  useEffect(() => { cornerPick.current = null; }, [tool]);
+  // Une première ligne désignée ne vaut que pour le modèle affiché : tout changement d'outil,
+  // d'objets (édition, annulation, version) l'oublie.
+  useEffect(() => { cornerPick.current = null; }, [tool, objects]);
   const [tf, setTf] = useState({ x: 60, y: 40, k: 1 });
   const [draft, setDraft] = useState<Draft | null>(null);
   const activeDraft = draft && (
