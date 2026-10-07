@@ -8,7 +8,7 @@ Cette branche contient une application full-stack :
 
 - **Atelier 2D** : lignes, rectangles, cercles, polylignes, calques, blocs, hachures, cotes associatives et mesures.
 - **Précision de dessin** : accrochage objet (extrémités, milieux, centres, quadrants, intersections), grille 10 mm, mode ortho, saisie de coordonnées X/Y, zoom, panoramique et ajustement de vue.
-- **Interopérabilité DXF** : import/export `LINE`, `CIRCLE` et `LWPOLYLINE`, avec conversion de l’axe Y entre SVG et DXF.
+- **Interopérabilité DXF** : import `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE` (courbes comprises) avec conversion d’unités ; export DXF R2000 lisible par les lecteurs stricts, hachures comprises ; rapport conservé / transformé / perdu à chaque échange.
 - **Comptes et persistance cloud** : connexion Kimi, projets en base MySQL, révisions optimistes et résolution explicite des conflits.
 - **Historique** : microversions, annulation/rétablissement, versions nommées et diagnostics de cohérence.
 - **Documentation intégrée** : Concept, Architecture de référence et explorateur des 324 exigences.
@@ -63,10 +63,13 @@ Les variables attendues sont documentées dans `.env.example`. Ne jamais committ
 
 Le format DXF est pris en charge de façon volontairement limitée et explicite :
 
-- import : `LINE`, `CIRCLE`, `LWPOLYLINE` ;
-- export : primitives, calques, cotes aplaties et occurrences de blocs aplaties ;
-- unités : millimètres (`$INSUNITS = 4`) ;
-- les entités non prises en charge sont signalées au lieu d’être silencieusement perdues.
+- import : `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE` ; les arcs et segments courbes (`bulge`) sont approchés par des polylignes avec un écart de corde ≤ 0,05 mm ; les entités en repère symétrique (extrusion 0,0,−1) sont replacées ;
+- unités : l’unité déclarée par le fichier (`$INSUNITS`) est convertie en millimètres ; un fichier sans unité fait demander l’unité ;
+- export : DXF R2000 (`AC1015`) en millimètres — primitives, hachures (`HATCH`), calques ; cotes converties en traits + texte et occurrences de blocs éclatées ;
+- chaque import et export affiche un rapport de ce qui est conservé, transformé ou perdu ;
+- l’intégration continue vérifie les exports avec ezdxf (`scripts/check-dxf.py`).
+
+Détail et matrice : [`docs/DrawAll_v4.1_Conventions_Dessin.md`](docs/DrawAll_v4.1_Conventions_Dessin.md).
 
 ## Limites connues
 
@@ -80,3 +83,4 @@ Le format DXF est pris en charge de façon volontairement limitée et explicite 
 - `docs/DrawAll_v4.1_Concept.md`
 - `docs/DrawAll_v4.1_Architecture.md`
 - `docs/DrawAll_v4.1_Exigences_Sources.md`
+- `docs/DrawAll_v4.1_Conventions_Dessin.md`

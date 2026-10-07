@@ -198,6 +198,8 @@ Les données du navigateur constituent un cache ou un espace de travail local. S
 
 DrawAll vise des échanges contrôlés avec les formats pertinents : IFC, STEP, DWG/DXF/DGN, BCF, PDF, maillages, relevés et formats métier couverts par les adaptateurs. Une matrice précisera formats, versions, objets reconnus et limites. Chaque transfert pourra produire un rapport des éléments conservés, transformés, omis ou à réparer. [S08–S13]
 
+Les conventions de dessin du socle commun (unités, précision, échelles, traits, hachures, cotation) et la matrice d'échange DXF actuelle sont fixées dans [les Conventions de dessin V4.1](DrawAll_v4.1_Conventions_Dessin.md).
+
 Le format de paquet natif sera documenté et versionné. Il permettra l’export des données et dépendances redistribuables nécessaires à la récupération d’un projet.
 
 Les scripts, graphes visuels et assistants utiliseront une API de commandes commune. L’assistant opérera en **boucle contrôlée** : génération d'une séquence d'opérations inspectable, validation par les moteurs déterministes, aperçu, puis exécution après accord explicite — avec auto-correction bornée à trois itérations et journal des hypothèses. Cette architecture s'appuie sur des résultats publiés récents [S29, S30] ; son transfert au bâtiment et aux réseaux est un objet explicite de P0 (annexe D4). L’utilisateur conservera les commandes directes et la validation des changements proposés. Les extensions ne disposeront pas d’un accès libre à la base de données.
