@@ -63,6 +63,7 @@ describe('export PDF calibré', () => {
   it('textes en WinAnsi, cartouche et cote', () => {
     expect(pdf).toContain(pdfString('Séjour 24,5 m²'));
     expect(pdfString('Séjour 24,5 m²')).toBe('(S\\351jour 24,5 m\\262)');
+    expect(pdfString('−0,30')).toBe('(\\2260,30)');
     expect(pdfString('(a\\b)')).toBe('(\\(a\\\\b\\))');
     expect(pdf).toContain('(Logement)');
     expect(pdf).toContain('(5\\240000 mm)');

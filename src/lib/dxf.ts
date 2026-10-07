@@ -343,7 +343,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (paperHatches) report.transformed.push(`Hachures à pas papier : ${paperHatches} → pas réel à l'échelle 1:${Math.round(hatchScale * 1000) / 1000} (le DXF ne connaît que le modèle).`);
   if (counts.rect) report.transformed.push(`Rectangles : ${counts.rect} → polylignes fermées (LWPOLYLINE).`);
   if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
-  if (counts.symbol) report.transformed.push(`Symboles (nord, repères de coupe, cotes de niveau) : ${counts.symbol} → traits, cercles, surfaces pleines (SOLID) et textes, à la taille papier de l'échelle 1:${Math.round(hatchScale * 1000) / 1000}.`);
+  if (counts.symbol) report.transformed.push(`Symboles (nord, repères de coupe, cotes de niveau, états de surface) : ${counts.symbol} → traits, cercles, surfaces pleines (SOLID) et textes, à la taille papier de l'échelle 1:${Math.round(hatchScale * 1000) / 1000}.`);
   if (counts.room) report.transformed.push(`Pièces : ${counts.room} → contour (LWPOLYLINE) et étiquette nom + surface (TEXT) ; la surface n'est plus recalculée.`);
   if (counts.opening) report.transformed.push(`Ouvertures : ${counts.opening} → traits et arcs (baies coupées dans les murs) ; le lien au mur est perdu.`);
   if (counts.wall) report.transformed.push(`Murs : ${counts.wall} → traits (LINE, jonctions nettoyées) et hachures ; épaisseur et justification ne sont plus éditables comme mur.`);

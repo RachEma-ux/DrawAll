@@ -201,6 +201,29 @@ Les cotes par points ne sont pas associatives : leur valeur vient de leurs point
 - Conversion : taille dans le modèle = taille papier ÷ échelle (2,5 mm au 1:50 → 125 mm ; au 1:5 → 12,5 mm).
 - Dans l'atelier, les annotations gardent une taille constante à l'écran. Un objet texte garde sa hauteur réelle (modèle) ; les textes annotatifs (hauteur papier) restent à décider avec les profils de dessin.
 
+### 5.3 Tolérances et états de surface (règle, lot 5.1)
+
+- Une cote associative peut porter une tolérance :
+  - symétrique (« 25 ±0,1 ») ;
+  - par écarts saisis (« 25 +0,1/−0,05 », l'écart supérieur au-dessus de l'inférieur) ;
+  - par classe ISO 286 (« Ø 25 H7 (+0,021/0) ») ;
+  - par ajustement (« Ø 25 H7/g6 »).
+- Classes ISO 286-1:2010 :
+  - écarts tirés des tableaux de la norme (degrés IT3 à IT14, tailles de 0 à 500 mm, paliers « au-delà de … jusqu'à … inclus »), jamais recalculés par formule ;
+  - positions couvertes : arbres d, e, f, g, h, js, k, m, n, p ; alésages D, E, F, G, H, JS, K, M, N (jusqu'à IT8), P (jusqu'à IT7) ;
+  - règle Δ pour K, M, N, P, cas particulier M6 de 250 à 315 mm, js7 à js11 arrondis au µm pair ;
+  - hors de ce domaine, la classe est affichée « (non évalué) » avec la raison dans l'inspecteur.
+- Un ajustement donne les écarts de l'alésage et de l'arbre, le jeu minimal et maximal (négatif = serrage) et sa nature : avec jeu, incertain ou avec serrage.
+- État de surface (ISO 21920-1, ex-ISO 1302) :
+  - symbole pointe sur la surface, deux traits à 60° (H1 = 5 mm, H2 = 10,5 mm pour une écriture de 3,5 mm) ;
+  - barre si l'enlèvement de matière est exigé, cercle s'il est interdit ;
+  - rugosité saisie (« Ra 3,2 ») sous le trait d'appui.
+  - La rugosité n'est jamais proposée par défaut : sans valeur saisie, seul le symbole est dessiné.
+- Échanges :
+  - la tolérance fait partie du texte de la cote (DXF et PDF) ;
+  - l'état de surface s'exporte comme les symboles (§8.5) ;
+  - le signe moins s'écrit en tiret demi-cadratin dans le PDF (WinAnsi).
+
 ## 6. Vues, coupes et projection
 
 Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:2020) et ISO 5456-2 (projections orthogonales).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { distanceToSymbol, levelMarkGeometry, levelMarkText, northGeometry, sectionGeometry, SYMBOL_PAPER } from './symbols';
+import { distanceToSymbol, levelMarkGeometry, levelMarkText, northGeometry, roughnessGeometry, sectionGeometry, SYMBOL_PAPER } from './symbols';
 import { BUILDING_LIBRARY, libraryBlock } from './library';
 import { mirrorObject, rotateObject } from './geometry';
 import type { CadObject } from '@/types/cad';
@@ -65,5 +65,25 @@ describe('bibliothèque bâtiment (lot 4.5)', () => {
       expect(new Set(b.primitives.map(p => p.id)).size).toBe(b.primitives.length);
       expect(b.primitives.every(p => p.layerId === 'LAY-0004' && p.id.startsWith('BLQ-0009-P'))).toBe(true);
     }
+  });
+});
+
+describe('état de surface (lot 5.1)', () => {
+  it('pointe sur la surface, traits à 60°, barre ou cercle selon le procédé, Ra sous le trait d’appui', () => {
+    const g = roughnessGeometry({ x: 0, y: 0, rotation: 0, process: 'enlevement', ra: 3.2 }, 1);
+    const [short, long] = g.lines;
+    expect(short.a).toEqual({ x: 0, y: 0 });
+    close(Math.atan2(-short.b.y, -short.b.x) * 180 / Math.PI, 60);
+    close(Math.atan2(-long.b.y, long.b.x) * 180 / Math.PI, 60);
+    close(-short.b.y, SYMBOL_PAPER.roughH1);
+    close(-long.b.y, SYMBOL_PAPER.roughH2);
+    // Barre horizontale fermant le trait court ; trait d'appui ; texte « Ra 3,2 » sous ce trait.
+    close(g.lines[2].a.y, g.lines[2].b.y);
+    expect(g.texts[0].text).toBe('Ra 3,2');
+    expect(g.texts[0].at.y).toBeGreaterThan(-SYMBOL_PAPER.roughH2);
+    const none = roughnessGeometry({ x: 0, y: 0, rotation: 0, process: 'sans-enlevement' }, 1);
+    expect(none.circles).toHaveLength(1);
+    expect(none.texts).toHaveLength(0);
+    expect(roughnessGeometry({ x: 0, y: 0, rotation: 0, process: 'quelconque' }, 1).lines).toHaveLength(2);
   });
 });
