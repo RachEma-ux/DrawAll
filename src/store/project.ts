@@ -17,6 +17,7 @@ import {
 } from '@/types/cad';
 import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, type Placement } from '@/lib/array';
+import { LINE_TYPES } from '@/lib/linestyle';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
@@ -69,6 +70,8 @@ function normalizeLayers(raw: unknown): Layer[] {
       color: typeof l.color === 'string' ? l.color : LAYER_COLORS[i % LAYER_COLORS.length],
       visible: l.visible !== false,
       locked: l.locked === true,
+      ...(LINE_TYPES.some(t => t.key === l.lineType) ? { lineType: l.lineType } : {}),
+      ...(typeof l.lineWeight === 'number' && l.lineWeight > 0 ? { lineWeight: l.lineWeight } : {}),
     }));
   return layers.length > 0 ? layers : createDefaultLayers();
 }

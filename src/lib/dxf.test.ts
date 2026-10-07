@@ -297,3 +297,53 @@ describe('DXF — texte', () => {
     expect(parsed.objects[0]).toMatchObject({ kind: 'text', x: 1000, y: -2000, height: 250 });
   });
 });
+
+describe('propriétés de trait (lot 1.9)', () => {
+  const styledLayers: Layer[] = [
+    { id: 'LAY-0001', name: 'Axes', color: '#ff0000', visible: true, locked: false, lineType: 'mixte', lineWeight: 0.18 },
+    { id: 'LAY-0002', name: 'Contours', color: '#22d3ee', visible: true, locked: false, lineWeight: 0.5 },
+  ];
+  const objects: CadObject[] = [
+    { ...base, id: 'OBJ-0001', name: 'Axe', kind: 'line', x1: 0, y1: 0, x2: 100, y2: 0 },
+    { ...base, id: 'OBJ-0002', name: 'Caché', kind: 'line', layerId: 'LAY-0002', x1: 0, y1: 10, x2: 100, y2: 10, lineType: 'interrompu', lineWeight: 0.35, color: '#00ff00' },
+    { ...base, id: 'OBJ-0003', name: 'Fantôme', kind: 'circle', layerId: 'LAY-0002', cx: 0, cy: 0, r: 30, lineType: 'mixte-double' },
+  ];
+
+  it('exporte les types ISO, les épaisseurs et les couleurs (calque et objet)', () => {
+    const { content, report } = exportDxf(objects, styledLayers, []);
+    keepFixture('types-de-trait.dxf', content);
+    for (const name of ['CONTINUOUS', 'ACAD_ISO02W100', 'ACAD_ISO04W100', 'ACAD_ISO05W100']) expect(content).toContain(`\n2\n${name}\n`);
+    const ltype04 = content.slice(content.indexOf('ACAD_ISO04W100'));
+    expect(ltype04).toMatch(/^ACAD_ISO04W100\n70\n0\n3\n[^\n]+\n72\n65\n73\n4\n40\n30.5\n49\n24\n74\n0\n49\n-3\n/);
+    // Calque « Axes » : mixte, 0,18 mm.
+    const axes = content.slice(content.indexOf('\n2\nAxes\n'));
+    expect(axes).toMatch(/\n6\nACAD_ISO04W100\n370\n18\n/);
+    // Ligne du calque : rien d'écrit sur l'entité (BYLAYER).
+    const first = entityPairs(content, 'LINE');
+    expect(first.some(([c]) => c === 6 || c === 370 || c === 420)).toBe(false);
+    expect(content).toContain('\n6\nACAD_ISO02W100\n420\n65280\n370\n35\n');
+    expect(content).toContain('\n6\nACAD_ISO05W100\n');
+    expect(report.kept.join(' ')).toMatch(/Objets à trait propre : 2/);
+  });
+
+  it('relit types, épaisseurs et couleurs à l’import', () => {
+    const { content } = exportDxf(objects, styledLayers, []);
+    const parsed = parseDxf(content, { ...options, existingLayers: [] });
+    const axes = parsed.layers.find(l => l.name === 'Axes')!;
+    expect(axes).toMatchObject({ color: '#ff0000', lineType: 'mixte', lineWeight: 0.18 });
+    const [axis, hidden, phantom] = parsed.objects;
+    expect(axis.lineType).toBeUndefined();
+    expect(axis.lineWeight).toBeUndefined();
+    expect(hidden).toMatchObject({ lineType: 'interrompu', lineWeight: 0.35, color: '#00ff00' });
+    expect(phantom).toMatchObject({ lineType: 'mixte-double' });
+  });
+
+  it('reconnaît les noms usuels et les couleurs ACI de base', () => {
+    const parsed = parseDxf(dxf(['0', 'LINE', '8', '0', '6', 'HIDDEN', '62', '1', '370', '50', '10', '0', '20', '0', '11', '1', '21', '0']), options);
+    expect(parsed.objects[0]).toMatchObject({ lineType: 'interrompu', color: '#ff0000', lineWeight: 0.5 });
+    const bylayer = parseDxf(dxf(['0', 'LINE', '8', '0', '6', 'BYLAYER', '62', '256', '370', '-1', '10', '0', '20', '0', '11', '1', '21', '0']), options);
+    expect(bylayer.objects[0].lineType).toBeUndefined();
+    expect(bylayer.objects[0].color).toBeUndefined();
+    expect(bylayer.objects[0].lineWeight).toBeUndefined();
+  });
+});

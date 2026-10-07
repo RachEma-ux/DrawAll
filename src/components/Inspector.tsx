@@ -1,6 +1,7 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
 import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchStyle, Layer, ViewReading } from '@/types/cad';
+import LineStyleFields from '@/components/LineStyleFields';
 import {
   canHatch,
   CLASSIFICATION_META,
@@ -173,6 +174,18 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             ))}
           </div>
         </div>
+
+        {obj.kind !== 'dimension' && (
+          <div>
+            <p className="ui-label mb-1.5">Trait (ISO 128-2)</p>
+            <LineStyleFields
+              value={obj}
+              layer={layer}
+              subject="objet"
+              onChange={(patch, label) => onUpdate(obj.id, patch, label)}
+            />
+          </div>
+        )}
 
         {canHatch(obj) && (
           <div>

@@ -1,6 +1,8 @@
 // Navigateur du projet — repère permanent UX1 : calques, objets identifiés et blocs.
 import type { BlockDef, CadObject, Classification, Layer } from '@/types/cad';
 import { CLASSIFICATION_META, KIND_LABEL } from '@/types/cad';
+import { useState } from 'react';
+import LineStyleFields from '@/components/LineStyleFields';
 
 interface Props {
   objects: CadObject[];
@@ -23,6 +25,7 @@ interface Props {
 const ORDER: Classification[] = ['architecture', 'structure', 'mecanique', 'electrique', 'non-classifie'];
 
 export default function Navigator(p: Props) {
+  const [styledLayer, setStyledLayer] = useState<string | null>(null);
   const groups = ORDER.map(c => ({
     cls: c,
     meta: CLASSIFICATION_META[c],
@@ -63,7 +66,8 @@ export default function Navigator(p: Props) {
         {p.layers.map(layer => {
           const used = p.objects.some(o => o.layerId === layer.id);
           return (
-            <div key={layer.id} className={`flex items-center gap-1.5 border-t border-border/40 px-2 py-1 ${layer.id === p.activeLayerId ? 'bg-cyan-400/5' : ''}`}>
+            <div key={layer.id} className="border-t border-border/40">
+            <div className={`flex items-center gap-1.5 px-2 py-1 ${layer.id === p.activeLayerId ? 'bg-cyan-400/5' : ''}`}>
               <button
                 onClick={() => p.onSetActiveLayer(layer.id)}
                 disabled={layer.locked}
@@ -72,7 +76,15 @@ export default function Navigator(p: Props) {
               >
                 {layer.id === p.activeLayerId ? '◉' : '○'}
               </button>
-              <span className="h-2 w-2 rounded-full" style={{ background: layer.color }} />
+              <button
+                onClick={() => setStyledLayer(id => (id === layer.id ? null : layer.id))}
+                aria-expanded={styledLayer === layer.id}
+                aria-label={`Trait du calque ${layer.name}`}
+                title="Couleur, type et épaisseur du trait"
+                className="flex h-4 w-4 items-center justify-center rounded-sm hover:bg-accent"
+              >
+                <span className="h-2 w-2 rounded-full" style={{ background: layer.color }} />
+              </button>
               <span className={`truncate text-xs ${layer.visible ? 'text-foreground/85' : 'text-muted-foreground line-through'}`}>{layer.name}</span>
               <button
                 onClick={() => p.onUpdateLayer(layer.id, { visible: !layer.visible }, layer.visible ? 'Masquer calque' : 'Afficher calque')}
@@ -96,6 +108,16 @@ export default function Navigator(p: Props) {
               >
                 ×
               </button>
+            </div>
+            {styledLayer === layer.id && (
+              <div className="px-3 pb-2 pt-1">
+                <LineStyleFields
+                  value={{ color: layer.color, lineType: layer.lineType, lineWeight: layer.lineWeight }}
+                  subject={`calque ${layer.name}`}
+                  onChange={(patch, label) => p.onUpdateLayer(layer.id, patch, `${label} du calque`)}
+                />
+              </div>
+            )}
             </div>
           );
         })}
