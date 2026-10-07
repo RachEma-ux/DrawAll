@@ -938,7 +938,7 @@ function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, 
   selected: boolean;
   zoom: number;
 }) {
-  if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} />;
+  if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected} unit={unit} layer={layer} colorMode={colorMode} />;
@@ -1035,7 +1035,7 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
   }
 }
 
-function DimensionShape({ obj, objects, selected, zoom }: { obj: DimensionObj; objects: CadObject[]; selected: boolean; zoom: number }) {
+function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calque' }: { obj: DimensionObj; objects: CadObject[]; selected: boolean; zoom: number; layer?: Layer; colorMode?: ColorMode }) {
   const target = objects.find(o => o.id === obj.targetId);
   const geom = target ? dimensionGeometry(obj, target) : null;
   if (!geom) {
@@ -1045,14 +1045,19 @@ function DimensionShape({ obj, objects, selected, zoom }: { obj: DimensionObj; o
       </text>
     );
   }
-  const color = selected ? '#22d3ee' : '#fbbf24';
-  const sw = (selected ? 1.8 : 1.1) / zoom;
+  // Couleur : celle du trait (objet ou calque) ; épaisseur et type : seulement s'ils sont propres à la cote
+  // (une cote reste en trait fin continu par défaut, Conventions §5).
+  const st = effectiveStyle(obj, layer);
+  const color = selected ? '#22d3ee' : colorMode === 'calque' ? st.color : '#fbbf24';
+  const widthPx = obj.lineWeight !== undefined ? screenWidth(obj.lineWeight) : 1.1;
+  const sw = (widthPx + (selected ? 0.7 : 0)) / zoom;
+  const dash = obj.lineType !== undefined ? screenDash(obj.lineType, widthPx)?.map(v => v / zoom).join(' ') : undefined;
   return (
     <g>
       {geom.ext.map(([x1, y1, x2, y2], i) => (
         <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={0.8 / zoom} opacity={0.65} />
       ))}
-      <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke={color} strokeWidth={sw} markerStart="url(#dim-arrow)" markerEnd="url(#dim-arrow)" />
+      <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke={color} strokeWidth={sw} strokeDasharray={dash} markerStart="url(#dim-arrow)" markerEnd="url(#dim-arrow)" />
       <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke="transparent" strokeWidth={10 / zoom} />
       <text x={geom.tx} y={geom.ty} fontSize={11 / zoom} fill={color} fontFamily="JetBrains Mono, monospace" textAnchor="middle">
         {dimensionValue(obj, objects)}

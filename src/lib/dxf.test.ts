@@ -338,6 +338,21 @@ describe('propriétés de trait (lot 1.9)', () => {
     expect(phantom).toMatchObject({ lineType: 'mixte-double' });
   });
 
+  it('une couleur noire explicite (420 = 0) survit à l’aller-retour', () => {
+    const black: CadObject[] = [{ ...base, id: 'OBJ-0001', name: 'N', kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, color: '#000000' }];
+    const parsed = parseDxf(exportDxf(black, styledLayers, []).content, { ...options, existingLayers: [] });
+    expect(parsed.objects[0].color).toBe('#000000');
+  });
+
+  it('les cotes portent aussi leurs propriétés de trait', () => {
+    const objs: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'L', kind: 'line', x1: 0, y1: 0, x2: 100, y2: 0 },
+      { ...base, id: 'OBJ-0002', name: 'C', kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 10, color: '#ff00ff' },
+    ];
+    const { content } = exportDxf(objs, styledLayers, []);
+    expect(content).toContain('\n420\n16711935\n');
+  });
+
   it('reconnaît les noms usuels et les couleurs ACI de base', () => {
     const parsed = parseDxf(dxf(['0', 'LINE', '8', '0', '6', 'HIDDEN', '62', '1', '370', '50', '10', '0', '20', '0', '11', '1', '21', '0']), options);
     expect(parsed.objects[0]).toMatchObject({ lineType: 'interrompu', color: '#ff0000', lineWeight: 0.5 });

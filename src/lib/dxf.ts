@@ -152,7 +152,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
 
   for (const object of objects) {
     const layer = layerNames.get(object.layerId) ?? '0';
-    style = object.kind === 'dimension' ? {} : { color: object.color, lineType: object.lineType, lineWeight: object.lineWeight };
+    style = { color: object.color, lineType: object.lineType, lineWeight: object.lineWeight };
     if (style.color !== undefined || style.lineType !== undefined || style.lineWeight !== undefined) styled++;
     if (object.kind === 'blockRef') {
       const block = blocks.find(b => b.id === object.blockId);
@@ -788,8 +788,10 @@ const ACI_BASE: Record<number, string> = {
 };
 
 function colorFromBody(body: Pair[]): string | undefined {
-  const trueColor = Number(valueOf(body, 420));
-  if (Number.isFinite(trueColor) && trueColor > 0) return trueColorToHex(trueColor);
+  // Vraie couleur : 0 est le noir (#000000), à distinguer d'un groupe 420 absent.
+  const raw = valueOf(body, 420);
+  const trueColor = raw === undefined ? NaN : Number(raw);
+  if (Number.isFinite(trueColor) && trueColor >= 0) return trueColorToHex(trueColor);
   const aci = Math.abs(Number(valueOf(body, 62)));
   return ACI_BASE[aci];
 }

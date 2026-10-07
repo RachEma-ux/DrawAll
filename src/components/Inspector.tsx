@@ -175,7 +175,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           </div>
         </div>
 
-        {obj.kind !== 'dimension' && (
+        {(
           <div>
             <p className="ui-label mb-1.5">Trait (ISO 128-2)</p>
             <LineStyleFields
