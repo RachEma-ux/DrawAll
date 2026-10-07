@@ -21,6 +21,7 @@ import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
 import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
+import { extendObject, trimObject } from '@/lib/edit';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, selectionCenter } from '@/lib/geometry';
@@ -42,6 +43,8 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'measure', label: 'Mesure', key: 'M', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Cliquez-glissez pour mesurer une distance' },
   { id: 'text', label: 'Texte', key: 'T', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez ou cliquez le point d’insertion, puis saisissez le texte' },
+  { id: 'trim', label: 'Ajuster', key: 'J', levels: ['contextuel', 'complet'], hint: 'Touchez la portion à retirer entre deux arêtes' },
+  { id: 'extend', label: 'Prolonger', key: 'X', levels: ['contextuel', 'complet'], hint: 'Touchez près de l’extrémité à prolonger jusqu’à la prochaine arête' },
   { id: 'block', label: 'Bloc', key: 'B', levels: ['contextuel', 'complet'], hint: 'Cliquez pour insérer le bloc actif' },
   { id: 'pan', label: 'Panoramique', short: 'Vue', key: 'H', levels: ['contextuel', 'complet'], hint: 'Déplacer la vue (molette : zoom)' },
 ];
@@ -88,6 +91,8 @@ function Workbench() {
   const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT);
   const [panel, setPanel] = useState<'inspector' | 'history' | null>(null);
   const compactRef = useRef(compact);
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<number | undefined>(undefined);
   const [moreOpen, setMoreOpen] = useState(false);
   // Navigateur du projet : toujours présent, pliable ; plié par défaut sur petit écran.
   const [navOpen, setNavOpen] = useState(() => !(typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT));
@@ -242,6 +247,28 @@ function Workbench() {
     project.updateObject(id, { content: content.trim() }, 'Modifier texte');
   }, [project]);
 
+  /** Message bref affiché sur le canevas (sans boîte de dialogue). */
+  const flash = useCallback((text: string) => {
+    setNotice(text);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 3500);
+  }, []);
+
+  // Ajuster / prolonger : toutes les autres entités visibles servent d'arêtes.
+  const trimExtend = useCallback((mode: 'trim' | 'extend', id: string, x: number, y: number) => {
+    const target = project.objects.find(o => o.id === id);
+    if (!target) return;
+    const visible = project.objects.filter(o => project.layers.find(l => l.id === o.layerId)?.visible !== false);
+    const result = mode === 'trim' ? trimObject(target, visible, { x, y }) : extendObject(target, visible, { x, y });
+    if (!result) {
+      flash(mode === 'trim'
+        ? `${id} : aucune arête ne coupe l’objet à cet endroit.`
+        : `${id} : rien à atteindre dans le prolongement (lignes, arcs et polylignes ouvertes seulement).`);
+      return;
+    }
+    project.applyEdit(id, result, mode === 'trim' ? 'Ajuster' : 'Prolonger');
+  }, [project, flash]);
+
   const prepareBlockInsertion = useCallback((blockId: string) => {
     setActiveBlockId(blockId);
     setMode('atelier');
@@ -376,6 +403,8 @@ function Workbench() {
         text: ['texte', 'annotation', 'etiquette', 'text', 'label'],
         arc: ['arc', 'courbe', 'trois points', 'cintre'],
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
+        trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
+        extend: ['prolonger', 'etendre', 'extend', 'allonger'],
         dimension: ['cote', 'cotation', 'dimension', 'mesure associative'],
         measure: ['mesure', 'distance', 'mesurer'],
         block: ['bloc', 'symbole', 'inserer', 'occurrence'],
@@ -626,6 +655,8 @@ function Workbench() {
                  tool === 'pan' ? 'Glissez pour déplacer la vue' :
                  tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
+                 tool === 'trim' ? 'Ajuster : cliquez la portion à retirer, entre deux arêtes' :
+                 tool === 'extend' ? 'Prolonger : cliquez près de l’extrémité à prolonger' :
                  tool === 'text' ? 'Cliquez le point d’insertion puis saisissez le texte ; double-clic sur un texte pour le modifier' :
                  'Cliquez-glissez : l’aperçu précède la validation (UX3)'}
               </span>
@@ -718,6 +749,7 @@ function Workbench() {
                 onInsertBlock={project.insertBlock}
                 onPlaceText={placeText}
                 onEditText={editText}
+                onTrimExtend={trimExtend}
                 onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
                 onSnapChange={setCurrentSnap}
@@ -727,6 +759,12 @@ function Workbench() {
 
             {/* Panneau des modifications / problèmes — repère permanent 5 (tiroir sur petit écran) */}
             {!compact && <div className="h-44 shrink-0 border-t border-border">{historyEl}</div>}
+
+            {notice && (
+              <div role="status" className="pointer-events-none absolute inset-x-0 bottom-10 z-20 flex justify-center px-3">
+                <span className="rounded-sm border border-amber-400/50 bg-[#0c1220]/95 px-3 py-2 font-mono text-[11px] text-amber-200 shadow-lg">{notice}</span>
+              </div>
+            )}
 
             {/* Barre d'état */}
             <div className="flex h-7 shrink-0 items-center gap-4 overflow-x-auto whitespace-nowrap border-t border-border bg-[#0c1220]/90 px-3 font-mono text-[10px] text-muted-foreground">

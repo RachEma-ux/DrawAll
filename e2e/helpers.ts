@@ -80,3 +80,35 @@ export async function canvasPoint(page: Page, fx: number, fy: number) {
   const box = (await page.getByTestId('canvas').boundingBox())!;
   return { x: box.x + box.width * fx, y: box.y + box.height * fy };
 }
+
+/** Remplace le projet local par des objets donnés (projet de démonstration vidé), puis recharge. */
+export async function loadObjects(page: Page, objects: Record<string, unknown>[]) {
+  await page.evaluate(objs => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    const v = s.versions[s.pointer];
+    v.objects = objs.map(o => ({ classification: 'non-classifie', layerId: 'LAY-0004', hatch: 'none', createdSeq: 0, name: String(o.id), ...o }));
+    s.versions = [v];
+    s.pointer = 0;
+    s.counter = 100;
+    localStorage.setItem('drawall-projet-v1', JSON.stringify(s));
+  }, objects);
+  await page.reload();
+  await expect(page.getByTestId('canvas')).toBeVisible();
+  await page.getByRole('button', { name: 'Cadrer', exact: true }).click();
+}
+
+/** Convertit un point du modèle (mm) en point écran, d'après la transformation du canevas. */
+export async function toScreen(page: Page, x: number, y: number) {
+  const tr = await page.getByTestId('canvas').locator('> g').first().getAttribute('transform');
+  const m = tr!.match(/translate\(([-\d.e]+),\s*([-\d.e]+)\)\s*scale\(([-\d.e]+)\)/)!;
+  const box = (await page.getByTestId('canvas').boundingBox())!;
+  return { x: box.x + Number(m[1]) + x * Number(m[3]), y: box.y + Number(m[2]) + y * Number(m[3]) };
+}
+
+/** Objets de la version courante. */
+export async function currentObjects(page: Page): Promise<Record<string, unknown>[]> {
+  return page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    return s.versions[s.pointer].objects;
+  });
+}

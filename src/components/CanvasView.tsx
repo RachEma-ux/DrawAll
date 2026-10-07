@@ -29,7 +29,7 @@ import {
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -52,6 +52,8 @@ interface Props {
   onPlaceText: (x: number, y: number) => void;
   /** Édition du contenu d'un texte existant (double-clic). */
   onEditText: (id: string) => void;
+  /** Ajuster ou prolonger l'objet désigné au point donné. */
+  onTrimExtend: (mode: 'trim' | 'extend', id: string, x: number, y: number) => void;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -94,6 +96,7 @@ export default function CanvasView({
   onInsertBlock,
   onPlaceText,
   onEditText,
+  onTrimExtend,
   onMoveMany,
   onCursor,
   onSnapChange,
@@ -250,6 +253,12 @@ export default function CanvasView({
 
     if (tool === 'pan' || e.button === 1) {
       drag.current = { mode: 'pan', lx: e.clientX, ly: e.clientY };
+      return;
+    }
+    if (tool === 'trim' || tool === 'extend') {
+      // Désigner la portion à retirer (ajuster) ou l'extrémité à prolonger.
+      const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
+      if (hit) onTrimExtend(tool, hit.id, w.x, w.y);
       return;
     }
     if (tool === 'select') {
@@ -762,8 +771,8 @@ export default function CanvasView({
       </div>
 
       <div className="absolute right-3 top-3 flex gap-1">
-        <button onClick={() => { viewTouched.current = true; fitView(); }} className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
-          Ajuster
+        <button onClick={() => { viewTouched.current = true; fitView(); }} title="Cadrer tout le dessin visible" className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
+          Cadrer
         </button>
         <button onClick={() => { viewTouched.current = true; resetView(); }} className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
           100 %
