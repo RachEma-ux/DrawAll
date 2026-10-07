@@ -27,8 +27,9 @@ import {
   type SnapPoint,
 } from '@/lib/geometry';
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
+import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -59,8 +60,13 @@ interface Props {
 
 const GRID = 10;
 
+/** Les points d'un arc ne sont pas contraints par Ortho (ils seraient alignés). */
+function isArcDraft(d: { kind: string } | null): boolean {
+  return d?.kind === 'arc' || d?.kind === 'arcCenter';
+}
+
 interface Draft {
-  kind: 'line' | 'rect' | 'circle' | 'polyline' | 'measure';
+  kind: 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'measure';
   sx: number; sy: number;
   cx: number; cy: number;
   points: number[];
@@ -99,7 +105,7 @@ export default function CanvasView({
   const activeDraft = draft && (
     (draft.kind === 'polyline' && tool === 'polyline') ||
     (draft.kind === 'measure' && tool === 'measure') ||
-    ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle') && draft.kind === tool)
+    ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle' || draft.kind === 'arc' || draft.kind === 'arcCenter') && draft.kind === tool)
   ) ? draft : null;
   const [hoverSnap, setHoverSnap] = useState<SnapPoint | null>(null);
   const [coord, setCoord] = useState({ x: '', y: '' });
@@ -153,7 +159,8 @@ export default function CanvasView({
       onCursor(null, null);
       return;
     }
-    const origin = activeDraft && activeDraft.kind !== 'polyline' ? { x: activeDraft.sx, y: activeDraft.sy } :
+    const origin = isArcDraft(activeDraft) ? undefined :
+      activeDraft && activeDraft.kind !== 'polyline' ? { x: activeDraft.sx, y: activeDraft.sy } :
       activeDraft?.kind === 'polyline' && activeDraft.points.length >= 2 ? { x: activeDraft.points[activeDraft.points.length - 2], y: activeDraft.points[activeDraft.points.length - 1] } :
       drag.current.mode === 'move' && drag.current.grab ? drag.current.grab : undefined;
     const snap = resolvePoint(point, origin);
@@ -174,7 +181,7 @@ export default function CanvasView({
       const compatible =
         (d.kind === 'polyline' && tool === 'polyline') ||
         (d.kind === 'measure' && tool === 'measure') ||
-        ((d.kind === 'line' || d.kind === 'rect' || d.kind === 'circle') && d.kind === tool);
+        ((d.kind === 'line' || d.kind === 'rect' || d.kind === 'circle' || d.kind === 'arc' || d.kind === 'arcCenter') && d.kind === tool);
       return compatible ? d : null;
     });
   }, [tool]);
@@ -212,6 +219,22 @@ export default function CanvasView({
       });
       return;
     }
+    if (tool === 'arc' || tool === 'arcCenter') {
+      // Arc : trois points successifs (début, passage, fin) ou (centre, début, fin).
+      const previous = activeDraft?.kind === tool ? activeDraft.points : [];
+      const pts = [...previous, point.x, point.y];
+      if (pts.length < 6) {
+        setDraft({ kind: tool, sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts });
+        return;
+      }
+      const [a, b, c] = [{ x: pts[0], y: pts[1] }, { x: pts[2], y: pts[3] }, { x: pts[4], y: pts[5] }];
+      const geom = tool === 'arc' ? arcFrom3Points(a, b, c) : arcFromCenter(a, b, c);
+      if (geom) {
+        onAdd({ kind: 'arc', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', cx: geom.cx, cy: geom.cy, r: geom.r, start: geom.start, end: geom.end });
+      }
+      setDraft(null);
+      return;
+    }
     if (tool === 'measure') {
       setDraft({ kind: 'measure', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [] });
       return;
@@ -219,7 +242,7 @@ export default function CanvasView({
     if (tool === 'line' || tool === 'rect' || tool === 'circle') {
       setDraft({ kind: tool, sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [] });
     }
-  }, [activeLayer, tool]);
+  }, [activeLayer, tool, activeDraft, onAdd]);
 
   const handleDown = (e: React.PointerEvent) => {
     discardIncompatibleDraft();
@@ -249,7 +272,8 @@ export default function CanvasView({
       return;
     }
 
-    const origin = activeDraft && activeDraft.kind !== 'polyline' ? { x: activeDraft.sx, y: activeDraft.sy } :
+    const origin = isArcDraft(activeDraft) ? undefined :
+      activeDraft && activeDraft.kind !== 'polyline' ? { x: activeDraft.sx, y: activeDraft.sy } :
       activeDraft?.kind === 'polyline' && activeDraft.points.length >= 2 ? { x: activeDraft.points[activeDraft.points.length - 2], y: activeDraft.points[activeDraft.points.length - 1] } : undefined;
     const point = resolvePoint(w, origin);
     setHoverSnap(point);
@@ -294,7 +318,7 @@ export default function CanvasView({
       return;
     }
     if (activeDraft) {
-      const origin = activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
+      const origin = isArcDraft(activeDraft) ? undefined : activeDraft.kind === 'polyline' && activeDraft.points.length >= 2
         ? { x: activeDraft.points[activeDraft.points.length - 2], y: activeDraft.points[activeDraft.points.length - 1] }
         : { x: activeDraft.sx, y: activeDraft.sy };
       const snap = resolvePoint(w, origin);
@@ -393,7 +417,7 @@ export default function CanvasView({
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'Escape') { setDraft(null); setLengthInput(''); }
       if (e.key === 'Enter') {
-        if (lengthInput && activeDraft && activeDraft.kind !== 'measure') { applyLength(); return; }
+        if (lengthInput && activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft)) { applyLength(); return; }
         finishPolyline();
       }
       // Saisie dynamique : les chiffres tapés pendant un tracé alimentent la longueur directe.
@@ -424,7 +448,7 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline') {
+    if (tool === 'polyline' || tool === 'arc' || tool === 'arcCenter') {
       startOrContinueDraft(point);
       return;
     }
@@ -683,6 +707,24 @@ export default function CanvasView({
             <polyline points={[...activeDraft.points, activeDraft.cx, activeDraft.cy].join(',')} fill="none"
               stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
           )}
+          {activeDraft && (activeDraft.kind === 'arc' || activeDraft.kind === 'arcCenter') && (() => {
+            // Aperçu : segment vers le curseur au 1er point, arc complet ensuite.
+            const p = activeDraft.points;
+            const cur = { x: activeDraft.cx, y: activeDraft.cy };
+            const dash = `${6 / tf.k} ${4 / tf.k}`;
+            if (p.length < 4) {
+              return <line x1={p[0]} y1={p[1]} x2={cur.x} y2={cur.y} stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={dash} />;
+            }
+            const a = { x: p[0], y: p[1] }, b = { x: p[2], y: p[3] };
+            const geom = activeDraft.kind === 'arc' ? arcFrom3Points(a, b, cur) : arcFromCenter(a, b, cur);
+            return (
+              <g>
+                {activeDraft.kind === 'arcCenter' && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#22d3ee" strokeWidth={1 / tf.k} strokeDasharray={dash} />}
+                <circle cx={b.x} cy={b.y} r={3 / tf.k} fill="#22d3ee" />
+                {geom && <path d={arcSvgPath(geom)} fill="none" stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={dash} />}
+              </g>
+            );
+          })()}
           {activeDraft && activeDraft.kind === 'measure' && measure && (
             <g>
               <line x1={activeDraft.sx} y1={activeDraft.sy} x2={activeDraft.cx} y2={activeDraft.cy} stroke="#34d399" strokeWidth={1.5 / tf.k} markerStart="url(#dim-arrow)" markerEnd="url(#dim-arrow)" />
@@ -728,9 +770,10 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'polyline' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
-          {activeDraft && activeDraft.kind !== 'measure' && (
+          {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
+          {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
             <div className="flex max-w-full flex-wrap items-center gap-1 rounded-sm border border-cyan-400/50 bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
               <span className="px-1 uppercase tracking-wider text-cyan-300">Longueur</span>
               <input
@@ -872,6 +915,16 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel }: {
           )}
         </g>
       );
+    case 'arc':
+      return (
+        <g>
+          <path d={arcSvgPath(obj)} {...common} fill="none" />
+          <path d={arcSvgPath(obj)} stroke="transparent" strokeWidth={10 / zoom} fill="none" />
+          {selected && <line x1={obj.cx - 5 / zoom} y1={obj.cy} x2={obj.cx + 5 / zoom} y2={obj.cy} stroke={color} strokeWidth={1 / zoom} />}
+          {selected && <line x1={obj.cx} y1={obj.cy - 5 / zoom} x2={obj.cx} y2={obj.cy + 5 / zoom} stroke={color} strokeWidth={1 / zoom} />}
+          {showLabel && label(obj.cx - obj.r, obj.cy - obj.r)}
+        </g>
+      );
     case 'polyline': {
       const closed = isClosedPolyline(obj);
       return (
@@ -965,6 +1018,7 @@ function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: Block
       if (inside && o.classification !== 'non-classifie') return o;
     }
     if (o.kind === 'circle' && Math.abs(Math.hypot(x - o.cx, y - o.cy) - o.r) <= tol) return o;
+    if (o.kind === 'arc' && distanceToArc(o, x, y) <= tol) return o;
     if (o.kind === 'polyline') {
       for (let j = 0; j + 3 <= o.points.length; j += 2) {
         if (distanceSegment(x, y, o.points[j], o.points[j + 1], o.points[j + 2], o.points[j + 3]) <= tol) return o;

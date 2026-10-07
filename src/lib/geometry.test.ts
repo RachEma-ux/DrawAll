@@ -179,3 +179,33 @@ describe('transformations du texte', () => {
     expect(snap).toMatchObject({ type: 'insertion', x: 100, y: 100 });
   });
 });
+
+describe('arcs dans l’atelier', () => {
+  const arc: CadObject = { ...base, id: 'OBJ-0020', name: 'Arc', kind: 'arc', cx: 0, cy: 0, r: 100, start: 0, end: 90 };
+
+  it('s’accroche aux extrémités, au milieu et au centre', () => {
+    expect(findSnap([arc], layers, [], 99, 1, 5, 10)).toMatchObject({ type: 'endpoint', x: 100, y: 0 });
+    expect(findSnap([arc], layers, [], 70, -71, 5, 10)).toMatchObject({ type: 'midpoint' });
+    expect(findSnap([arc], layers, [], 1, 1, 5, 10)).toMatchObject({ type: 'center', x: 0, y: 0 });
+  });
+
+  it('ne compte que les intersections situées sur l’arc', () => {
+    const through: CadObject = { ...base, id: 'OBJ-0021', name: 'L', kind: 'line', x1: -200, y1: -50, x2: 200, y2: -50 };
+    // Le cercle porteur coupe la ligne en x = ±86,6 ; seul x = +86,6 (angle 30°) est sur l'arc 0–90°.
+    expect(findSnap([arc, through], layers, [], 86.6, -50, 3, 10)).toMatchObject({ type: 'intersection' });
+    expect(findSnap([arc, through], layers, [], -86.6, -50, 3, 10).type).not.toBe('intersection');
+  });
+
+  it('se transforme : rotation, miroir, échelle, décalage', () => {
+    expect(rotateObject(arc, 0, 0, 90)).toMatchObject({ start: 270, end: 0 });
+    expect(mirrorObject(arc, 'x', 0)).toMatchObject({ cx: 0, start: 90, end: 180 });
+    expect(mirrorObject(arc, 'y', 0)).toMatchObject({ cy: 0, start: 270, end: 0 });
+    expect(scaleObject(arc, 0, 0, 2)).toMatchObject({ r: 200 });
+    expect(offsetObject(arc, -100)).toBeNull();
+  });
+
+  it('se cote en rayon', () => {
+    const dim = { ...base, id: 'OBJ-0022', name: 'Cote', kind: 'dimension' as const, targetId: 'OBJ-0020', style: 'radial' as const, offset: 0 };
+    expect(dimensionValue(dim, [arc])).toBe('R 100 mm');
+  });
+});

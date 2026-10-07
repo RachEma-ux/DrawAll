@@ -166,33 +166,29 @@ describe('import DXF — courbes', () => {
     expect(parsed.report.transformed.join(' ')).toContain('segment(s) courbe(s)');
   });
 
-  it('respecte la tolérance de corde sur un grand rayon en mètres', () => {
-    // ARC de rayon 1 m déclaré en mètres : écart ≤ 0,05 mm.
+  it('importe un ARC tel quel, sans approximation (unité appliquée)', () => {
     const parsed = parseDxf(dxf(['0', 'ARC', '8', '0', '10', '0', '20', '0', '40', '1', '50', '0', '51', '90'], 6), options);
-    const arc = parsed.objects[0];
-    if (arc?.kind !== 'polyline') throw new Error('polyligne attendue');
-    const pts = arc.points;
-    let maxError = 0;
-    for (let i = 0; i + 3 < pts.length; i += 2) {
-      const mx = (pts[i] + pts[i + 2]) / 2, my = (pts[i + 1] + pts[i + 3]) / 2;
-      maxError = Math.max(maxError, 1000 - Math.hypot(mx, my));
-    }
-    expect(maxError).toBeLessThanOrEqual(ARC_TOLERANCE_MM + 1e-6);
-    expect(Math.hypot(pts[0], pts[1])).toBeCloseTo(1000, 6);
+    expect(parsed.objects[0]).toMatchObject({ kind: 'arc', cx: 0, cy: 0, r: 1000, start: 0, end: 90 });
+    expect(parsed.report.kept.join(' ')).toContain('ARC natif');
+    expect(parsed.report.transformed.join(' ')).not.toContain('Courbes');
   });
 
-  it('tient la tolérance sur un demi-cercle de 1 km de rayon', () => {
-    const parsed = parseDxf(dxf(['0', 'ARC', '8', '0', '10', '0', '20', '0', '40', '1', '50', '0', '51', '180'], 7), options);
+  it('tient la tolérance sur un demi-cercle de 1 km de rayon (segment courbe)', () => {
+    // LWPOLYLINE en kilomètres : (0,0) → (2,0) avec une courbure 1 (demi-cercle de rayon 1 km).
+    const parsed = parseDxf(dxf(['0', 'LWPOLYLINE', '8', '0', '90', '2', '70', '0', '10', '0', '20', '0', '42', '1', '10', '2', '20', '0'], 7), options);
     expect(parsed.report.transformed.join(' ')).toContain('Courbes');
     expect(parsed.report.lost.join(' ')).not.toContain('Tolérance');
-    const arc = parsed.objects[0];
-    if (arc?.kind !== 'polyline') throw new Error('polyligne attendue');
-    expect(arc.points.length / 2).toBeGreaterThan(4096);
+    const poly = parsed.objects[0];
+    if (poly?.kind !== 'polyline') throw new Error('polyligne attendue');
+    expect(poly.points.length / 2).toBeGreaterThan(4096);
   });
 
-  it('signale un arc dont la tolérance ne peut pas être tenue', () => {
-    // Cercle quasi complet de 1 000 km : au-delà du plafond de segments.
-    const parsed = parseDxf(dxf(['0', 'ARC', '8', '0', '10', '0', '20', '0', '40', '1000', '50', '0', '51', '359'], 7), options);
+  it('signale un segment courbe dont la tolérance ne peut pas être tenue', () => {
+    // Arc de 359° et de 1 000 km de rayon : au-delà du plafond de segments.
+    const theta = (359 * Math.PI) / 180;
+    const chord = 2 * 1000 * Math.sin(theta / 2);
+    const bulge = Math.tan(theta / 4);
+    const parsed = parseDxf(dxf(['0', 'LWPOLYLINE', '8', '0', '90', '2', '70', '0', '10', '0', '20', '0', '42', bulge, '10', chord, '20', '0'], 7), options);
     expect(parsed.warnings.join(' ')).toContain('Tolérance d\'approximation dépassée');
     expect(parsed.report.lost.join(' ')).toContain('Tolérance');
   });
@@ -200,14 +196,7 @@ describe('import DXF — courbes', () => {
   it('replace un arc en repère symétrique (extrusion 0,0,−1) au bon endroit', () => {
     // Arc OCS centre (10,0), r 5, de 0° à 90°, extrusion -Z → en WCS : centre (-10,0), de 90° à 180°.
     const parsed = parseDxf(dxf(['0', 'ARC', '8', '0', '10', '10', '20', '0', '40', '5', '50', '0', '51', '90', '210', '0', '220', '0', '230', '-1'], 4), options);
-    const arc = parsed.objects[0];
-    if (arc?.kind !== 'polyline') throw new Error('polyligne attendue');
-    const xs = arc.points.filter((_, i) => i % 2 === 0);
-    const ys = arc.points.filter((_, i) => i % 2 === 1).map(v => -v);
-    expect(Math.max(...xs)).toBeCloseTo(-10, 6);
-    expect(Math.min(...xs)).toBeCloseTo(-15, 6);
-    expect(Math.min(...ys)).toBeCloseTo(0, 6);
-    expect(Math.max(...ys)).toBeCloseTo(5, 6);
+    expect(parsed.objects[0]).toMatchObject({ kind: 'arc', cx: -10, cy: 0, r: 5, start: 90, end: 180 });
     expect(parsed.report.transformed.join(' ')).toContain('repère symétrique');
   });
 
@@ -224,6 +213,20 @@ describe('import DXF — courbes', () => {
     expect(parsed.objects).toHaveLength(0);
     expect(parsed.warnings.join(' ')).toContain('SPLINE');
     expect(parsed.report.lost.join(' ')).toContain('SPLINE');
+  });
+});
+
+describe('DXF — arcs', () => {
+  it('exporte un ARC natif et le relit à l’identique', () => {
+    const arc: CadObject = { ...base, id: 'OBJ-0001', name: 'Arc', kind: 'arc', cx: 50, cy: -20, r: 12.5, start: 300, end: 45 };
+    const { content, report } = exportDxf([arc], layers, []);
+    const pairs = entityPairs(content, 'ARC');
+    expect(pairs.find(([c]) => c === 40)?.[1]).toBe('12.5');
+    expect(pairs.find(([c]) => c === 50)?.[1]).toBe('300');
+    expect(pairs.find(([c]) => c === 51)?.[1]).toBe('45');
+    expect(report.kept.join(' ')).toContain('Arcs : 1');
+    expect(parseDxf(content, options).objects[0]).toMatchObject({ kind: 'arc', cx: 50, cy: -20, r: 12.5, start: 300, end: 45 });
+    keepFixture('arc.dxf', content);
   });
 });
 

@@ -121,8 +121,9 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 1.0 Recette navigateur automatisée | Fait | #6 |
 | 1.1 Cadrage et ergonomie mobile | Fait | #7 |
 | 1.2 Texte | Fait | #8 |
-| 1.3 Arc | En cours | — |
-| 1.4 → 8.4 | À faire | — |
+| 1.3 Arc | Fait | #9 |
+| 1.4 Ajuster et prolonger | En cours | — |
+| 1.5 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

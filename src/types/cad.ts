@@ -1,9 +1,9 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'polyline' | 'dimension' | 'blockRef' | 'text';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'blockRef' | 'text';
 export type TextAlign = 'left' | 'center' | 'right';
-export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'polyline';
+export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
 export type DimensionStyle = 'horizontal' | 'vertical' | 'aligned' | 'radial';
 
@@ -39,6 +39,11 @@ interface Base {
 export interface LineObj extends Base { kind: 'line'; x1: number; y1: number; x2: number; y2: number }
 export interface RectObj extends Base { kind: 'rect'; x: number; y: number; w: number; h: number }
 export interface CircleObj extends Base { kind: 'circle'; cx: number; cy: number; r: number }
+/**
+ * Arc de cercle : centre, rayon, angles de début et de fin en degrés, parcouru dans le sens
+ * trigonométrique du repère DXF (Y vers le haut) — donc dans le sens antihoraire à l'écran.
+ */
+export interface ArcObj extends Base { kind: 'arc'; cx: number; cy: number; r: number; start: number; end: number }
 export interface PolylineObj extends Base { kind: 'polyline'; points: number[] }
 
 /** Cote associative : la géométrie affichée dérive de l'objet cible. */
@@ -73,7 +78,7 @@ export interface BlockRefObj extends Base {
   scale: number;
 }
 
-export type PrimitiveObject = LineObj | RectObj | CircleObj | PolylineObj;
+export type PrimitiveObject = LineObj | RectObj | CircleObj | ArcObj | PolylineObj;
 export type CadObject = PrimitiveObject | DimensionObj | BlockRefObj | TextObj;
 
 export interface BlockDef {
@@ -128,6 +133,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   line: 'Ligne',
   rect: 'Rectangle',
   circle: 'Cercle',
+  arc: 'Arc',
   polyline: 'Polyligne',
   dimension: 'Cote',
   blockRef: 'Bloc',
@@ -155,6 +161,7 @@ export function isClosedPolyline(obj: CadObject): obj is PolylineObj {
 }
 
 export function canHatch(obj: CadObject): obj is RectObj | CircleObj | PolylineObj {
+  // Un arc n'est pas un contour fermé : pas de hachure.
   return obj.kind === 'rect' || obj.kind === 'circle' || isClosedPolyline(obj);
 }
 
@@ -196,6 +203,7 @@ export function dimensionOf(obj: CadObject): string {
     }
     case 'rect': return `${fmt(obj.w)} × ${fmt(obj.h)} mm`;
     case 'circle': return `Ø ${fmt(obj.r * 2)} mm`;
+    case 'arc': return `R ${fmt(obj.r)} mm · ${fmt(((((obj.end - obj.start) % 360) + 360) % 360) || 360)}°`;
     case 'polyline': {
       let d = 0;
       for (let i = 0; i + 3 < obj.points.length + 1 && i + 2 < obj.points.length; i += 2) {
@@ -220,6 +228,7 @@ export function supportedDimensionStyles(target: CadObject): DimensionStyle[] {
     case 'rect': return ['horizontal', 'vertical'];
     case 'polyline': return ['horizontal', 'vertical'];
     case 'circle': return ['radial'];
+    case 'arc': return ['radial'];
     default: return [];
   }
 }
@@ -233,20 +242,27 @@ export function effectiveDimensionStyle(style: DimensionStyle, target: CadObject
 
 /** Emprise (min/max) des sommets d'une polyligne. */
 export function polylineExtents(points: number[]): { minX: number; minY: number; maxX: number; maxY: number } {
-  const xs = points.filter((_, i) => i % 2 === 0);
-  const ys = points.filter((_, i) => i % 2 === 1);
-  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  // Boucle explicite : une polyligne importée peut compter des centaines de milliers de sommets.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    if (points[i] < minX) minX = points[i];
+    if (points[i] > maxX) maxX = points[i];
+    if (points[i + 1] < minY) minY = points[i + 1];
+    if (points[i + 1] > maxY) maxY = points[i + 1];
+  }
+  return { minX, minY, maxX, maxY };
 }
 
 /**
  * Valeur mesurée par une cote, en millimètres, à pleine précision.
  * Horizontale = ΔX, verticale = ΔY, alignée = longueur vraie, rayon = diamètre.
  */
-export function dimensionMeasure(obj: DimensionObj, target: CadObject): { value: number; prefix: '' | 'Ø ' } | null {
+export function dimensionMeasure(obj: DimensionObj, target: CadObject): { value: number; prefix: '' | 'Ø ' | 'R ' } | null {
   const style = effectiveDimensionStyle(obj.style, target);
   if (!style) return null;
   switch (target.kind) {
     case 'circle': return { value: target.r * 2, prefix: 'Ø ' };
+    case 'arc': return { value: target.r, prefix: 'R ' };
     case 'rect': return { value: style === 'vertical' ? target.h : target.w, prefix: '' };
     case 'line': {
       const dx = Math.abs(target.x2 - target.x1);

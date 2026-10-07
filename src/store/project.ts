@@ -11,9 +11,12 @@ import {
   type NewCadObject,
   type PrimitiveObject,
   type ProjectState,
+  KIND_LABEL,
+  polylineExtents,
   supportedDimensionStyles,
 } from '@/types/cad';
 import { moveObject } from '@/lib/geometry';
+import { arcBounds } from '@/lib/arc';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
@@ -94,7 +97,7 @@ function normalizeBlocks(raw: unknown, layers: Layer[]): BlockDef[] {
       description: typeof b.description === 'string' ? b.description : undefined,
       primitives: Array.isArray(b.primitives)
         ? b.primitives.map(p => normalizeObject(p, layers)).filter((p): p is PrimitiveObject =>
-            !!p && (p.kind === 'line' || p.kind === 'rect' || p.kind === 'circle' || p.kind === 'polyline'),
+            !!p && (p.kind === 'line' || p.kind === 'rect' || p.kind === 'circle' || p.kind === 'arc' || p.kind === 'polyline'),
           )
         : [],
     }));
@@ -161,10 +164,10 @@ function primitiveOrigin(obj: PrimitiveObject): { x: number; y: number } {
     case 'line': return { x: Math.min(obj.x1, obj.x2), y: Math.min(obj.y1, obj.y2) };
     case 'rect': return { x: obj.x, y: obj.y };
     case 'circle': return { x: obj.cx - obj.r, y: obj.cy - obj.r };
+    case 'arc': { const b = arcBounds(obj); return { x: b.minX, y: b.minY }; }
     case 'polyline': {
-      const xs = obj.points.filter((_, i) => i % 2 === 0);
-      const ys = obj.points.filter((_, i) => i % 2 === 1);
-      return { x: Math.min(...xs), y: Math.min(...ys) };
+      const e = polylineExtents(obj.points);
+      return { x: e.minX, y: e.minY };
     }
   }
 }
@@ -175,6 +178,7 @@ function localizePrimitive(obj: PrimitiveObject, origin: { x: number; y: number 
     case 'line': return { ...local, x1: local.x1 - origin.x, y1: local.y1 - origin.y, x2: local.x2 - origin.x, y2: local.y2 - origin.y };
     case 'rect': return { ...local, x: 0, y: 0 };
     case 'circle': return { ...local, cx: local.cx - origin.x, cy: local.cy - origin.y };
+    case 'arc': return { ...local, cx: local.cx - origin.x, cy: local.cy - origin.y };
     case 'polyline': return { ...local, points: local.points.map((v, i) => v - (i % 2 === 0 ? origin.x : origin.y)) };
   }
 }
@@ -230,7 +234,7 @@ export function useProject() {
   const addObject = useCallback((partial: NewCadObject, name?: string) => {
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
     const obj = { ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject;
-    commit(`Créer ${obj.kind === 'line' ? 'ligne' : obj.kind === 'rect' ? 'rectangle' : obj.kind === 'circle' ? 'cercle' : obj.kind === 'polyline' ? 'polyligne' : obj.kind === 'dimension' ? 'cote' : 'bloc'} ${id}`, {
+    commit(`Créer ${KIND_LABEL[obj.kind].toLowerCase()} ${id}`, {
       objects: [...objects, obj],
       counter: state.counter + 1,
     });
@@ -364,7 +368,7 @@ export function useProject() {
 
   const createBlockFromObject = useCallback((objectId: string) => {
     const source = objects.find(o => o.id === objectId);
-    if (!source || (source.kind !== 'line' && source.kind !== 'rect' && source.kind !== 'circle' && source.kind !== 'polyline')) return null;
+    if (!source || (source.kind !== 'line' && source.kind !== 'rect' && source.kind !== 'circle' && source.kind !== 'arc' && source.kind !== 'polyline')) return null;
     const blockId = `BLQ-${String(state.blockCounter + 1).padStart(4, '0')}`;
     const origin = primitiveOrigin(source);
     const primitive = localizePrimitive(source, origin, blockId);
