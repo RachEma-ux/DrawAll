@@ -20,25 +20,30 @@ export function indexLetter(n: number): string {
   return s;
 }
 
-/**
- * Indice de la version affichée : une lettre par version nommée jusqu'à elle (A pour la première).
- * Une version qui n'est pas nommée reste à l'indice de la dernière version nommée, marqué « en cours ».
- */
-export function revisionIndex(versions: MicroVersion[], pointer: number): { letter: string | null; named: string | null; pending: boolean } {
-  let count = 0;
-  let lastNamed: string | null = null;
-  for (let i = 0; i <= pointer && i < versions.length; i++) {
-    if (versions[i].named) { count++; lastNamed = versions[i].named!; }
-  }
-  const pending = !versions[pointer]?.named;
-  return { letter: count > 0 ? indexLetter(count) : null, named: lastNamed, pending };
+/** Rang d'une lettre d'indice (A = 1, AA = 27) ; 0 si illisible. */
+export function indexNumber(letter: string): number {
+  if (!/^[A-Z]+$/.test(letter)) return 0;
+  let n = 0;
+  for (const ch of letter) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
 }
 
-/** Lettre du prochain indice à émettre. */
+/**
+ * Indice de la version affichée : la lettre émise sur elle ou, à défaut, sur la dernière version
+ * émise avant elle (marquée « modifié depuis »). Les lettres sont enregistrées à l'émission : nommer
+ * plus tard une version plus ancienne ne change aucun indice déjà émis.
+ */
+export function revisionIndex(versions: MicroVersion[], pointer: number): { letter: string | null; named: string | null; pending: boolean } {
+  let issued: MicroVersion | null = null;
+  for (let i = 0; i <= pointer && i < versions.length; i++) if (versions[i].index) issued = versions[i];
+  return { letter: issued?.index ?? null, named: issued?.named ?? null, pending: !versions[pointer]?.index };
+}
+
+/** Lettre du prochain indice : celle de la version affichée si elle est émise, sinon la suivante de tout l'historique. */
 export function nextIndexLetter(versions: MicroVersion[], pointer: number): string {
-  const { letter, pending } = revisionIndex(versions, pointer);
-  const count = letter ? versions.slice(0, pointer + 1).filter(v => v.named).length : 0;
-  return pending || !letter ? indexLetter(count + 1) : letter;
+  const own = versions[pointer]?.index;
+  if (own) return own;
+  return indexLetter(Math.max(0, ...versions.map(v => indexNumber(v.index ?? ''))) + 1);
 }
 
 /** Échelle(s) de la feuille : celles de ses fenêtres, sans doublon (« 1:50 / 1:5 »). */
@@ -55,7 +60,7 @@ export function titleBlockFields(sheet: Sheet, versions: MicroVersion[], pointer
   const rev = revisionIndex(versions, pointer);
   const v = versions[pointer];
   const date = v ? new Date(v.time).toLocaleDateString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—';
-  const index = rev.letter ? `${rev.letter}${rev.pending ? ' (modifié depuis)' : ''}` : '— (aucune version nommée)';
+  const index = rev.letter ? `${rev.letter}${rev.pending ? ' (modifié depuis)' : ''}` : '— (aucun indice émis)';
   return [
     { key: 'project', label: 'Projet', value: tb.project || '—' },
     { key: 'title', label: 'Titre', value: tb.title || '—' },

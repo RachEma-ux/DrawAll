@@ -23,6 +23,7 @@ import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, type Placement } from '@/lib/array';
 import { LINE_TYPES } from '@/lib/linestyle';
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
+import { nextIndexLetter } from '@/lib/titleblock';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
@@ -575,6 +576,15 @@ export function useProject() {
     setSelectedId(null);
   }, [setSelectedId]);
 
+  /** Émet l'indice suivant sur la version affichée (nom et lettre figés) ; sans effet si elle est déjà émise. */
+  const issueIndex = useCallback((name: string) => {
+    setState(s => {
+      if (s.versions[s.pointer].index) return s;
+      const index = nextIndexLetter(s.versions, s.pointer);
+      return { ...s, versions: s.versions.map((v, i) => (i === s.pointer ? { ...v, named: name, index } : v)) };
+    });
+  }, []);
+
   const nameVersion = useCallback((name: string) => {
     setState(s => ({
       ...s,
@@ -696,7 +706,7 @@ export function useProject() {
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock,
-    undo, redo, goTo, canUndo, canRedo, nameVersion, reset, loadState,
+    undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };
 }

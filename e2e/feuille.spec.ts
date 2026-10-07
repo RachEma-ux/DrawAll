@@ -80,7 +80,7 @@ test('lot 2.2 — déplacer une fenêtre au geste (souris ou doigt)', async ({ p
   expect([vp.w, vp.h]).toEqual([150, 100]);
 });
 
-test('lot 2.3 — cartouche : champs du projet, l’indice suit la version nommée', async ({ page }) => {
+test('lot 2.3 — cartouche : champs du projet, l’indice suit l’indice émis', async ({ page }) => {
   await openAtelier(page);
   await loadObjects(page, plan);
   await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
@@ -95,11 +95,12 @@ test('lot 2.3 — cartouche : champs du projet, l’indice suit la version nomm�
   await expect(block.locator('[data-champ="project"]')).toContainText('Logement Rue Haute');
   await expect(block.locator('[data-champ="scale"]')).toContainText('1:50');
   await expect(block.locator('[data-champ="projection"]')).toContainText('Premier dièdre');
-  await expect(block.locator('[data-champ="index"]')).toContainText('aucune version nommée');
+  await expect(block.locator('[data-champ="index"]')).toContainText('aucun indice émis');
 
   page.once('dialog', d => d.accept('Indice A — dépôt'));
   await cartouche.getByRole('button', { name: 'Émettre l’indice A' }).click();
   await expect(block.locator('[data-champ="index"]')).toHaveText(/IndiceA$/);
+  await expect(cartouche.getByText('Indice A émis sur cette version.')).toBeVisible();
   // Une modification ultérieure : l'indice reste A, signalé modifié ; le prochain sera B.
   await setField(page, 'Cartouche — Titre', 'Plan du rez-de-chaussée');
   await expect(block.locator('[data-champ="index"]')).toContainText('A (modifié depuis)');

@@ -29,6 +29,8 @@ interface Props {
   versions: MicroVersion[];
   pointer: number;
   onNameVersion: (name: string) => void;
+  /** Émet l'indice suivant sur la version affichée (lettre figée). */
+  onIssueIndex: (name: string) => void;
 }
 
 const MIN_VIEWPORT = 10; // mm papier
@@ -207,12 +209,16 @@ export default function SheetEditor(p: Props) {
                   {(Object.keys(PROJECTION_LABEL) as ProjectionMethod[]).map(k => <option key={k} value={k}>{PROJECTION_LABEL[k]}</option>)}
                 </select>
                 <p className="text-muted-foreground/70">Échelle, date et indice suivent les fenêtres et l’historique.</p>
-                <button
-                  onClick={() => { const label = window.prompt(`Émettre l’indice ${next} — libellé de la version`, `Indice ${next}`); if (label?.trim()) p.onNameVersion(label.trim()); }}
-                  className={btn}
-                >
-                  Émettre l’indice {next}
-                </button>
+                {p.versions[p.pointer]?.index ? (
+                  <p className="text-muted-foreground">Indice {p.versions[p.pointer].index} émis sur cette version.</p>
+                ) : (
+                  <button
+                    onClick={() => { const label = window.prompt(`Émettre l’indice ${next} — libellé de la version`, `Indice ${next}`); if (label?.trim()) p.onIssueIndex(label.trim()); }}
+                    className={btn}
+                  >
+                    Émettre l’indice {next}
+                  </button>
+                )}
               </>
             )}
           </section>

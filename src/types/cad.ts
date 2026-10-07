@@ -148,6 +148,7 @@ export interface MicroVersion {
   label: string;
   time: number;
   named?: string;          // version nommée (jalon, livrable)
+  index?: string;          // indice émis sur cette version (lot 2.3) : lettre figée, jamais réattribuée
   objects: CadObject[];
   layers: Layer[];
   blocks: BlockDef[];
