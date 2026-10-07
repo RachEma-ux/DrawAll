@@ -51,7 +51,7 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 ### J1 — Socle d'édition 2D
 
 - **1.0 — Recette navigateur automatisée.** Playwright dans le dépôt et le contrôle continu ; scénarios ordinateur (1 440 px) et téléphone (Pixel 7) : chargement sans erreur, tracé à la souris et au doigt, pincement, navigateur pliable. *Preuve : `npm run e2e` vert localement et en CI.*
-- **1.1 — Cadrage et ergonomie mobile.** « Ajuster » ne cadre que les objets visibles ; sur téléphone, le navigateur déplié passe par-dessus le canevas au lieu de l'écraser ; outils fréquents toujours visibles, les autres dans « Plus ». *Preuve : recette — zoom initial ≥ 25 % sur le projet de démonstration avec un calque masqué ; canevas ≥ 90 % de la largeur avec le navigateur déplié.*
+- **1.1 — Cadrage et ergonomie mobile.** « Cadrer » (anciennement « Ajuster ») ne cadre que les objets visibles ; sur téléphone, le navigateur déplié passe par-dessus le canevas au lieu de l'écraser ; outils fréquents toujours visibles, les autres dans « Plus ». *Preuve : recette — zoom initial ≥ 25 % sur le projet de démonstration avec un calque masqué ; canevas ≥ 90 % de la largeur avec le navigateur déplié.*
 - **1.2 — Texte.** Objet texte (contenu, hauteur, rotation, alignement), outil de pose, édition dans l'inspecteur, accrochage au point d'insertion, export DXF `TEXT`, import `TEXT`/`MTEXT`. *Preuve : tests unitaires DXF aller-retour ; recette — poser « Séjour 24,5 m² » et le relire après rechargement.*
 - **1.3 — Arc.** Objet arc natif (centre, rayon, angles) ; outils 3 points et centre-début-fin ; accrochages extrémités/milieu/centre ; DXF `ARC` natif à l'import et à l'export (plus d'approximation pour les arcs simples). *Preuve : tests géométriques (longueur, milieu, boîte englobante) ; DXF relu par ezdxf.*
 - **1.4 — Ajuster et prolonger.** Couper une ligne/polyligne/arc à une arête, prolonger jusqu'à une arête. *Preuve : tests d'intersection (cas parallèles, hors segment, multiples) ; recette au doigt et à la souris.*
@@ -122,7 +122,7 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 1.1 Cadrage et ergonomie mobile | Fait | #7 |
 | 1.2 Texte | Fait | #8 |
 | 1.3 Arc | Fait | #9 |
-| 1.4 Ajuster et prolonger | En cours | — |
+| 1.4 Ajuster et prolonger | Fait | #10 |
 | 1.5 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final

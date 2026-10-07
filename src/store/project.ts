@@ -297,6 +297,32 @@ export function useProject() {
     return clones.map(c => c.id);
   }, [objects, layers, state.counter, current.seq, commit, setSelectedIds]);
 
+  /**
+   * Applique une édition (ajuster / prolonger) en une seule version : modification de l'objet,
+   * suppression éventuelle et morceaux ajoutés, qui héritent du calque et de la classification.
+   */
+  const applyEdit = useCallback((id: string, edit: { patch: Partial<CadObject> | null; remove: boolean; added: Partial<CadObject>[] }, label: string) => {
+    const source = objects.find(o => o.id === id);
+    if (!source) return false;
+    let counter = state.counter;
+    const added = edit.added.map(partial => {
+      counter += 1;
+      const newId = `OBJ-${String(counter).padStart(4, '0')}`;
+      return { ...source, ...partial, id: newId, name: `${source.name} (${newId})`, createdSeq: current.seq } as CadObject;
+    });
+    const removed = new Set<string>();
+    if (edit.remove) {
+      removed.add(id);
+      for (const o of objects) if (o.kind === 'dimension' && o.targetId === id) removed.add(o.id);
+    }
+    const next = objects
+      .filter(o => !removed.has(o.id))
+      .map(o => (o.id === id && edit.patch ? ({ ...o, ...edit.patch } as CadObject) : o));
+    commit(`${label} ${id}`, { objects: [...next, ...added], counter });
+    if (edit.remove) setSelectedIds(added.map(o => o.id));
+    return true;
+  }, [objects, state.counter, current.seq, commit, setSelectedIds]);
+
   const removeObject = useCallback((id: string) => {
     removeObjects([id]);
   }, [removeObjects]);
@@ -522,7 +548,7 @@ export function useProject() {
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
     addObject, updateObject, removeObject, removeObjects,
-    transformObjects, duplicateObjects,
+    transformObjects, duplicateObjects, applyEdit,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, reset, loadState,

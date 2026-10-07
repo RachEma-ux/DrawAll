@@ -104,7 +104,7 @@ test.describe('Atelier — téléphone', () => {
 });
 
 test.describe('Atelier — cadrage', () => {
-  test('« Ajuster » cadre les objets visibles, calque masqué compris', async ({ page }) => {
+  test('« Cadrer » cadre les objets visibles, calque masqué compris', async ({ page }) => {
     await openAtelier(page);
     if (await page.getByRole('button', { name: 'Déplier le navigateur du projet', exact: true }).isVisible()) {
       await page.getByRole('button', { name: 'Déplier le navigateur du projet', exact: true }).click();
@@ -114,7 +114,7 @@ test.describe('Atelier — cadrage', () => {
     if (await page.getByRole('button', { name: 'Plier le navigateur du projet', exact: true }).isVisible()) {
       await page.getByRole('button', { name: 'Plier le navigateur du projet', exact: true }).click();
     }
-    await page.getByRole('button', { name: 'Ajuster' }).click();
+    await page.getByRole('button', { name: 'Cadrer', exact: true }).click();
     expect(await zoomPercent(page)).toBeGreaterThanOrEqual(25);
   });
 });
