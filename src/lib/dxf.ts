@@ -476,6 +476,11 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
   if (stats.arc || stats.bulgeSegments) {
     const parts = [stats.arc ? `${stats.arc} arc(s)` : '', stats.bulgeSegments ? `${stats.bulgeSegments} segment(s) courbe(s) de polyligne` : ''].filter(Boolean).join(' et ');
     report.transformed.push(`Courbes : ${parts} approchés par des polylignes (écart maximal ${formatMm(stats.maxArcError)} mm, tolérance ${formatMm(ARC_TOLERANCE_MM)} mm).`);
+    if (stats.maxArcError > ARC_TOLERANCE_MM + 1e-9) {
+      const text = `Tolérance d'approximation dépassée : écart de ${formatMm(stats.maxArcError)} mm sur un arc trop grand (plafond de ${MAX_ARC_STEPS.toLocaleString('fr-FR')} segments).`;
+      report.lost.push(text);
+      warnings.push(text);
+    }
   }
   if (stats.mirrored) report.transformed.push(`Entités en repère symétrique (extrusion 0,0,−1) : ${stats.mirrored}, replacées dans le repère général.`);
   if (stats.widths) report.lost.push(`Largeurs de polyligne : ${stats.widths} valeur(s) non nulle(s) ignorée(s).`);
@@ -525,10 +530,13 @@ export function arcPoints(cx: number, cy: number, r: number, start: number, swee
   return { points, error: r * (1 - Math.cos(Math.abs(sweep) / steps / 2)) };
 }
 
+/** Garde-fou mémoire : au-delà, la tolérance n'est plus tenue et le rapport le signale. */
+const MAX_ARC_STEPS = 100000;
+
 function arcSteps(r: number, sweep: number): number {
   if (r <= ARC_TOLERANCE_MM) return Math.max(1, Math.ceil(sweep / (Math.PI / 2)));
   const maxStep = 2 * Math.acos(1 - ARC_TOLERANCE_MM / r);
-  return Math.min(4096, Math.max(1, Math.ceil(sweep / maxStep)));
+  return Math.min(MAX_ARC_STEPS, Math.max(1, Math.ceil(sweep / maxStep)));
 }
 
 /** Segment courbe d'une LWPOLYLINE : courbure b = tan(θ/4), θ > 0 = sens trigonométrique. */

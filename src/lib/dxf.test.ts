@@ -181,6 +181,22 @@ describe('import DXF — courbes', () => {
     expect(Math.hypot(pts[0], pts[1])).toBeCloseTo(1000, 6);
   });
 
+  it('tient la tolérance sur un demi-cercle de 1 km de rayon', () => {
+    const parsed = parseDxf(dxf(['0', 'ARC', '8', '0', '10', '0', '20', '0', '40', '1', '50', '0', '51', '180'], 7), options);
+    expect(parsed.report.transformed.join(' ')).toContain('Courbes');
+    expect(parsed.report.lost.join(' ')).not.toContain('Tolérance');
+    const arc = parsed.objects[0];
+    if (arc?.kind !== 'polyline') throw new Error('polyligne attendue');
+    expect(arc.points.length / 2).toBeGreaterThan(4096);
+  });
+
+  it('signale un arc dont la tolérance ne peut pas être tenue', () => {
+    // Cercle quasi complet de 1 000 km : au-delà du plafond de segments.
+    const parsed = parseDxf(dxf(['0', 'ARC', '8', '0', '10', '0', '20', '0', '40', '1000', '50', '0', '51', '359'], 7), options);
+    expect(parsed.warnings.join(' ')).toContain('Tolérance d\'approximation dépassée');
+    expect(parsed.report.lost.join(' ')).toContain('Tolérance');
+  });
+
   it('replace un arc en repère symétrique (extrusion 0,0,−1) au bon endroit', () => {
     // Arc OCS centre (10,0), r 5, de 0° à 90°, extrusion -Z → en WCS : centre (-10,0), de 90° à 180°.
     const parsed = parseDxf(dxf(['0', 'ARC', '8', '0', '10', '10', '20', '0', '40', '5', '50', '0', '51', '90', '210', '0', '220', '0', '230', '-1'], 4), options);
