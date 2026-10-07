@@ -589,12 +589,25 @@ function parseTextEntity(type: 'TEXT' | 'MTEXT', body: Pair[], k: number, sx: nu
   if (type === 'TEXT') {
     const content = decodeDxfText(valueOf(body, 1) ?? '', false);
     if (!content.trim()) return null;
-    const h = Number(valueOf(body, 72) ?? '0');
-    const align: TextAlign = h === 1 || h === 4 ? 'center' : h === 2 ? 'right' : 'left';
-    const useAlignPoint = h !== 0 && valueOf(body, 11) !== undefined;
-    const x = sx * numberOf(body, useAlignPoint ? 11 : 10, 0) * k;
-    const y = numberOf(body, useAlignPoint ? 21 : 20, 0) * k;
+    // Justification (référence DXF TEXT) : 72 = horizontale (0 gauche, 1 centre, 2 droite,
+    // 3 alignée, 4 milieu, 5 ajustée) ; 73 = verticale (0 ligne de base, 1 bas, 2 milieu, 3 haut).
+    // Dès qu'une justification n'est pas « gauche / ligne de base », le point d'ancrage est 11/21.
+    const h = Number(valueOf(body, 72) ?? '0') || 0;
+    const v = Number(valueOf(body, 73) ?? '0') || 0;
+    const baselineStart = h === 3 || h === 5; // alignée / ajustée : 10/20 est le début de la ligne de base
+    const align: TextAlign = baselineStart ? 'left' : h === 1 || h === 4 ? 'center' : h === 2 ? 'right' : 'left';
+    const useAlignPoint = !baselineStart && (h !== 0 || v !== 0) && valueOf(body, 11) !== undefined;
     let rotation = numberOf(body, 50, 0);
+    let x = sx * numberOf(body, useAlignPoint ? 11 : 10, 0) * k;
+    let y = numberOf(body, useAlignPoint ? 21 : 20, 0) * k;
+    // Décalage du point d'ancrage vers la ligne de base, perpendiculairement au texte (repère DXF).
+    const vertical = h === 4 ? 2 : baselineStart ? 0 : v;
+    const up = vertical === 1 ? height * 0.25 : vertical === 2 ? -height / 2 : vertical === 3 ? -height : 0;
+    if (useAlignPoint && up !== 0) {
+      const r = (rotation * Math.PI) / 180;
+      x += -Math.sin(r) * up * sx;
+      y += Math.cos(r) * up;
+    }
     if (sx < 0) rotation = 180 - rotation;
     return { x: round(x), y: round(-y), content, height: round(height), rotation: normalizeDeg(rotation), align };
   }

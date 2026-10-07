@@ -276,6 +276,19 @@ describe('DXF — texte', () => {
     expect(parseDxf(content, options).layers.concat(layers).some(l => l.name === 'Bâtiment' || l.name === 'Dessin')).toBe(true);
   });
 
+  it('respecte la justification verticale des TEXT (code 73)', () => {
+    const t = (h: number, v: number) => ['0', 'TEXT', '8', '0', '10', '999', '20', '999', '40', '10', '1', 'A', '72', String(h), '11', '100', '21', '50', '73', String(v)];
+    const parsed = parseDxf(dxf([...t(0, 3), ...t(1, 2), ...t(2, 1), ...t(4, 0), ...t(0, 0)], 4), options);
+    const [top, middle, bottom, mid4, base] = parsed.objects.map(o => (o.kind === 'text' ? o : null)!);
+    // Haut-gauche : ligne de base une hauteur sous le point d'ancrage (Y DXF 50 → 40 ; Y écran −40).
+    expect(top).toMatchObject({ x: 100, y: -40, align: 'left' });
+    expect(middle).toMatchObject({ x: 100, y: -45, align: 'center' });
+    expect(bottom).toMatchObject({ x: 100, y: -52.5, align: 'right' });
+    expect(mid4).toMatchObject({ x: 100, y: -45, align: 'center' });
+    // Gauche / ligne de base : le premier point (10/20) fait foi.
+    expect(base).toMatchObject({ x: 999, y: -999, align: 'left' });
+  });
+
   it('applique l’unité du fichier à la position et à la hauteur', () => {
     const parsed = parseDxf(dxf(['0', 'TEXT', '8', '0', '10', '1', '20', '2', '40', '0.25', '1', 'A'], 6), options);
     expect(parsed.objects[0]).toMatchObject({ kind: 'text', x: 1000, y: -2000, height: 250 });
