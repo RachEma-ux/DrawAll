@@ -557,9 +557,14 @@ function Workbench() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); return; }
-      if (paletteOpen || mode !== 'atelier') return;
+      if (paletteOpen || (mode !== 'atelier' && mode !== 'feuilles')) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (mode === 'feuilles') {
+        // Feuilles : seuls annuler et rétablir s'appliquent (les autres raccourcis éditent le dessin).
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) project.redo(); else project.undo(); }
+        return;
+      }
       if (e.key === 'F8') { e.preventDefault(); setOrthoEnabled(v => !v); return; }
       if (e.key === 'F9') { e.preventDefault(); setSnapEnabled(v => !v); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {

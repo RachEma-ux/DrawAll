@@ -48,7 +48,8 @@ export default function SheetEditor(p: Props) {
   const size = sheet ? sheetSize(sheet.format, sheet.orientation) : { w: 420, h: 297 };
   const area = sheet ? printableArea(sheet) : null;
   const issues = sheet ? sheetIssues(sheet) : [];
-  const bounds = useMemo(() => projectBounds(p.objects, p.blocks), [p.objects, p.blocks]);
+  // Cadrage : seulement les objets que les fenêtres dessinent (calques visibles).
+  const bounds = useMemo(() => projectBounds(p.objects.filter(o => p.layers.find(l => l.id === o.layerId)?.visible !== false), p.blocks), [p.objects, p.layers, p.blocks]);
 
   // Échelle d'affichage (px écran par mm papier), pour des traits lisibles quel que soit le format.
   useEffect(() => {
@@ -257,6 +258,19 @@ export default function SheetEditor(p: Props) {
             onPointerCancel={onPointerUp}
             onPointerDown={() => setVpId(null)}
           >
+            {/* Ressources du rendu de l'atelier (motifs de hachure, flèches de cote), que les fenêtres
+                réutilisent : l'atelier n'est pas monté en mode Feuilles. */}
+            <defs>
+              <pattern id="hatch-diagonal" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="8" stroke="#22d3ee" strokeWidth="1" opacity="0.45" />
+              </pattern>
+              <pattern id="hatch-cross" width="10" height="10" patternUnits="userSpaceOnUse">
+                <path d="M 0 0 L 10 10 M 10 0 L 0 10" stroke="#22d3ee" strokeWidth="0.8" opacity="0.38" />
+              </pattern>
+              <marker id="dim-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24" />
+              </marker>
+            </defs>
             <rect x={0} y={0} width={size.w} height={size.h} fill="#0e1526" stroke="#334155" strokeWidth={0.5} />
             {area && <rect data-testid="cadre" x={area.x} y={area.y} width={area.w} height={area.h} fill="none" stroke="#94a3b8" strokeWidth={0.5} />}
             {sheet.viewports.map(v => {

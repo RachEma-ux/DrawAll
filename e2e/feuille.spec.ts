@@ -79,3 +79,35 @@ test('lot 2.2 — déplacer une fenêtre au geste (souris ou doigt)', async ({ p
   expect(Number.isInteger(vp.x) && Number.isInteger(vp.y)).toBe(true); // accroché au millimètre
   expect([vp.w, vp.h]).toEqual([150, 100]);
 });
+
+test('lot 2.2 — annuler une modification de feuille sans quitter le mode Feuilles', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, plan);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  expect((await sheets(page))[0].viewports).toHaveLength(1);
+  await page.getByTitle('Annuler (Ctrl+Z)').click();
+  await expect.poll(async () => (await sheets(page))[0].viewports.length).toBe(0);
+  await page.getByTitle(/Rétablir/).click();
+  await expect.poll(async () => (await sheets(page))[0].viewports.length).toBe(1);
+  // Les ressources du rendu (motifs, flèches de cote) sont définies dans la feuille.
+  await expect(page.getByTestId('sheet').locator('pattern#hatch-diagonal, marker#dim-arrow')).toHaveCount(2);
+});
+
+test('lot 2.2 — une fenêtre se cadre sur les calques visibles seulement', async ({ page }) => {
+  await openAtelier(page);
+  // Un objet lointain sur un calque masqué ne doit pas décentrer la nouvelle fenêtre.
+  await loadObjects(page, [...plan, { id: 'OBJ-0003', kind: 'circle', cx: 500000, cy: 500000, r: 10, layerId: 'LAY-0003' }]);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    s.versions[s.pointer].layers = s.versions[s.pointer].layers.map((l: { id: string }) => (l.id === 'LAY-0003' ? { ...l, visible: false } : l));
+    localStorage.setItem('drawall-projet-v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  const vp = (await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return s.versions[s.pointer].sheets[0].viewports[0]; }));
+  expect(vp.center).toEqual({ x: 4000, y: 2500 });
+});

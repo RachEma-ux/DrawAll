@@ -173,7 +173,8 @@ export default function Header(p: Props) {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5 2xl:ml-0">
-        {p.mode === 'atelier' && (
+        {/* Les feuilles sont versionnées avec le projet : annuler et rétablir aussi en mode Feuilles. */}
+        {(p.mode === 'atelier' || p.mode === 'feuilles') && (
           <>
             <button onClick={p.onUndo} disabled={!p.canUndo} title="Annuler (Ctrl+Z)"
               className="rounded-sm border border-border px-2 py-1 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30">↩</button>
