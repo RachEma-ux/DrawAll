@@ -107,6 +107,13 @@ export default function CanvasView({
     shift?: boolean;
   }>({ mode: null, lx: 0, ly: 0 });
 
+  // Gestes tactiles : pointeurs actifs, pincement (zoom + déplacement) et précision du doigt.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d0: number; mx: number; my: number; tf0: { x: number; y: number; k: number } } | null>(null);
+  const suppressUntilRelease = useRef(false);
+  const coarse = useRef(false);
+  const isCoarseDevice = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+
   const layerById = new Map(layers.map(l => [l.id, l]));
   const activeLayer = layerById.get(activeLayerId) ?? layers[0];
   const visibleObjects = objects.filter(o => layerById.get(o.layerId)?.visible !== false);
@@ -118,7 +125,7 @@ export default function CanvasView({
   }, [tf]);
 
   const resolvePoint = useCallback((point: Point, orthoOrigin?: Point): SnapPoint => {
-    const tolerance = Math.max(8 / tf.k, 4);
+    const tolerance = Math.max((coarse.current ? 18 : 8) / tf.k, 4);
     let snapped = snapEnabled
       ? findSnap(objects, layers, blocks, point.x, point.y, tolerance, GRID)
       : { x: gridSnap(point.x, GRID), y: gridSnap(point.y, GRID), type: 'grid' as const, label: 'Grille', distance: 0 };
@@ -204,7 +211,7 @@ export default function CanvasView({
     }
   }, [activeLayer, tool]);
 
-  const handleDown = (e: React.MouseEvent) => {
+  const handleDown = (e: React.PointerEvent) => {
     discardIncompatibleDraft();
     const w = toWorld(e);
 
@@ -213,7 +220,7 @@ export default function CanvasView({
       return;
     }
     if (tool === 'select') {
-      const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, 6 / tf.k);
+      const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
       if (hit) {
         if (e.shiftKey) {
           const next = selectedIds.includes(hit.id) ? selectedIds.filter(i => i !== hit.id) : [...selectedIds, hit.id];
@@ -251,7 +258,7 @@ export default function CanvasView({
     startOrContinueDraft(point);
   };
 
-  const handleMove = (e: React.MouseEvent) => {
+  const handleMove = (e: React.PointerEvent) => {
     const w = toWorld(e);
 
     if (drag.current.mode === 'pan') {
@@ -286,7 +293,7 @@ export default function CanvasView({
     updateHover(w);
   };
 
-  const handleUp = (e: React.MouseEvent) => {
+  const handleUp = (e: React.PointerEvent) => {
     const w = toWorld(e);
     if (drag.current.mode === 'move' && drag.current.ids && drag.current.grab && drag.current.moved) {
       const point = resolvePoint(w, drag.current.grab);
@@ -417,11 +424,68 @@ export default function CanvasView({
     }
   };
 
+  const pinchState = () => {
+    const [a, b] = [...pointers.current.values()];
+    return { d: Math.hypot(b.x - a.x, b.y - a.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  };
+
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    coarse.current = e.pointerType !== 'mouse';
+    if (e.pointerType === 'mouse' && e.button === 2) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      // Deux doigts : on abandonne le geste en cours et on passe en zoom/déplacement de la vue.
+      setDraft(null);
+      setMarquee(null);
+      drag.current = { mode: null, lx: 0, ly: 0 };
+      const p = pinchState();
+      pinch.current = { d0: p.d, mx: p.mx, my: p.my, tf0: tf };
+      suppressUntilRelease.current = true;
+      return;
+    }
+    if (pointers.current.size > 2 || suppressUntilRelease.current) return;
+    handleDown(e);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch.current && pointers.current.size >= 2) {
+      const r = ref.current!.getBoundingClientRect();
+      const p = pinchState();
+      const { tf0, d0, mx, my } = pinch.current;
+      const k = Math.min(12, Math.max(0.08, tf0.k * (p.d / d0)));
+      const wx = (mx - r.left - tf0.x) / tf0.k, wy = (my - r.top - tf0.y) / tf0.k;
+      setTf({ k, x: p.mx - r.left - wx * k, y: p.my - r.top - wy * k });
+      return;
+    }
+    if (suppressUntilRelease.current) return;
+    // Au doigt, pas de survol : seuls les glissements comptent.
+    if (e.pointerType !== 'mouse' && !pointers.current.has(e.pointerId)) return;
+    handleMove(e);
+  };
+
+  const onPointerEnd = (e: React.PointerEvent<SVGSVGElement>) => {
+    const tracked = pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    if (suppressUntilRelease.current) {
+      if (pointers.current.size === 0) suppressUntilRelease.current = false;
+      return;
+    }
+    if (e.type === 'pointercancel') {
+      drag.current = { mode: null, lx: 0, ly: 0 };
+      setMarquee(null);
+      return;
+    }
+    if (tracked || e.pointerType === 'mouse') handleUp(e);
+  };
+
   const fitView = () => {
     const bounds = projectBounds(visibleObjects, blocks);
     const rect = ref.current?.getBoundingClientRect();
     if (!bounds || !rect) return;
-    const pad = 70;
+    // Marge proportionnelle : une marge fixe écraserait les zones basses (téléphone en paysage).
+    const pad = Math.min(70, rect.width * 0.08, rect.height * 0.08);
     const width = Math.max(1, bounds.maxX - bounds.minX);
     const height = Math.max(1, bounds.maxY - bounds.minY);
     const k = Math.min(4, Math.max(0.08, Math.min((rect.width - pad * 2) / width, (rect.height - pad * 2) / height)));
@@ -433,6 +497,16 @@ export default function CanvasView({
   };
 
   const resetView = () => setTf({ x: 60, y: 40, k: 1 });
+
+  // Sur petit écran, le dessin s'ajuste à la zone visible à l'ouverture.
+  const initialFit = useRef(false);
+  useEffect(() => {
+    if (initialFit.current) return;
+    initialFit.current = true;
+    if (window.innerWidth >= 1024) return;
+    // Pas d'annulation au rendu suivant : l'ajustement initial doit avoir lieu une fois.
+    requestAnimationFrame(() => fitView());
+  });
   const cursorClass = tool === 'pan' ? 'canvas-grab' : tool === 'select' ? 'canvas-move' : 'canvas-cross';
   const measure = activeDraft?.kind === 'measure'
     ? { d: Math.hypot(activeDraft.cx - activeDraft.sx, activeDraft.cy - activeDraft.sy), dx: activeDraft.cx - activeDraft.sx, dy: activeDraft.cy - activeDraft.sy }
@@ -443,10 +517,13 @@ export default function CanvasView({
       <svg
         ref={ref}
         className={`h-full w-full select-none ${cursorClass}`}
-        onMouseDown={handleDown}
-        onMouseMove={handleMove}
-        onMouseUp={handleUp}
-        onMouseLeave={() => { updateHover(null); drag.current = { mode: null, lx: 0, ly: 0 }; }}
+        style={{ touchAction: 'none' }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onPointerLeave={e => { if (e.pointerType === 'mouse' && pointers.current.size === 0) { updateHover(null); drag.current = { mode: null, lx: 0, ly: 0 }; } }}
+        onContextMenu={e => e.preventDefault()}
         onWheel={handleWheel}
         onDoubleClick={finishPolyline}
       >
@@ -552,7 +629,7 @@ export default function CanvasView({
         </g>
       </svg>
 
-      <div className="pointer-events-none absolute left-3 top-3 rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+      <div className="pointer-events-none absolute left-3 top-3 hidden rounded-sm border sm:block border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] text-muted-foreground">
         <span className="text-cyan-300">{hoverSnap ? snapLabel(hoverSnap.type) : snapEnabled ? 'Accrochage objet' : 'Grille seule'}</span>
         <span className="mx-2 text-border">|</span>
         <span>{orthoEnabled ? 'ORTHO actif' : 'ORTHO inactif'}</span>
@@ -570,24 +647,29 @@ export default function CanvasView({
       </div>
 
       {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'polyline' || tool === 'measure' || tool === 'dimension' || tool === 'block') && (
-        <div className="absolute bottom-3 left-3 flex flex-col gap-1">
+        <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {activeDraft && activeDraft.kind !== 'measure' && (
-            <div className="flex items-center gap-1 rounded-sm border border-cyan-400/50 bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
+            <div className="flex max-w-full flex-wrap items-center gap-1 rounded-sm border border-cyan-400/50 bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
               <span className="px-1 uppercase tracking-wider text-cyan-300">Longueur</span>
               <input
                 value={lengthInput}
                 onChange={e => setLengthInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); applyLength(); } }}
                 placeholder={activeDraft.kind === 'circle' ? 'Rayon mm' : 'L mm'}
-                autoFocus
+                autoFocus={!isCoarseDevice}
                 className="w-24 rounded-sm border border-input bg-background px-1.5 py-1 text-foreground outline-none focus:border-cyan-400"
               />
               <button onClick={applyLength} className="rounded-sm bg-cyan-400 px-2 py-1 font-semibold uppercase tracking-wider text-[#050810] hover:bg-cyan-300">
                 Appliquer
               </button>
+              {activeDraft.kind === 'polyline' && (
+                <button onClick={finishPolyline} className="rounded-sm border border-cyan-400/60 px-2 py-1 font-semibold uppercase tracking-wider text-cyan-300 hover:bg-cyan-400/10">
+                  Terminer
+                </button>
+              )}
             </div>
           )}
-          <div className="flex items-center gap-1 rounded-sm border border-border bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
+          <div className="flex max-w-full flex-wrap items-center gap-1 rounded-sm border border-border bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
             <span className="px-1 uppercase tracking-wider">Point précis</span>
             <input
               value={coord.x}
