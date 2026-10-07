@@ -480,7 +480,9 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
     case 'section': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'north':
     case 'roughness':
-    case 'levelMark': return { minX: object.x, minY: object.y, maxX: object.x, maxY: object.y };
+    case 'levelMark':
+    case 'bom':
+    case 'balloon': return { minX: object.x, minY: object.y, maxX: object.x, maxY: object.y };
     case 'room': {
       // Emprise du contour si la pièce est fermée, sinon le point intérieur.
       const walls = objects.filter((o): o is WallObj => o.kind === 'wall');
@@ -664,7 +666,9 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'room': return { x: object.x + dx, y: object.y + dy };
     case 'north':
     case 'roughness':
-    case 'levelMark': return { x: object.x + dx, y: object.y + dy };
+    case 'levelMark':
+    case 'bom':
+    case 'balloon': return { x: object.x + dx, y: object.y + dy };
     case 'section': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'rect': return { x: object.x + dx, y: object.y + dy };
     case 'circle': return { cx: object.cx + dx, cy: object.cy + dy };
@@ -767,7 +771,9 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
     case 'cut':
       return {};
     case 'room':
-    case 'levelMark': {
+    case 'levelMark':
+    case 'bom':
+    case 'balloon': {
       const p = rotatePoint(object.x, object.y, cx, cy, rad);
       return { x: p.x, y: p.y };
     }
@@ -830,6 +836,8 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
       return {};
     case 'room':
     case 'levelMark':
+    case 'bom':
+    case 'balloon':
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
     case 'north':
     case 'roughness':
@@ -871,7 +879,9 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'room':
     case 'north':
     case 'roughness':
-    case 'levelMark': return { x: s(object.x, cx), y: s(object.y, cy) };
+    case 'levelMark':
+    case 'bom':
+    case 'balloon': return { x: s(object.x, cx), y: s(object.y, cy) };
     case 'section': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy) };
     case 'text': return { x: s(object.x, cx), y: s(object.y, cy), height: round(object.height * factor) };
   }
@@ -913,6 +923,8 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'north':
     case 'section':
     case 'levelMark':
+    case 'bom':
+    case 'balloon':
     case 'roughness':
     case 'views':
     case 'cut':

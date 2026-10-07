@@ -47,8 +47,9 @@ import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/li
 import { openingGeometry, swingPath } from '@/lib/opening';
 import { areaM2, centroid, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
 import { distanceToViews, linkedViews } from '@/lib/views';
+import { annotationGeometry, isAnnotation, type AnnotationObject } from '@/lib/bom';
 import { cutView, distanceToCut } from '@/lib/cuts';
-import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol, isSymbol, symbolGeometry, type SymbolObject } from '@/lib/symbols';
+import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
@@ -1103,7 +1104,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'cut') return <CutShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'views') return <ViewsShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
-  if (isSymbol(obj)) return <SymbolShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
+  if (isAnnotation(obj)) return <SymbolShape obj={obj} objects={objects} blocks={blocks} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'room') return <RoomShape obj={obj} poly={rooms?.get(obj.id) ?? null} selected={selected} zoom={zoom} paperScale={paperScale} />;
   if (obj.kind === 'opening') {
     const host = objects.find(o => o.id === obj.hostId);
@@ -1218,11 +1219,11 @@ function ViewsShape({ obj, objects, selected, zoom, layer, colorMode, paperScale
 }
 
 /** Symbole (nord, repère de coupe, cote de niveau) : taille papier sur une feuille, constante à l'écran. */
-function SymbolShape({ obj, selected, zoom, layer, colorMode, paperScale }: {
-  obj: SymbolObject; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale;
+function SymbolShape({ obj, objects, blocks, selected, zoom, layer, colorMode, paperScale }: {
+  obj: AnnotationObject; objects: CadObject[]; blocks: BlockDef[]; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale;
 }) {
   const u = paperScale ? paperToModelSize(1, paperScale) : SCREEN_PX_PER_PAPER_MM / zoom;
-  const g = symbolGeometry(obj, u);
+  const g = annotationGeometry(obj, u, objects, blocks);
   if (!g) return null;
   const st = effectiveStyle(obj, layer);
   const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
@@ -1570,9 +1571,9 @@ function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], 
       const v = linkedViews(o, allObjects.find(s => s.id === o.sourceId), allObjects);
       if (v && distanceToViews(v, x, y) <= tol) return o;
     }
-    if (isSymbol(o)) {
+    if (isAnnotation(o)) {
       // Géométrie à la taille écran (tol ≈ 6 px) : le symbole se désigne par ses traits ou sa lettre.
-      const g = symbolGeometry(o, (tol / 6) * SCREEN_PX_PER_PAPER_MM);
+      const g = annotationGeometry(o, (tol / 6) * SCREEN_PX_PER_PAPER_MM, allObjects, blocks);
       if (g && distanceToSymbol(g, { x, y }) <= tol) return o;
     }
     if (o.kind === 'room') {

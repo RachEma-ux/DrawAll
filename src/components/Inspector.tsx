@@ -8,6 +8,7 @@ import { containedContours, hatchParamsOf, loopOf } from '@/lib/hatch';
 import { openingFits } from '@/lib/opening';
 import { deviations, fit, formatDeviation, parseClass } from '@/lib/iso286';
 import { cutView, materialIntervals, shapeOf } from '@/lib/cuts';
+import { bomRows, itemOf } from '@/lib/bom';
 import { SURFACE_RULES, areaM2, detectRoom, formatM2, type SurfaceRule } from '@/lib/rooms';
 import { MATERIALS, effectiveHatch, materialById, profileById, type DrawingProfile } from '@/lib/materials';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
@@ -49,10 +50,13 @@ interface Props {
   onAddViews?: (sourceId: string, depth: number) => void;
   /** Vue en coupe d'une face par un repère de coupe (lot 5.3). */
   onAddCut?: (sourceId: string, markId: string, depth: number) => void;
+  /** Nomenclature (lot 5.4) : repère d'une pièce, tableau. */
+  onAddBalloon?: (targetId: string) => void;
+  onAddBom?: () => void;
   onSelect?: (id: string) => void;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onSelect }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -270,6 +274,48 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
                   Créer les vues de dessus et de côté
                 </button>
               )}
+            </div>
+          );
+        })()}
+
+        {(obj.kind === 'blockRef' || loopOf(obj)) && onAddBalloon && (() => {
+          const rows = bomRows(objects, blocks);
+          const item = itemOf(rows, obj.id);
+          const balloon = objects.find(o => o.kind === 'balloon' && o.targetId === obj.id);
+          const table = objects.find(o => o.kind === 'bom');
+          return (
+            <div className="space-y-1.5">
+              <p className="ui-label mb-1.5">Nomenclature</p>
+              <label className="block text-[11px] text-muted-foreground">Désignation de pièce
+                <input key={`${obj.id}-${obj.part ?? ''}`} aria-label="Désignation de pièce" defaultValue={obj.part ?? ''}
+                  placeholder={obj.kind === 'blockRef' ? blocks.find(b => b.id === obj.blockId)?.name ?? '' : 'vide : pas une pièce'}
+                  onBlur={e => { const v = e.target.value.trim(); if (v !== (obj.part ?? '')) onUpdate(obj.id, { part: v || undefined }, v ? 'Désigner la pièce' : 'Retirer de la nomenclature'); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="mt-0.5 w-full rounded-sm border border-input bg-background px-2 py-1 text-xs" />
+              </label>
+              {item !== null && <p data-testid="repere-piece" className="font-mono text-[10px] text-foreground/80">Repère {item} · quantité {rows.find(r => r.item === item)!.quantity}</p>}
+              {item !== null && !balloon && (
+                <button onClick={() => onAddBalloon(obj.id)} className="w-full rounded-sm border border-cyan-400/40 px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300 hover:bg-cyan-400/10">
+                  Ajouter un repère
+                </button>
+              )}
+              {item !== null && !table && onAddBom && (
+                <button onClick={onAddBom} className="w-full rounded-sm border border-border px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground">
+                  Insérer la nomenclature
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
+        {(obj.kind === 'bom' || obj.kind === 'balloon') && (() => {
+          const rows = bomRows(objects, blocks);
+          return (
+            <div className="space-y-1">
+              <p className="ui-label mb-1.5">{obj.kind === 'bom' ? 'Nomenclature' : 'Repère de pièce'}</p>
+              {obj.kind === 'bom'
+                ? <p data-testid="nomenclature-lignes" className="font-mono text-[10px] text-foreground/80">{rows.length} ligne{rows.length > 1 ? 's' : ''} · {rows.reduce((a, r) => a + r.quantity, 0)} pièce{rows.reduce((a, r) => a + r.quantity, 0) > 1 ? 's' : ''} — calculée depuis les pièces du niveau.</p>
+                : <p className="font-mono text-[10px] text-foreground/80">Pièce {obj.targetId} · repère {itemOf(rows, obj.targetId) ?? '— (non désignée)'}</p>}
             </div>
           );
         })()}

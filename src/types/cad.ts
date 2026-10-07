@@ -3,7 +3,7 @@
 
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -50,6 +50,8 @@ interface Base {
   createdSeq: number;      // microversion de création
   /** Niveau (étage) de l'objet (lot 4.4) ; absent = niveau par défaut NIV-0001. */
   levelId?: string;
+  /** Désignation de pièce (lot 5.4) : l'objet figure dans la nomenclature. */
+  part?: string;
   /** Matériau (bibliothèque src/lib/materials.ts) ; le motif affiché en découle par le profil de dessin. */
   materialId?: string;
   /** Paramètres des hachures (lot 3.2) ; absents = 45°, pas papier de 3 mm. */
@@ -239,11 +241,24 @@ export interface CutObj extends Base {
   method?: ProjectionMethod;
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj;
+/** Tableau de nomenclature (lot 5.4) : coin supérieur gauche ; ses lignes sont calculées depuis les pièces. */
+export interface BomObj extends Base {
+  kind: 'bom';
+  x: number; y: number;
+}
+
+/** Repère de pièce (lot 5.4) : bulle en (x, y) reliée à la pièce `targetId`, numéro tiré de la nomenclature. */
+export interface BalloonObj extends Base {
+  kind: 'balloon';
+  targetId: string;
+  x: number; y: number;
+}
+
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
-  return o.kind === 'dimension' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' ? o.sourceId : null;
+  return o.kind === 'dimension' || o.kind === 'balloon' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' ? o.sourceId : null;
 }
 
 /**
@@ -266,7 +281,7 @@ export function withParents<T extends CadObject>(o: T, copyOf: (id: string) => s
 
 /** Même objet, rattaché à un autre parent (copie). */
 export function withParent<T extends CadObject>(o: T, parent: string): T {
-  if (o.kind === 'dimension') return { ...o, targetId: parent };
+  if (o.kind === 'dimension' || o.kind === 'balloon') return { ...o, targetId: parent };
   if (o.kind === 'opening') return { ...o, hostId: parent };
   if (o.kind === 'views' || o.kind === 'cut') return { ...o, sourceId: parent };
   return o;
@@ -393,6 +408,8 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   roughness: 'État de surface',
   views: 'Vues liées',
   cut: 'Vue en coupe',
+  bom: 'Nomenclature',
+  balloon: 'Repère de pièce',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -477,6 +494,8 @@ export function dimensionOf(obj: CadObject): string {
     case 'roughness': return obj.ra !== undefined ? `Ra ${fmt(obj.ra, 3)} µm` : 'État de surface';
     case 'views': return `Vues de ${obj.sourceId} · ép. ${fmt(obj.depth)} mm`;
     case 'cut': return `Coupe de ${obj.sourceId} par ${obj.markId}`;
+    case 'bom': return 'Tableau de nomenclature';
+    case 'balloon': return `Repère de ${obj.targetId}`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }

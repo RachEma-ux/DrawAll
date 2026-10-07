@@ -19,7 +19,7 @@ import { areaM2, centroid, formatM2, roomPolygons } from '@/lib/rooms';
 import { hatchAngles, hatchParamsOf } from '@/lib/hatch';
 import { DEFAULT_LINE_TYPE, DEFAULT_LINE_WEIGHT, LINE_TYPES, dxfLineWeight, lineTypeDef, lineTypeFromDxf } from '@/lib/linestyle';
 import { occurrencePrimitives } from '@/lib/materials';
-import { isSymbol, symbolGeometry } from '@/lib/symbols';
+import { annotationGeometry, isAnnotation } from '@/lib/bom';
 import { linkedViews } from '@/lib/views';
 import { cutView } from '@/lib/cuts';
 
@@ -108,7 +108,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { room: 0, symbol: 0, views: 0, cut: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { room: 0, symbol: 0, views: 0, cut: 0, bom: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -297,12 +297,12 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       style = own;
       continue;
     }
-    if (isSymbol(object)) {
-      // Symbole : taille papier convertie à l'échelle de la feuille ; traits, cercle, surfaces pleines
-      // (SOLID) et textes.
-      const g = symbolGeometry(object, hatchScale);
+    if (isAnnotation(object)) {
+      // Symbole, nomenclature ou repère : taille papier convertie à l'échelle de la feuille ; traits,
+      // cercles, surfaces pleines (SOLID) et textes.
+      const g = annotationGeometry(object, hatchScale, objects, blocks);
       if (!g) continue;
-      counts.symbol++;
+      if (object.kind === 'bom' || object.kind === 'balloon') counts.bom++; else counts.symbol++;
       const own = style;
       for (const l of g.lines) {
         // Comme à l'écran et en PDF : trait fort 0,7 mm ou fin 0,25 mm ; trace de coupe en trait mixte.
@@ -314,10 +314,13 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       style = own;
       for (const c of g.circles) writePrimitive(entityHeader, push, { ...object, kind: 'circle', cx: c.c.x, cy: c.c.y, r: c.r } as unknown as PrimitiveObject, layer);
       for (const f of g.fills) {
-        // SOLID : sommets dans l'ordre 1, 2, 4, 3 (un triangle répète son dernier sommet).
-        const q = f.length === 3 ? [f[0], f[1], f[2], f[2]] : [f[0], f[1], f[3], f[2]];
-        entityHeader('SOLID', layer, 'AcDbTrace');
-        q.forEach((p, i) => { push(10 + i, n(p.x)); push(20 + i, n(-p.y)); push(30 + i, 0); });
+        // SOLID : sommets dans l'ordre 1, 2, 4, 3 (un triangle répète son dernier sommet) ; un polygone
+        // de plus de quatre sommets (point de repère) est découpé en triangles en éventail.
+        const quads = f.length === 4 ? [[f[0], f[1], f[3], f[2]]] : f.slice(1, -1).map((p, i) => [f[0], p, f[i + 2], f[i + 2]]);
+        for (const q of quads) {
+          entityHeader('SOLID', layer, 'AcDbTrace');
+          q.forEach((p, i) => { push(10 + i, n(p.x)); push(20 + i, n(-p.y)); push(30 + i, 0); });
+        }
       }
       for (const t of g.texts) {
         entityHeader('TEXT', layer, 'AcDbText');
@@ -398,6 +401,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
   if (counts.cut) report.transformed.push(`Vues en coupe : ${counts.cut} → contours (LINE), hachures (HATCH) et désignation (TEXT) ; le lien à la face et au repère est perdu.`);
   if (counts.views) report.transformed.push(`Vues liées : ${counts.views} → traits (LINE) vus, cachés (ACAD_ISO02W100) et axes (ACAD_ISO04W100) ; le lien à la vue de face est perdu.`);
+  if (counts.bom) report.transformed.push(`Nomenclature et repères : ${counts.bom} → traits, cercles et textes figés ; les numéros et quantités ne sont plus recalculés.`);
   if (counts.symbol) report.transformed.push(`Symboles (nord, repères de coupe, cotes de niveau, états de surface) : ${counts.symbol} → traits, cercles, surfaces pleines (SOLID) et textes, à la taille papier de l'échelle 1:${Math.round(hatchScale * 1000) / 1000}.`);
   if (counts.room) report.transformed.push(`Pièces : ${counts.room} → contour (LWPOLYLINE) et étiquette nom + surface (TEXT) ; la surface n'est plus recalculée.`);
   if (counts.opening) report.transformed.push(`Ouvertures : ${counts.opening} → traits et arcs (baies coupées dans les murs) ; le lien au mur est perdu.`);

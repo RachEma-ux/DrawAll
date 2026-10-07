@@ -30,6 +30,7 @@ import { DEFAULT_LEVEL, copyLevelObjects, levelIdOf, levelsOf, onLevel } from '@
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
 import { nextIndexLetter } from '@/lib/titleblock';
 import { cutView } from '@/lib/cuts';
+import { objectBounds, projectBounds } from '@/lib/geometry';
 import { linkedViews } from '@/lib/views';
 
 const STORAGE_KEY = 'drawall-projet-v1';
@@ -582,6 +583,36 @@ export function useProject() {
     return id;
   }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
 
+  /** Repère (bulle) d'une pièce, posé en haut à droite de son emprise. */
+  const addBalloon = useCallback((targetId: string) => {
+    const target = allObjects.find(o => o.id === targetId);
+    const b = target ? objectBounds(target, blocks, allObjects) : null;
+    if (!target || !b) return null;
+    const size = Math.max(b.maxX - b.minX, b.maxY - b.minY, 10);
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const balloon: CadObject = {
+      id, name: `Repère de ${target.name}`, kind: 'balloon', classification: target.classification, layerId: target.layerId, hatch: 'none',
+      createdSeq: current.seq, ...(target.levelId ? { levelId: target.levelId } : {}),
+      targetId, x: b.maxX + size * 0.3, y: b.minY - size * 0.3,
+    };
+    commit(`Repère de ${targetId}`, { objects: [...allObjects, balloon], counter: state.counter + 1 });
+    setSelectedId(id);
+    return id;
+  }, [allObjects, blocks, state.counter, current.seq, commit, setSelectedId]);
+
+  /** Tableau de nomenclature, posé à droite du dessin du niveau actif. */
+  const addBom = useCallback(() => {
+    const bounds = projectBounds(objects, blocks);
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const bom = stampLevel({
+      id, name: 'Nomenclature', kind: 'bom', classification: 'mecanique', layerId: activeLayerId, hatch: 'none', createdSeq: current.seq,
+      x: bounds ? bounds.maxX + Math.max(20, (bounds.maxX - bounds.minX) * 0.1) : 0, y: bounds ? bounds.minY : 0,
+    } as CadObject);
+    commit('Insérer la nomenclature', { objects: [...allObjects, bom], counter: state.counter + 1 });
+    setSelectedId(id);
+    return id;
+  }, [objects, allObjects, blocks, activeLayerId, state.counter, current.seq, commit, setSelectedId, stampLevel]);
+
   const createBlockFromObject = useCallback((objectId: string) => {
     const source = allObjects.find(o => o.id === objectId);
     if (!source || (source.kind !== 'line' && source.kind !== 'rect' && source.kind !== 'circle' && source.kind !== 'arc' && source.kind !== 'polyline')) return null;
@@ -899,7 +930,7 @@ export function useProject() {
     addObject, updateObject, removeObject, removeObjects,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, addViews, addCut, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
+    addDimension, addViews, addCut, addBalloon, addBom, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };

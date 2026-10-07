@@ -262,6 +262,14 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - DXF : contours (LINE, continu 0,5 mm), hachures (HATCH 0,18 mm au pas converti à l’échelle) et désignation (TEXT) ;
   - PDF : hachures par découpe au pas papier.
 
+### 6.3 Nomenclature et repères (règle, lot 5.4)
+
+- Une pièce est une occurrence de bloc (désignation = nom du bloc, sauf désignation propre) ou un contour fermé qui porte une désignation de pièce. Un objet sans désignation n'est pas une pièce ; rien n'est déduit ni inventé.
+- Nomenclature (ISO 7573) : une ligne par couple désignation + matériau, avec repère, désignation, matériau (« — » s'il n'est pas renseigné) et quantité (nombre d'occurrences). Les lignes sont numérotées dans l'ordre d'apparition des pièces : ajouter une pièce ajoute une ligne en fin de tableau et ne renumérote aucune ligne existante.
+- Tableau à taille papier fixe (colonnes de 14, 60, 40 et 14 mm, lignes de 7 mm, écriture de 3,5 mm), calculé depuis les pièces du niveau : il se met à jour à chaque modification. L'ordre ISO 7573 (lignes numérotées de bas en haut au-dessus du cartouche) reste à appliquer sur les feuilles.
+- Repère (ISO 6433) : bulle de 10 mm de diamètre portant le numéro de la ligne, ligne de repère jusqu'au centre de l'emprise de la pièce, terminée par un point. La bulle se déplace librement ; elle part avec sa pièce.
+- Échanges : DXF en traits, cercles, surfaces pleines (SOLID) et textes figés (les numéros et quantités ne sont plus recalculés) ; PDF à la taille papier.
+
 ## 7. Échanges DXF
 
 ### 7.1 Règles
