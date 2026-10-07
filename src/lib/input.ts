@@ -71,7 +71,10 @@ export function parsePointInput(text: string, last: P | null, unit: DisplayUnit)
     dy = clean(-L * Math.sin(rad)); // Y croît vers le bas : 90° monte à l'écran.
   }
   const origin = relative ? last! : { x: 0, y: 0 };
-  return { ok: true, point: { x: origin.x + dx, y: origin.y + dy }, relative };
+  const point = { x: origin.x + dx, y: origin.y + dy };
+  // Contrôle après conversion d'unité et ajout de l'origine : aucun point infini n'est accepté.
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return { ok: false, error: 'Coordonnées hors limites.' };
+  return { ok: true, point, relative };
 }
 
 /** Supprime le bruit flottant des angles remarquables (cos 90° ≈ 6e-17). */

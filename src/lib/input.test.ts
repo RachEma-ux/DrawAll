@@ -41,6 +41,9 @@ describe('saisie de point', () => {
     expect(noLast.ok).toBe(false);
     if (!noLast.ok) expect(noLast.error).toMatch(/point précédent/);
     expect(parsePointInput('@-5<0', { x: 0, y: 0 }, 'mm').ok).toBe(false);
+    // Débordement après conversion (mètres → mm) ou ajout de l'origine.
+    expect(parsePointInput('1e308;0', null, 'm')).toEqual({ ok: false, error: 'Coordonnées hors limites.' });
+    expect(parsePointInput('@1e308;0', { x: 1e308, y: 0 }, 'mm').ok).toBe(false);
   });
 });
 

@@ -58,3 +58,17 @@ test('lot 1.7 — l’unité d’affichage ne change pas le modèle', async ({ p
   const [line] = await currentObjects(page);
   expect(line.x2).toBe(1234);
 });
+
+test('lot 1.7 — la saisie relative part aussi du dernier texte posé', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, []);
+  await chooseTool(page, /^Texte/);
+  page.on('dialog', d => d.accept('Repère'));
+  const point = page.getByLabel('Point précis');
+  await point.fill('100;50');
+  await point.press('Enter');
+  await point.fill('@200;0');
+  await point.press('Enter');
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(2);
+  expect((await currentObjects(page)).map(o => [o.x, o.y])).toEqual([[100, 50], [300, 50]]);
+});

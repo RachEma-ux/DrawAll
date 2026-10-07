@@ -36,6 +36,8 @@ interface Props {
   objects: CadObject[];
   /** Pas de la grille d'accrochage (mm). */
   gridSize: number;
+  /** Change quand le projet est remplacé (réinitialisation, chargement) : oublie tracé et dernier point. */
+  projectKey?: number;
   /** Unité d'affichage et de saisie ; le modèle reste en millimètres. */
   displayUnit: DisplayUnit;
   layers: Layer[];
@@ -106,6 +108,7 @@ export default function CanvasView({
   onCorner,
   onMoveMany,
   gridSize,
+  projectKey,
   displayUnit,
   onCursor,
   onSnapChange,
@@ -128,6 +131,7 @@ export default function CanvasView({
   const [pointError, setPointError] = useState<string | null>(null);
   /** Dernier point posé (souris, doigt ou saisie) : origine des saisies relatives @. */
   const lastPlaced = useRef<Point | null>(null);
+  useEffect(() => { lastPlaced.current = null; }, [projectKey]);
   const applyPointRef = useRef<(text: string) => void>(() => {});
   const [pointFocused, setPointFocused] = useState(false);
   /** Longueur affichée dans l'unité choisie. */
@@ -331,11 +335,11 @@ export default function CanvasView({
       return;
     }
     if (tool === 'block') {
-      if (activeBlockId && activeLayer && !activeLayer.locked) onInsertBlock(activeBlockId, point.x, point.y);
+      if (activeBlockId && activeLayer && !activeLayer.locked) { onInsertBlock(activeBlockId, point.x, point.y); lastPlaced.current = { x: point.x, y: point.y }; }
       return;
     }
     if (tool === 'text') {
-      if (activeLayer && !activeLayer.locked) onPlaceText(point.x, point.y);
+      if (activeLayer && !activeLayer.locked) { onPlaceText(point.x, point.y); lastPlaced.current = { x: point.x, y: point.y }; }
       return;
     }
     if (activeDraft && (tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'measure')) return;
@@ -496,6 +500,8 @@ export default function CanvasView({
     setPointText('');
     setLengthInput('');
     const { x, y } = parsed.point;
+    // Tout point saisi devient l'origine de la saisie relative suivante (bloc, texte, cote compris).
+    lastPlaced.current = { x, y };
     const point: SnapPoint = { x, y, type: 'endpoint', label: 'Point saisi', distance: 0 };
     if (tool === 'dimension') {
       const hit = hitTest(editableObjects, objects, blocks, x, y, 8 / tf.k);
@@ -701,11 +707,11 @@ export default function CanvasView({
           {/* Grille : trait fin au pas choisi, trait marqué tous les dix pas ; le trait fin
               disparaît quand il deviendrait illisible (moins de 4 px entre deux lignes). */}
           <pattern id="grid-min" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
-            <path d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} fill="none" stroke="#131c31" strokeWidth={gridSize * 0.05} />
+            <path d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} fill="none" stroke="#131c31" strokeWidth={0.5 / tf.k} />
           </pattern>
           <pattern id="grid-maj" width={gridSize * 10} height={gridSize * 10} patternUnits="userSpaceOnUse">
             {gridSize * tf.k >= 4 && <rect width={gridSize * 10} height={gridSize * 10} fill="url(#grid-min)" />}
-            <path d={`M ${gridSize * 10} 0 L 0 0 0 ${gridSize * 10}`} fill="none" stroke="#1c2947" strokeWidth={gridSize * 0.1} />
+            <path d={`M ${gridSize * 10} 0 L 0 0 0 ${gridSize * 10}`} fill="none" stroke="#1c2947" strokeWidth={1 / tf.k} />
           </pattern>
           <pattern id="hatch-diagonal" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="8" stroke="#22d3ee" strokeWidth="1" opacity="0.45" />

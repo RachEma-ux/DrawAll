@@ -98,6 +98,8 @@ function Workbench() {
   const [panel, setPanel] = useState<'inspector' | 'history' | null>(null);
   const compactRef = useRef(compact);
   const [notice, setNotice] = useState<string | null>(null);
+  // Incrémenté quand le projet est remplacé : le canevas oublie alors son dernier point posé.
+  const [projectKey, setProjectKey] = useState(0);
   // Réglages d'affichage propres à ce navigateur : pas de grille et unité d'affichage.
   const [gridSize, setGridSize] = useState<number>(() => {
     try { const v = Number(localStorage.getItem('drawall-grille')); return GRID_SIZES.includes(v) ? v : 10; } catch { return 10; }
@@ -368,6 +370,7 @@ function Workbench() {
   const applyCloudProject = useCallback((remote: Project) => {
     skipDirtyTracking.current = true;
     project.loadState(remote.data);
+    setProjectKey(k => k + 1);
     setCloudProjectId(remote.id);
     setCloudRevision(remote.revision);
     setCloudName(remote.name);
@@ -626,7 +629,7 @@ function Workbench() {
         onExport={exportPackage}
         onExportDxf={exportDxf}
         onImportDxf={() => dxfInputRef.current?.click()}
-        onReset={() => { if (confirm('Réinitialiser le projet au démonstrateur initial ? Les microversions locales seront effacées.')) project.reset(); }}
+        onReset={() => { if (confirm('Réinitialiser le projet au démonstrateur initial ? Les microversions locales seront effacées.')) { project.reset(); setProjectKey(k => k + 1); } }}
         onCloud={() => setCloudOpen(o => !o)}
         syncStatus={syncStatus}
         versionLabel={`révision v${project.current.seq}`}
@@ -851,6 +854,7 @@ function Workbench() {
                 onTrimExtend={trimExtend}
                 onCorner={corner}
                 gridSize={gridSize}
+                projectKey={projectKey}
                 displayUnit={displayUnit}
                 onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
