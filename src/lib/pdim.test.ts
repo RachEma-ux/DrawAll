@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PointDimensionObj } from '@/types/cad';
-import { angleBetween, formatLevel, pdimGeometry, pdimValues } from './pdim';
+import { angleBetween, formatLevel, pdimGeometry, pdimValues, transformPdim } from './pdim';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0, name: 'c', id: 'OBJ-0001', kind: 'pdim' as const };
 const dim = (over: Partial<PointDimensionObj>): PointDimensionObj => ({ ...base, mode: 'chain', axis: 'horizontal', points: [], offset: 500, ...over });
@@ -78,6 +78,9 @@ describe('cote de niveau', () => {
     expect(formatLevel(0.004)).toBe('±0,00');
     const g = pdimGeometry(dim({ mode: 'level', points: [100, -2500], reference: 0, offset: 800 }))!;
     expect(g.levelMarks).toEqual([{ x: 100, y: -2500 }]);
+    // Homothétie : le point, le ±0,00 et la longueur du repère suivent le facteur.
+    expect(transformPdim(dim({ mode: 'level', points: [100, -2500], reference: 0, offset: 800 }), q => ({ x: q.x * 2, y: q.y * 2 }), { factor: 2 }))
+      .toEqual({ points: [200, -5000], reference: 0, offset: 1600 });
     expect(g.texts[0].value).toBe('+2,50');
   });
 });

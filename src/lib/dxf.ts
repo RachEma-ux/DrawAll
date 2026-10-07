@@ -12,6 +12,7 @@ import { textLines } from '@/lib/text';
 import { norm360 } from '@/lib/arc';
 import { dimensionGeometry, dimensionText } from '@/lib/geometry';
 import { pdimGeometry } from '@/lib/pdim';
+import { PAPER_DIMENSION_STYLE, arrowHead } from '@/lib/annotation';
 import { DEFAULT_LINE_TYPE, DEFAULT_LINE_WEIGHT, LINE_TYPES, dxfLineWeight, lineTypeDef, lineTypeFromDxf } from '@/lib/linestyle';
 
 /** Écart maximal entre un arc et la polyligne qui l'approche, en millimètres. */
@@ -195,6 +196,25 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       }
       for (const a of g.arcs) {
         writePrimitive(entityHeader, push, { ...object, kind: 'arc', cx: a.cx, cy: a.cy, r: a.r, start: a.start, end: a.start + a.sweep } as PrimitiveObject, layer);
+      }
+      // Flèches (SOLID), origine des cotes cumulées (CIRCLE) et triangle des cotes de niveau (LINE),
+      // dans le rapport du style papier à la hauteur du texte de cote (10 mm dans le modèle).
+      const S = PAPER_DIMENSION_STYLE, k = 10 / S.textHeight;
+      const len = S.arrowLength * k, half = S.arrowHalfWidth * k;
+      for (const a of g.arrows) {
+        const [p, q, r] = arrowHead(a.tip, a.from, len, half);
+        entityHeader('SOLID', layer, 'AcDbTrace');
+        [p, q, r, r].forEach((v, i) => { push(10 + i, n(v.x)); push(20 + i, n(-v.y)); push(30 + i, 0); });
+      }
+      for (const o of g.origins) writePrimitive(entityHeader, push, { ...object, kind: 'circle', cx: o.x, cy: o.y, r: len / 3 } as unknown as PrimitiveObject, layer);
+      for (const m of g.levelMarks) {
+        const tri = [m, { x: m.x - len * 0.6, y: m.y - len }, { x: m.x + len * 0.6, y: m.y - len }];
+        tri.forEach((a, i) => {
+          const b = tri[(i + 1) % 3];
+          entityHeader('LINE', layer, 'AcDbLine');
+          push(10, n(a.x)); push(20, n(-a.y)); push(30, 0);
+          push(11, n(b.x)); push(21, n(-b.y)); push(31, 0);
+        });
       }
       for (const t of g.texts) {
         entityHeader('TEXT', layer, 'AcDbText');

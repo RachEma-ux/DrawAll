@@ -376,5 +376,7 @@ describe('cotes par points (lot 2.6)', () => {
     expect(content.match(/\nTEXT\n/g)!.length).toBe(4);
     expect(content).toContain('\n1\n+2,50\n');
     expect(report.transformed.join(' ')).toMatch(/Cotes par points .* : 3/);
+    // Flèches de la série (2 par cote élémentaire) et de l'angle (2) en SOLID ; triangle de niveau (3 LINE).
+    expect(content.match(/\nSOLID\n/g)!.length).toBe(6);
   });
 });

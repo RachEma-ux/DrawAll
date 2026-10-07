@@ -182,7 +182,8 @@ export function transformPdim(
   if (d.mode === 'level') {
     if (turn !== 0) return null;
     const ref = d.reference ?? 0;
-    return { points, reference: map({ x: old[0]?.x ?? 0, y: ref }).y };
+    // Le repère horizontal (longueur `offset`) suit l'homothétie comme le point et le ±0,00.
+    return { points, reference: map({ x: old[0]?.x ?? 0, y: ref }).y, offset: d.offset * factor };
   }
   if (d.mode === 'angular') return { points, offset: d.offset * factor };
   let axis = d.axis;

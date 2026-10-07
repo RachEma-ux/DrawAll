@@ -35,3 +35,14 @@ test('lot 2.6 — cote angulaire (3 points) et cote de niveau (1 point)', async 
   await expect(page.getByTestId('canvas').locator('[data-pdim="level"] text')).toHaveText('+2,50');
   expect((await currentObjects(page)).map(o => o.mode)).toEqual(['angular', 'level']);
 });
+
+test('lot 2.6 — une cote par points prend la couleur de son calque', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'pdim', mode: 'chain', axis: 'horizontal', points: [0, 0, 1000, 0], offset: 300, layerId: 'LAY-0002' }]);
+  const color = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    return s.versions[s.pointer].layers.find((l: { id: string }) => l.id === 'LAY-0002').color;
+  });
+  const stroke = await page.getByTestId('canvas').locator('g[data-pdim] line').first().getAttribute('stroke');
+  expect(stroke?.toLowerCase()).toBe(color.toLowerCase());
+});

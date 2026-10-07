@@ -992,7 +992,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
-  if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} />;
+  if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
   return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
 }
 
@@ -1093,9 +1093,10 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
  * Cote par points : géométrie commune (pdimGeometry), tailles d'annotation constantes à l'écran
  * dans l'atelier, ou en mm papier dans une fenêtre de feuille.
  */
-function PointDimensionShape({ obj, selected, zoom, paperScale }: { obj: PointDimensionObj; selected: boolean; zoom: number; paperScale?: DrawingScale }) {
+function PointDimensionShape({ obj, selected, zoom, paperScale, layer, colorMode = 'calque' }: { obj: PointDimensionObj; selected: boolean; zoom: number; paperScale?: DrawingScale; layer?: Layer; colorMode?: ColorMode }) {
   const g = pdimGeometry(obj);
-  const color = selected ? '#22d3ee' : '#fbbf24';
+  // Couleur du trait (objet ou calque), comme les cotes associatives ; ambre en couleurs métier.
+  const color = selected ? '#22d3ee' : colorMode === 'calque' ? effectiveStyle(obj, layer).color : '#fbbf24';
   if (!g) {
     return <text x={obj.points[0] ?? 0} y={obj.points[1] ?? 0} fontSize={11 / zoom} fill="#fb7185" fontFamily="JetBrains Mono, monospace">{obj.id} · points insuffisants</text>;
   }
