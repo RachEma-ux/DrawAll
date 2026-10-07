@@ -1,0 +1,647 @@
+// Interopérabilité DXF.
+// - Import : LINE, CIRCLE, ARC et LWPOLYLINE (y compris segments courbes « bulge »).
+//   Les coordonnées sont converties de l'unité déclarée par le fichier ($INSUNITS)
+//   vers l'unité interne (millimètre). Les arcs sont approchés par des polylignes
+//   avec un écart de corde borné (ARC_TOLERANCE_MM), annoncé dans le rapport.
+// - Export : DXF R2000 (AC1015) avec marqueurs de sous-classe, lisible par les
+//   lecteurs stricts (ezdxf, AutoCAD). Les hachures sont exportées en entités HATCH.
+// - Chaque échange produit un rapport : ce qui est conservé, transformé ou perdu.
+// Convention : DrawAll travaille en Y descendant (SVG), DXF en Y ascendant.
+import type { BlockDef, CadObject, Layer, PrimitiveObject } from '@/types/cad';
+import { dimensionGeometry, dimensionText } from '@/lib/geometry';
+
+/** Écart maximal entre un arc et la polyligne qui l'approche, en millimètres. */
+export const ARC_TOLERANCE_MM = 0.05;
+
+export type DxfUnitKey = 'in' | 'ft' | 'mi' | 'mm' | 'cm' | 'm' | 'km' | 'mil' | 'yd' | 'um' | 'dm';
+
+interface UnitDef { key: DxfUnitKey; code: number; label: string; toMm: number }
+
+/** Codes $INSUNITS (référence DXF Autodesk) pris en charge, avec leur facteur vers le millimètre. */
+export const DXF_UNITS: readonly UnitDef[] = [
+  { key: 'in', code: 1, label: 'pouce', toMm: 25.4 },
+  { key: 'ft', code: 2, label: 'pied', toMm: 304.8 },
+  { key: 'mi', code: 3, label: 'mile', toMm: 1609344 },
+  { key: 'mm', code: 4, label: 'millimètre', toMm: 1 },
+  { key: 'cm', code: 5, label: 'centimètre', toMm: 10 },
+  { key: 'm', code: 6, label: 'mètre', toMm: 1000 },
+  { key: 'km', code: 7, label: 'kilomètre', toMm: 1000000 },
+  { key: 'mil', code: 9, label: 'mil (millième de pouce)', toMm: 0.0254 },
+  { key: 'yd', code: 10, label: 'yard', toMm: 914.4 },
+  { key: 'um', code: 13, label: 'micromètre', toMm: 0.001 },
+  { key: 'dm', code: 14, label: 'décimètre', toMm: 100 },
+];
+
+export function dxfUnitByKey(key: string): UnitDef | undefined {
+  const clean = key.trim().toLowerCase().replace('µm', 'um');
+  return DXF_UNITS.find(u => u.key === clean);
+}
+
+export interface DxfImportOptions {
+  objectStart: number;
+  layerStart: number;
+  createdSeq: number;
+  existingLayers: Layer[];
+  /** Unité à appliquer quand le fichier n'en déclare pas (ou pour forcer une unité). */
+  sourceUnit?: DxfUnitKey;
+}
+
+/** Bilan d'un échange : ce qui passe tel quel, ce qui est transformé, ce qui est perdu. */
+export interface ExchangeReport {
+  kept: string[];
+  transformed: string[];
+  lost: string[];
+}
+
+export interface DxfImportResult {
+  objects: CadObject[];
+  layers: Layer[];
+  warnings: string[];
+  report: ExchangeReport;
+  /** Unité effectivement appliquée et origine de cette unité. */
+  unit: { key: DxfUnitKey; label: string; toMm: number; source: 'fichier' | 'choix' | 'défaut' };
+  /** Vrai si le fichier ne déclare aucune unité exploitable : l'appelant doit faire choisir l'unité. */
+  unitMissing: boolean;
+}
+
+export interface DxfExportResult {
+  content: string;
+  report: ExchangeReport;
+}
+
+interface Pair { code: number; value: string }
+
+const DEFAULT_LAYER_COLORS = ['#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185'];
+const SUPPORTED = new Set(['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE']);
+const EPS = 1e-9;
+
+// ─── Export ────────────────────────────────────────────────────────────────
+
+export function exportToDxf(objects: CadObject[], layers: Layer[], blocks: BlockDef[]): string {
+  return exportDxf(objects, layers, blocks).content;
+}
+
+export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDef[]): DxfExportResult {
+  const out: string[] = [];
+  const push = (code: number, value: string | number) => out.push(String(code), String(value));
+  let handle = 0x20;
+  const nextHandle = () => (handle++).toString(16).toUpperCase();
+  const counts = { line: 0, circle: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0 };
+
+  const layerNames = new Map<string, string>();
+  const usedNames = new Set<string>();
+  for (const layer of layers) {
+    let name = dxfLayerName(layer.name);
+    let suffix = 2;
+    while (usedNames.has(name.toUpperCase())) name = `${dxfLayerName(layer.name)}_${suffix++}`;
+    usedNames.add(name.toUpperCase());
+    layerNames.set(layer.id, name);
+  }
+
+  // En-tête : version R2000, unités et mesure métrique.
+  push(0, 'SECTION'); push(2, 'HEADER');
+  push(9, '$ACADVER'); push(1, 'AC1015');
+  push(9, '$INSUNITS'); push(70, 4); // millimètres
+  push(9, '$MEASUREMENT'); push(70, 1); // métrique
+  push(0, 'ENDSEC');
+
+  // Tables : types de ligne et calques.
+  push(0, 'SECTION'); push(2, 'TABLES');
+  push(0, 'TABLE'); push(2, 'LTYPE'); push(5, nextHandle()); push(100, 'AcDbSymbolTable'); push(70, 1);
+  push(0, 'LTYPE'); push(5, nextHandle()); push(100, 'AcDbSymbolTableRecord'); push(100, 'AcDbLinetypeTableRecord');
+  push(2, 'CONTINUOUS'); push(70, 0); push(3, 'Solid line'); push(72, 65); push(73, 0); push(40, 0);
+  push(0, 'ENDTAB');
+  push(0, 'TABLE'); push(2, 'LAYER'); push(5, nextHandle()); push(100, 'AcDbSymbolTable'); push(70, layers.length);
+  for (const layer of layers) {
+    push(0, 'LAYER'); push(5, nextHandle()); push(100, 'AcDbSymbolTableRecord'); push(100, 'AcDbLayerTableRecord');
+    push(2, layerNames.get(layer.id) ?? '0');
+    push(70, layer.locked ? 4 : 0);
+    push(62, layer.visible ? 7 : -7);
+    push(420, hexToTrueColor(layer.color));
+    push(6, 'CONTINUOUS');
+  }
+  push(0, 'ENDTAB'); push(0, 'ENDSEC');
+
+  push(0, 'SECTION'); push(2, 'ENTITIES');
+  const entityHeader = (type: string, layer: string, subclass: string) => {
+    push(0, type); push(5, nextHandle()); push(100, 'AcDbEntity'); push(8, layer); push(100, subclass);
+  };
+  const writeOne = (object: PrimitiveObject, layer: string) => {
+    writePrimitive(entityHeader, push, object, layer);
+    if (object.kind === 'rect') counts.rect++;
+    else counts[object.kind]++;
+    if (object.hatch && object.hatch !== 'none' && writeHatch(entityHeader, push, object, layer)) counts.hatch++;
+  };
+
+  for (const object of objects) {
+    const layer = layerNames.get(object.layerId) ?? '0';
+    if (object.kind === 'blockRef') {
+      const block = blocks.find(b => b.id === object.blockId);
+      if (!block) { counts.blockSkipped++; continue; }
+      counts.blockRef++;
+      for (const primitive of block.primitives) writeOne(transformPrimitive(primitive, object.x, object.y, object.scale), layer);
+      continue;
+    }
+    if (object.kind === 'dimension') {
+      const target = objects.find(o => o.id === object.targetId);
+      const geometry = target ? dimensionGeometry(object, target) : null;
+      if (!geometry) { counts.dimensionSkipped++; continue; }
+      counts.dimension++;
+      for (const [x1, y1, x2, y2] of [[geometry.x1, geometry.y1, geometry.x2, geometry.y2], ...geometry.ext]) {
+        entityHeader('LINE', layer, 'AcDbLine');
+        push(10, n(x1)); push(20, n(-y1)); push(30, 0);
+        push(11, n(x2)); push(21, n(-y2)); push(31, 0);
+      }
+      entityHeader('TEXT', layer, 'AcDbText');
+      push(10, n(geometry.tx)); push(20, n(-geometry.ty)); push(30, 0); push(40, 10);
+      push(1, dimensionText(object, objects));
+      push(100, 'AcDbText');
+      continue;
+    }
+    writeOne(object, layer);
+  }
+  push(0, 'ENDSEC'); push(0, 'EOF');
+
+  const report: ExchangeReport = { kept: [], transformed: [], lost: [] };
+  report.kept.push('Unité : millimètre ($INSUNITS = 4), coordonnées à 10⁻⁶ mm près.');
+  report.kept.push(`Calques : ${layers.length} (nom, couleur, visibilité, verrouillage).`);
+  if (counts.line) report.kept.push(`Lignes : ${counts.line} (LINE).`);
+  if (counts.circle) report.kept.push(`Cercles : ${counts.circle} (CIRCLE).`);
+  if (counts.polyline) report.kept.push(`Polylignes : ${counts.polyline} (LWPOLYLINE).`);
+  if (counts.hatch) report.kept.push(`Hachures : ${counts.hatch} (HATCH, motif ANSI31 / ANSI37 / SOLID).`);
+  if (counts.rect) report.transformed.push(`Rectangles : ${counts.rect} → polylignes fermées (LWPOLYLINE).`);
+  if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
+  if (counts.dimension) report.transformed.push(`Cotes : ${counts.dimension} → traits + texte (LINE + TEXT) ; l'association à l'objet coté est perdue.`);
+  report.lost.push('Identifiants OBJ-, classification métier, noms d\'objets et historique des versions (non représentables en DXF).');
+  if (counts.dimensionSkipped) report.lost.push(`Cotes sans géométrie calculable : ${counts.dimensionSkipped} (non exportées).`);
+  if (counts.blockSkipped) report.lost.push(`Occurrences de blocs orphelines : ${counts.blockSkipped} (non exportées).`);
+
+  return { content: `${out.join('\n')}\n`, report };
+}
+
+type EntityHeader = (type: string, layer: string, subclass: string) => void;
+type Push = (code: number, value: string | number) => void;
+
+function primitivePoints(object: PrimitiveObject): { points: number[]; closed: boolean } | null {
+  if (object.kind === 'rect') {
+    return { points: [object.x, object.y, object.x + object.w, object.y, object.x + object.w, object.y + object.h, object.x, object.y + object.h], closed: true };
+  }
+  if (object.kind === 'polyline') {
+    const p = object.points;
+    const closed = p.length >= 6 && samePoint(p[0], p[1], p[p.length - 2], p[p.length - 1]);
+    return { points: closed ? p.slice(0, -2) : p, closed };
+  }
+  return null;
+}
+
+function writePrimitive(header: EntityHeader, push: Push, object: PrimitiveObject, layer: string): void {
+  if (object.kind === 'line') {
+    header('LINE', layer, 'AcDbLine');
+    push(10, n(object.x1)); push(20, n(-object.y1)); push(30, 0);
+    push(11, n(object.x2)); push(21, n(-object.y2)); push(31, 0);
+    return;
+  }
+  if (object.kind === 'circle') {
+    header('CIRCLE', layer, 'AcDbCircle');
+    push(10, n(object.cx)); push(20, n(-object.cy)); push(30, 0); push(40, n(object.r));
+    return;
+  }
+  const poly = primitivePoints(object);
+  if (!poly) return;
+  header('LWPOLYLINE', layer, 'AcDbPolyline');
+  push(90, poly.points.length / 2); push(70, poly.closed ? 1 : 0);
+  for (let i = 0; i + 1 < poly.points.length; i += 2) {
+    push(10, n(poly.points[i])); push(20, n(-poly.points[i + 1]));
+  }
+}
+
+/**
+ * Hachure associée à un contour fermé. Le pas reproduit l'aperçu de l'atelier :
+ * diagonales espacées de 8 mm, croisées espacées d'environ 7,07 mm.
+ */
+function writeHatch(header: EntityHeader, push: Push, object: PrimitiveObject, layer: string): boolean {
+  const style = object.hatch;
+  if (!style || style === 'none') return false;
+  const poly = primitivePoints(object);
+  if (object.kind !== 'circle' && !(poly && poly.closed)) return false;
+
+  const solid = style === 'solid';
+  const name = solid ? 'SOLID' : style === 'cross' ? 'ANSI37' : 'ANSI31';
+  const spacing = style === 'cross' ? 10 / Math.SQRT2 : 8;
+  header('HATCH', layer, 'AcDbHatch');
+  push(10, 0); push(20, 0); push(30, 0);
+  push(210, 0); push(220, 0); push(230, 1);
+  push(2, name);
+  push(70, solid ? 1 : 0);
+  push(71, 0);
+  push(91, 1);
+  if (object.kind === 'circle') {
+    push(92, 1); // contour externe, défini par arêtes
+    push(93, 1);
+    push(72, 2); // arc de cercle
+    push(10, n(object.cx)); push(20, n(-object.cy)); push(40, n(object.r));
+    push(50, 0); push(51, 360); push(73, 1);
+  } else if (poly) {
+    push(92, 3); // contour externe + polyligne
+    push(72, 0); push(73, 1); push(93, poly.points.length / 2);
+    for (let i = 0; i + 1 < poly.points.length; i += 2) {
+      push(10, n(poly.points[i])); push(20, n(-poly.points[i + 1]));
+    }
+  }
+  push(97, 0);
+  push(75, 0); // style normal
+  push(76, 1); // motif prédéfini
+  if (!solid) {
+    push(52, 0); push(41, n(spacing / 3.175)); push(77, 0);
+    const angles = style === 'cross' ? [45, 135] : [45];
+    push(78, angles.length);
+    for (const angle of angles) {
+      const rad = (angle * Math.PI) / 180;
+      // Décalage perpendiculaire à la direction des traits, d'une longueur égale au pas.
+      push(53, angle); push(43, 0); push(44, 0);
+      push(45, n(-Math.sin(rad) * spacing)); push(46, n(Math.cos(rad) * spacing));
+      push(79, 0);
+    }
+  }
+  push(98, 0);
+  return true;
+}
+
+function transformPrimitive(p: PrimitiveObject, x: number, y: number, scale: number): PrimitiveObject {
+  switch (p.kind) {
+    case 'line': return { ...p, x1: x + p.x1 * scale, y1: y + p.y1 * scale, x2: x + p.x2 * scale, y2: y + p.y2 * scale };
+    case 'rect': return { ...p, x: x + p.x * scale, y: y + p.y * scale, w: p.w * scale, h: p.h * scale };
+    case 'circle': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
+    case 'polyline': return { ...p, points: p.points.map((v, i) => (i % 2 === 0 ? x + v * scale : y + v * scale)) };
+  }
+}
+
+// ─── Import ────────────────────────────────────────────────────────────────
+
+export function parseDxf(text: string, options: DxfImportOptions): DxfImportResult {
+  const pairs = toPairs(text);
+  const warnings: string[] = [];
+  const importedLayers = new Map<string, Partial<Layer>>();
+  const entities: { type: string; body: Pair[] }[] = [];
+  const unsupported = new Map<string, number>();
+  let declaredUnitCode: number | null = null;
+
+  let section: string | null = null;
+  for (let i = 0; i < pairs.length; i++) {
+    const pair = pairs[i];
+    if (section === 'HEADER' && pair.code === 9 && pair.value === '$INSUNITS') {
+      const next = pairs[i + 1];
+      if (next?.code === 70) declaredUnitCode = Number(next.value);
+      continue;
+    }
+    if (pair.code !== 0) continue;
+    if (pair.value === 'SECTION') {
+      section = pairs[i + 1]?.code === 2 ? pairs[i + 1].value : null;
+      continue;
+    }
+    if (pair.value === 'ENDSEC') {
+      section = null;
+      continue;
+    }
+    if (section === 'TABLES' && pair.value === 'LAYER') {
+      const body = readBody(pairs, i + 1);
+      const name = valueOf(body, 2);
+      if (name) {
+        importedLayers.set(normalizeLayerName(name), {
+          name,
+          color: colorFromBody(body),
+          visible: true,
+          locked: false,
+        });
+      }
+      i += body.length;
+      continue;
+    }
+    if (section === 'ENTITIES' && isEntityName(pair.value)) {
+      const body = readBody(pairs, i + 1);
+      if (SUPPORTED.has(pair.value)) entities.push({ type: pair.value, body });
+      else unsupported.set(pair.value, (unsupported.get(pair.value) ?? 0) + 1);
+      i += body.length;
+    }
+  }
+
+  // Unité : celle choisie par l'utilisateur, sinon celle du fichier, sinon le millimètre par défaut.
+  const declared = declaredUnitCode !== null ? DXF_UNITS.find(u => u.code === declaredUnitCode) : undefined;
+  const chosen = options.sourceUnit ? dxfUnitByKey(options.sourceUnit) : undefined;
+  const unitDef = chosen ?? declared ?? DXF_UNITS.find(u => u.key === 'mm')!;
+  const unitSource: DxfImportResult['unit']['source'] = chosen ? 'choix' : declared ? 'fichier' : 'défaut';
+  const unitMissing = !declared;
+  const k = unitDef.toMm;
+  if (declaredUnitCode !== null && declaredUnitCode !== 0 && !declared) {
+    warnings.push(`Unité DXF non prise en charge ($INSUNITS = ${declaredUnitCode}) : unité à préciser.`);
+  }
+  if (!declared && !chosen) {
+    warnings.push('Le fichier ne déclare pas d\'unité : les coordonnées ont été lues en millimètres. Vérifiez les dimensions.');
+  }
+
+  const layers: Layer[] = [];
+  const layerByName = new Map(options.existingLayers.map(l => [normalizeLayerName(l.name), l]));
+  let layerCounter = options.layerStart;
+  const ensureLayer = (name: string | undefined): Layer => {
+    const clean = normalizeLayerName(name ?? '0');
+    const existing = layerByName.get(clean);
+    if (existing) return existing;
+    const imported = importedLayers.get(clean);
+    const layer: Layer = {
+      id: `LAY-${String(++layerCounter).padStart(4, '0')}`,
+      name: imported?.name ?? (name?.trim() || 'DXF'),
+      color: imported?.color ?? DEFAULT_LAYER_COLORS[(layerCounter - 1) % DEFAULT_LAYER_COLORS.length],
+      visible: true,
+      locked: false,
+    };
+    layerByName.set(clean, layer);
+    layers.push(layer);
+    return layer;
+  };
+
+  const stats = { line: 0, circle: 0, arc: 0, polyline: 0, bulgeSegments: 0, maxArcError: 0, mirrored: 0, outOfPlane: 0, widths: 0, degenerate: 0 };
+  let objectCounter = options.objectStart;
+  const objects: CadObject[] = [];
+  for (const entity of entities) {
+    const body = entity.body;
+    // Vecteur d'extrusion : (0,0,1) par défaut ; (0,0,-1) = repère objet symétrique (X inversé).
+    const ez = numberOf(body, 230, 1);
+    const ex = numberOf(body, 210, 0);
+    const ey = numberOf(body, 220, 0);
+    const flatNormal = Math.abs(ex) < 1e-6 && Math.abs(ey) < 1e-6;
+    if (entity.type !== 'LINE' && !flatNormal) { stats.outOfPlane++; continue; }
+    const mirror = entity.type !== 'LINE' && ez < 0;
+    if (mirror) stats.mirrored++;
+    const sx = mirror ? -1 : 1;
+
+    const layer = ensureLayer(valueOf(body, 8) ?? '0');
+    const nextId = () => `OBJ-${String(++objectCounter).padStart(4, '0')}`;
+    const base = (label: string, id: string) => ({
+      id,
+      name: `${label} ${id}`,
+      classification: 'non-classifie' as const,
+      layerId: layer.id,
+      hatch: 'none' as const,
+      createdSeq: options.createdSeq,
+    });
+
+    if (entity.type === 'LINE') {
+      const x1 = numberOf(body, 10, 0) * k;
+      const y1 = numberOf(body, 20, 0) * k;
+      const x2 = numberOf(body, 11, x1 / k) * k;
+      const y2 = numberOf(body, 21, y1 / k) * k;
+      if (Math.hypot(x2 - x1, y2 - y1) <= EPS) { stats.degenerate++; continue; }
+      const id = nextId();
+      objects.push({ ...base('Ligne', id), kind: 'line', x1: round(x1), y1: round(-y1), x2: round(x2), y2: round(-y2) });
+      stats.line++;
+      continue;
+    }
+    if (entity.type === 'CIRCLE') {
+      const r = Math.abs(numberOf(body, 40, 0)) * k;
+      if (r <= EPS) { stats.degenerate++; continue; }
+      const cx = sx * numberOf(body, 10, 0) * k;
+      const cy = numberOf(body, 20, 0) * k;
+      const id = nextId();
+      objects.push({ ...base('Cercle', id), kind: 'circle', cx: round(cx), cy: round(-cy), r: round(r) });
+      stats.circle++;
+      continue;
+    }
+    if (entity.type === 'ARC') {
+      const r = Math.abs(numberOf(body, 40, 0)) * k;
+      if (r <= EPS) { stats.degenerate++; continue; }
+      const cx = sx * numberOf(body, 10, 0) * k;
+      const cy = numberOf(body, 20, 0) * k;
+      let start = numberOf(body, 50, 0);
+      let end = numberOf(body, 51, 360);
+      // Symétrie X : l'angle θ devient 180° − θ et le sens de parcours s'inverse.
+      if (mirror) [start, end] = [180 - end, 180 - start];
+      let sweep = end - start;
+      while (sweep <= 0) sweep += 360;
+      while (sweep > 360) sweep -= 360;
+      const a0 = (start * Math.PI) / 180;
+      const { points, error } = arcPoints(cx, cy, r, a0, (sweep * Math.PI) / 180);
+      stats.maxArcError = Math.max(stats.maxArcError, error);
+      const id = nextId();
+      objects.push({ ...base('Arc', id), kind: 'polyline', points: flipY(points) });
+      stats.arc++;
+      continue;
+    }
+
+    // LWPOLYLINE : sommets (10/20) et courbure éventuelle (42) attachée au sommet qui la précède.
+    const vertices: { x: number; y: number; bulge: number }[] = [];
+    let currentX: number | null = null;
+    for (const pair of body) {
+      if (pair.code === 10) currentX = Number(pair.value);
+      else if (pair.code === 20 && currentX !== null && Number.isFinite(currentX)) {
+        vertices.push({ x: sx * currentX * k, y: Number(pair.value) * k, bulge: 0 });
+        currentX = null;
+      } else if (pair.code === 42 && vertices.length > 0) {
+        const b = Number(pair.value);
+        vertices[vertices.length - 1].bulge = Number.isFinite(b) ? sx * b : 0;
+      } else if ((pair.code === 40 || pair.code === 41 || pair.code === 43) && Number(pair.value) !== 0) {
+        stats.widths++;
+      }
+    }
+    if (vertices.length < 2) { stats.degenerate++; continue; }
+    const closed = (Number(valueOf(body, 70) ?? '0') & 1) === 1;
+    const segmentCount = closed ? vertices.length : vertices.length - 1;
+    const pts: number[] = [vertices[0].x, vertices[0].y];
+    for (let s = 0; s < segmentCount; s++) {
+      const a = vertices[s];
+      const b = vertices[(s + 1) % vertices.length];
+      if (Math.abs(a.bulge) > EPS) {
+        const arc = bulgeArc(a.x, a.y, b.x, b.y, a.bulge);
+        if (arc) {
+          stats.bulgeSegments++;
+          stats.maxArcError = Math.max(stats.maxArcError, arc.error);
+          pts.push(...arc.points.slice(2));
+          continue;
+        }
+      }
+      pts.push(b.x, b.y);
+    }
+    if (closed && !samePoint(pts[0], pts[1], pts[pts.length - 2], pts[pts.length - 1])) pts.push(pts[0], pts[1]);
+    const id = nextId();
+    objects.push({ ...base('Polyligne', id), kind: 'polyline', points: flipY(pts) });
+    stats.polyline++;
+  }
+
+  const report: ExchangeReport = { kept: [], transformed: [], lost: [] };
+  const unitText = `${unitDef.label}${unitSource === 'fichier' ? ' (déclarée par le fichier)' : unitSource === 'choix' ? ' (choisie à l\'import)' : ' (supposée : non déclarée)'}`;
+  if (unitDef.toMm === 1) report.kept.push(`Unité : ${unitText}.`);
+  else report.transformed.push(`Unité : ${unitText} → millimètre (×${formatFactor(unitDef.toMm)}).`);
+  if (stats.line) report.kept.push(`Lignes : ${stats.line}.`);
+  if (stats.circle) report.kept.push(`Cercles : ${stats.circle}.`);
+  if (stats.polyline) report.kept.push(`Polylignes : ${stats.polyline}.`);
+  if (stats.arc || stats.bulgeSegments) {
+    const parts = [stats.arc ? `${stats.arc} arc(s)` : '', stats.bulgeSegments ? `${stats.bulgeSegments} segment(s) courbe(s) de polyligne` : ''].filter(Boolean).join(' et ');
+    report.transformed.push(`Courbes : ${parts} approchés par des polylignes (écart maximal ${formatMm(stats.maxArcError)} mm, tolérance ${formatMm(ARC_TOLERANCE_MM)} mm).`);
+    if (stats.maxArcError > ARC_TOLERANCE_MM + 1e-9) {
+      const text = `Tolérance d'approximation dépassée : écart de ${formatMm(stats.maxArcError)} mm sur un arc trop grand (plafond de ${MAX_ARC_STEPS.toLocaleString('fr-FR')} segments).`;
+      report.lost.push(text);
+      warnings.push(text);
+    }
+  }
+  if (stats.mirrored) report.transformed.push(`Entités en repère symétrique (extrusion 0,0,−1) : ${stats.mirrored}, replacées dans le repère général.`);
+  if (stats.widths) report.lost.push(`Largeurs de polyligne : ${stats.widths} valeur(s) non nulle(s) ignorée(s).`);
+  if (stats.outOfPlane) report.lost.push(`Entités hors du plan XY : ${stats.outOfPlane} (non importées).`);
+  if (stats.degenerate) report.lost.push(`Entités dégénérées (longueur ou rayon nul) : ${stats.degenerate} (non importées).`);
+  if (unsupported.size > 0) {
+    const text = `Entités DXF ignorées : ${[...unsupported.entries()].map(([name, count]) => `${name} ×${count}`).join(', ')}.`;
+    report.lost.push(text);
+    warnings.push(text);
+  }
+  if (entities.length === 0) warnings.push('Aucune entité LINE, CIRCLE, ARC ou LWPOLYLINE trouvée dans le fichier DXF.');
+
+  return {
+    objects,
+    layers,
+    warnings,
+    report,
+    unit: { key: unitDef.key, label: unitDef.label, toMm: unitDef.toMm, source: unitSource },
+    unitMissing,
+  };
+}
+
+/** Texte lisible d'un rapport d'échange (pour une boîte de dialogue ou un journal). */
+export function formatExchangeReport(title: string, report: ExchangeReport): string {
+  const block = (label: string, lines: string[]) => (lines.length ? [`${label} :`, ...lines.map(l => `  • ${l}`)] : []);
+  return [
+    title,
+    ...block('Conservé', report.kept),
+    ...block('Transformé', report.transformed),
+    ...block('Perdu', report.lost),
+  ].join('\n');
+}
+
+// ─── Géométrie des arcs ───────────────────────────────────────────────────
+
+/**
+ * Discrétise un arc (repère Y ascendant, angles en radians, sens trigonométrique)
+ * avec un écart de corde ≤ ARC_TOLERANCE_MM. Renvoie les points et l'écart effectif.
+ */
+export function arcPoints(cx: number, cy: number, r: number, start: number, sweep: number): { points: number[]; error: number } {
+  const steps = arcSteps(r, Math.abs(sweep));
+  const points: number[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const a = start + (sweep * i) / steps;
+    points.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+  }
+  return { points, error: r * (1 - Math.cos(Math.abs(sweep) / steps / 2)) };
+}
+
+/** Garde-fou mémoire : au-delà, la tolérance n'est plus tenue et le rapport le signale. */
+const MAX_ARC_STEPS = 100000;
+
+function arcSteps(r: number, sweep: number): number {
+  if (r <= ARC_TOLERANCE_MM) return Math.max(1, Math.ceil(sweep / (Math.PI / 2)));
+  const maxStep = 2 * Math.acos(1 - ARC_TOLERANCE_MM / r);
+  return Math.min(MAX_ARC_STEPS, Math.max(1, Math.ceil(sweep / maxStep)));
+}
+
+/** Segment courbe d'une LWPOLYLINE : courbure b = tan(θ/4), θ > 0 = sens trigonométrique. */
+export function bulgeArc(x1: number, y1: number, x2: number, y2: number, bulge: number): { points: number[]; error: number } | null {
+  const dx = x2 - x1, dy = y2 - y1;
+  const chord = Math.hypot(dx, dy);
+  if (chord <= EPS) return null;
+  const theta = 4 * Math.atan(bulge);
+  const r = chord / (2 * Math.abs(Math.sin(theta / 2)));
+  // Centre : milieu de la corde décalé sur la normale à gauche (sens trigonométrique).
+  const h = (chord / 2) / Math.tan(theta / 2);
+  const cx = (x1 + x2) / 2 - (dy / chord) * h;
+  const cy = (y1 + y2) / 2 + (dx / chord) * h;
+  const start = Math.atan2(y1 - cy, x1 - cx);
+  const arc = arcPoints(cx, cy, r, start, theta);
+  // Extrémités exactes (évite l'accumulation d'erreurs d'arrondi).
+  arc.points[0] = x1; arc.points[1] = y1;
+  arc.points[arc.points.length - 2] = x2; arc.points[arc.points.length - 1] = y2;
+  return arc;
+}
+
+// ─── Utilitaires ──────────────────────────────────────────────────────────
+
+function flipY(points: number[]): number[] {
+  return points.map((v, i) => round(i % 2 === 0 ? v : -v));
+}
+
+function toPairs(text: string): Pair[] {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const pairs: Pair[] = [];
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const code = Number(lines[i].trim());
+    if (Number.isFinite(code)) pairs.push({ code, value: lines[i + 1].trim() });
+  }
+  return pairs;
+}
+
+function readBody(pairs: Pair[], start: number): Pair[] {
+  const body: Pair[] = [];
+  for (let i = start; i < pairs.length; i++) {
+    if (pairs[i].code === 0) break;
+    body.push(pairs[i]);
+  }
+  return body;
+}
+
+function valueOf(body: Pair[], code: number): string | undefined {
+  return body.find(p => p.code === code)?.value;
+}
+
+function numberOf(body: Pair[], code: number, fallback: number): number {
+  const raw = valueOf(body, code);
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function colorFromBody(body: Pair[]): string | undefined {
+  const trueColor = Number(valueOf(body, 420));
+  if (Number.isFinite(trueColor) && trueColor > 0) return trueColorToHex(trueColor);
+  return undefined;
+}
+
+function hexToTrueColor(hex: string): number {
+  const clean = hex.replace('#', '');
+  const value = Number.parseInt(clean, 16);
+  return Number.isFinite(value) ? value : 16777215;
+}
+
+function trueColorToHex(value: number): string {
+  return `#${(value & 0xffffff).toString(16).padStart(6, '0')}`;
+}
+
+function isEntityName(value: string): boolean {
+  return /^[A-Z][A-Z0-9_]*$/.test(value) && !['SECTION', 'ENDSEC', 'TABLE', 'ENDTAB', 'EOF', 'LAYER'].includes(value);
+}
+
+function normalizeLayerName(name: string): string {
+  return name.trim().toLocaleLowerCase('fr-FR') || '0';
+}
+
+/** Nom de calque DXF valide : caractères interdits remplacés. */
+function dxfLayerName(name: string): string {
+  const clean = name.replace(/[<>/\\":;?*|=`,]/g, '_').trim();
+  return clean || '0';
+}
+
+function samePoint(x1: number, y1: number, x2: number, y2: number): boolean {
+  return Math.hypot(x2 - x1, y2 - y1) < 1e-6;
+}
+
+function n(value: number): string {
+  const rounded = Math.round(value * 1000000) / 1000000;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+function round(value: number): number {
+  const rounded = Math.round(value * 1000000) / 1000000;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function formatMm(value: number): string {
+  return value.toLocaleString('fr-FR', { maximumFractionDigits: 3 });
+}
+
+function formatFactor(value: number): string {
+  return value.toLocaleString('fr-FR', { maximumFractionDigits: 6 });
+}
