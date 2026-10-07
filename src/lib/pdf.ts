@@ -8,6 +8,7 @@ import { dimensionGeometry } from '@/lib/geometry';
 import { arcSweep } from '@/lib/arc';
 import { effectiveStyle, lineTypeDef } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dimensionTextPosition } from '@/lib/annotation';
+import { pdimGeometry } from '@/lib/pdim';
 import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetSize } from '@/lib/sheet';
 import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
 import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
@@ -180,6 +181,7 @@ export function sheetToPdf(input: PdfInput): string {
       if (!visible.get(o.layerId)) continue;
       const layer = layers.find(l => l.id === o.layerId);
       if (o.kind === 'dimension') { drawDimension(o); continue; }
+      if (o.kind === 'pdim') { drawPointDimension(o); continue; }
       if (o.kind === 'text') { drawText(o); continue; }
       if (o.kind === 'blockRef') {
         const block = blocks.find(b => b.id === o.blockId);
@@ -265,6 +267,36 @@ export function sheetToPdf(input: PdfInput): string {
       });
     }
 
+    function drawPointDimension(d: Extract<CadObject, { kind: 'pdim' }>) {
+      const g = pdimGeometry(d);
+      if (!g) return;
+      const S = PAPER_DIMENSION_STYLE;
+      const P = (q: P) => modelToPaper(vp, q);
+      setStroke(S.lineWeight);
+      for (const [x1, y1, x2, y2] of [...g.ext, ...g.lines]) {
+        const a = pt(P({ x: x1, y: y1 })), b = pt(P({ x: x2, y: y2 }));
+        out(`${n(a.x)} ${n(a.y)} m ${n(b.x)} ${n(b.y)} l S`);
+      }
+      for (const a of g.arcs) out(`${arcPath(pt(P({ x: a.cx, y: a.cy })), a.r * k * MM_TO_PT, a.start, a.sweep)} S`);
+      for (const a of g.arrows) {
+        // Flèche dessinée sur la feuille : direction prise sur le papier, longueur papier.
+        const q = arrowHead(P(a.tip), P(a.from), S.arrowLength, S.arrowHalfWidth).map(pt);
+        out(`${n(q[0].x)} ${n(q[0].y)} m ${n(q[1].x)} ${n(q[1].y)} l ${n(q[2].x)} ${n(q[2].y)} l h f`);
+      }
+      for (const o of g.origins) out(`${arcPath(pt(P(o)), (S.arrowLength / 3) * MM_TO_PT, 0, 360)} h S`);
+      for (const m of g.levelMarks) {
+        const tip = P(m), h = S.arrowLength;
+        const q = [tip, { x: tip.x - h * 0.6, y: tip.y - h }, { x: tip.x + h * 0.6, y: tip.y - h }].map(pt);
+        out(`${n(q[0].x)} ${n(q[0].y)} m ${n(q[1].x)} ${n(q[1].y)} l ${n(q[2].x)} ${n(q[2].y)} l h S`);
+      }
+      for (const t of g.texts) {
+        const at = P(t.at);
+        const pos = { x: at.x + t.normal.x * S.textGap, y: at.y + t.normal.y * (S.textGap + (t.normal.y > 0.7 ? S.textHeight : 0)) };
+        const align = Math.abs(t.normal.x) > 0.7 ? (t.normal.x > 0 ? 'left' : 'right') : 'center';
+        text(t.value, pos, S.textHeight, 0, align);
+      }
+    }
+
     function drawDimension(d: Extract<CadObject, { kind: 'dimension' }>) {
       const target = objects.find(o => o.id === d.targetId);
       const g = target ? dimensionGeometry(d, target) : null;
@@ -282,7 +314,7 @@ export function sheetToPdf(input: PdfInput): string {
       if (d.lineType !== undefined) setStroke(w, lineTypeDef(d.lineType).pattern.map(v => Math.abs(v) * w));
       { const pa = pt(a), pb = pt(b); out(`${n(pa.x)} ${n(pa.y)} m ${n(pb.x)} ${n(pb.y)} l S`); }
       setStroke(w);
-      for (const tri of [arrowHead(a, b, S.arrowLength, S.arrowHalfWidth), arrowHead(b, a, S.arrowLength, S.arrowHalfWidth)]) {
+      for (const tri of [arrowHead(b, a, S.arrowLength, S.arrowHalfWidth), ...(g.arrows === 'end' ? [] : [arrowHead(a, b, S.arrowLength, S.arrowHalfWidth)])]) {
         const q = tri.map(pt);
         out(`${n(q[0].x)} ${n(q[0].y)} m ${n(q[1].x)} ${n(q[1].y)} l ${n(q[2].x)} ${n(q[2].y)} l h f`);
       }

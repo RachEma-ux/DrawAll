@@ -164,6 +164,18 @@ Référence : **ISO 129-1:2018** (indication des dimensions et tolérances).
 
 - La valeur affichée suit la précision affichée (§1.3) ; la valeur mesurée reste à pleine précision.
 
+### 5.1 Cotes avancées (règle, lot 2.6)
+
+| Cote | Désignation | Valeur |
+| --- | --- | --- |
+| Rayon / diamètre | Cote associative d'un cercle ou d'un arc | « R » ou « Ø », au choix (défaut : Ø pour un cercle, R pour un arc) ; une seule flèche pour un rayon |
+| En série (chaînée) | Points successifs, horizontale, verticale ou alignée | Distance projetée entre deux points voisins |
+| Cumulée | Depuis le premier point (origine marquée d'un petit cercle) | Distance projetée depuis l'origine |
+| Angulaire | Sommet puis deux branches | Angle entre les branches, de 0 à 180°, arc du plus petit côté |
+| Niveau | Un point et le niveau ±0,00 (Y du modèle) | En mètres, signée, deux décimales : +2,50 · −0,30 · ±0,00 |
+
+Les cotes par points ne sont pas associatives : leur valeur vient de leurs points (elles suivent les déplacements, rotations par quart de tour, symétries et mises à l'échelle). En DXF, elles sont transformées en traits, arcs et textes.
+
 ### 5.2 Styles d'annotation papier (règle, lot 2.4)
 
 - Sur une feuille, une cote se dessine avec des tailles **papier** identiques quelle que soit l'échelle de la fenêtre : chiffres de 2,5 mm, flèches fermées remplies de 2,5 mm (ouverture 30°), lignes de cote et d'attache de 0,18 mm, texte à 1 mm de la ligne de cote.

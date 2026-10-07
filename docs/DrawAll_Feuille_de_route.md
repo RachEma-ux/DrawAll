@@ -134,7 +134,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 2.3 Cartouche | Fait | #19 |
 | 2.4 Styles d'annotation papier | Fait | #20 |
 | 2.5 Export PDF calibré et impression | Fait | #21 |
-| 2.6 → 8.4 | À faire | — |
+| 2.6 Cotes avancées | Fait | #22 |
+| 3.1 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

@@ -362,3 +362,21 @@ describe('propriétés de trait (lot 1.9)', () => {
     expect(bylayer.objects[0].lineWeight).toBeUndefined();
   });
 });
+
+describe('cotes par points (lot 2.6)', () => {
+  it('exportées en traits, arcs et textes lisibles par ezdxf', () => {
+    const objects: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'Série', kind: 'pdim', mode: 'chain', axis: 'horizontal', points: [0, 0, 1200, 0, 3000, 0], offset: 500 },
+      { ...base, id: 'OBJ-0002', name: 'Angle', kind: 'pdim', mode: 'angular', axis: 'horizontal', points: [0, 0, 100, 0, 0, -100], offset: 50 },
+      { ...base, id: 'OBJ-0003', name: 'Niveau', kind: 'pdim', mode: 'level', axis: 'horizontal', points: [0, -2500], offset: 800, reference: 0 },
+    ];
+    const { content, report } = exportDxf(objects, layers, []);
+    keepFixture('cotes-par-points.dxf', content);
+    expect(content).toContain('\nARC\n');
+    expect(content.match(/\nTEXT\n/g)!.length).toBe(4);
+    expect(content).toContain('\n1\n+2,50\n');
+    expect(report.transformed.join(' ')).toMatch(/Cotes par points .* : 3/);
+    // Flèches de la série (2 par cote élémentaire) et de l'angle (2) en SOLID ; triangle de niveau (3 LINE).
+    expect(content.match(/\nSOLID\n/g)!.length).toBe(6);
+  });
+});

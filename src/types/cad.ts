@@ -1,7 +1,7 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'blockRef' | 'text';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -61,6 +61,28 @@ export interface DimensionObj extends Base {
   targetId: string;
   style: DimensionStyle;
   offset: number;
+  /** Cote radiale : rayon (R) ou diamètre (Ø) ; défaut Ø pour un cercle, R pour un arc. */
+  radialMode?: 'rayon' | 'diametre';
+}
+
+/**
+ * Cote par points (lot 2.6), non associative : sa valeur vient de ses points.
+ * - chain : cotation en série (chaînée) entre points successifs ;
+ * - baseline : cotes cumulées depuis le premier point (origine) ;
+ * - angular : angle au sommet (points : sommet, branche 1, branche 2) ;
+ * - level : cote de niveau d'un point par rapport au niveau ±0,00 (`reference`, Y du modèle).
+ */
+export type PointDimensionMode = 'chain' | 'baseline' | 'angular' | 'level';
+export interface PointDimensionObj extends Base {
+  kind: 'pdim';
+  mode: PointDimensionMode;
+  /** Direction mesurée (série et cumulée). */
+  axis: 'horizontal' | 'vertical' | 'aligned';
+  points: number[];
+  /** Distance de la ligne de cote aux points (mm), rayon de l'arc pour une cote angulaire. */
+  offset: number;
+  /** Cote de niveau : Y du modèle au niveau ±0,00. */
+  reference?: number;
 }
 
 /**
@@ -88,7 +110,7 @@ export interface BlockRefObj extends Base {
 }
 
 export type PrimitiveObject = LineObj | RectObj | CircleObj | ArcObj | PolylineObj;
-export type CadObject = PrimitiveObject | DimensionObj | BlockRefObj | TextObj;
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj;
 
 export interface BlockDef {
   id: string;              // identifiant stable BLQ-0001
@@ -190,6 +212,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   dimension: 'Cote',
   blockRef: 'Bloc',
   text: 'Texte',
+  pdim: 'Cote par points',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -264,6 +287,7 @@ export function dimensionOf(obj: CadObject): string {
       return `L ${fmt(d)} mm`;
     }
     case 'dimension': return `cote → ${obj.targetId}`;
+    case 'pdim': return `cote par points (${obj.points.length / 2} points)`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }
@@ -313,8 +337,9 @@ export function dimensionMeasure(obj: DimensionObj, target: CadObject): { value:
   const style = effectiveDimensionStyle(obj.style, target);
   if (!style) return null;
   switch (target.kind) {
-    case 'circle': return { value: target.r * 2, prefix: 'Ø ' };
-    case 'arc': return { value: target.r, prefix: 'R ' };
+    // Cote radiale : diamètre par défaut pour un cercle, rayon pour un arc ; l'utilisateur peut choisir.
+    case 'circle': return (obj.radialMode ?? 'diametre') === 'diametre' ? { value: target.r * 2, prefix: 'Ø ' } : { value: target.r, prefix: 'R ' };
+    case 'arc': return (obj.radialMode ?? 'rayon') === 'rayon' ? { value: target.r, prefix: 'R ' } : { value: target.r * 2, prefix: 'Ø ' };
     case 'rect': return { value: style === 'vertical' ? target.h : target.w, prefix: '' };
     case 'line': {
       const dx = Math.abs(target.x2 - target.x1);

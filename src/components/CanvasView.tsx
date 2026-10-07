@@ -7,6 +7,7 @@ import type {
   Classification,
   DimensionObj,
   DrawingScale,
+  PointDimensionObj,
   Layer,
   NewCadObject,
   PrimitiveObject,
@@ -33,11 +34,12 @@ import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
+import { pdimGeometry } from '@/lib/pdim';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -75,6 +77,9 @@ interface Props {
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
   /** Outil Aire : contour désigné par points (aucun objet créé). */
   onMeasureArea: (points: number[]) => void;
+  /** Outil Cote par points : points désignés, et nombre de points qui termine seul (angulaire 3, niveau 1). */
+  onAddPointDimension: (points: number[]) => void;
+  pdimAutoFinish?: number | null;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -128,6 +133,8 @@ export default function CanvasView({
   onTrimExtend,
   onCorner,
   onMeasureArea,
+  onAddPointDimension,
+  pdimAutoFinish = null,
   onMoveMany,
   gridSize,
   projectKey,
@@ -262,6 +269,11 @@ export default function CanvasView({
       setDraft(null);
       return;
     }
+    if (tool === 'pdim') {
+      if (draft?.kind === 'polyline' && draft.points.length >= 2) onAddPointDimension(draft.points);
+      setDraft(null);
+      return;
+    }
     setDraft(d => {
       // Seul un tracé commencé par l'outil Polyligne crée une polyligne.
       if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === 'polyline' && d.points.length >= 4 && pathLength(d.points) > MIN_LENGTH && activeLayer && !activeLayer.locked) {
@@ -269,12 +281,24 @@ export default function CanvasView({
       }
       return null;
     });
-  }, [activeLayer, onAdd, tool, draft, onMeasureArea]);
+  }, [activeLayer, onAdd, tool, draft, onMeasureArea, onAddPointDimension]);
 
   const startOrContinueDraft = useCallback((point: SnapPoint) => {
     // Mesurer ne crée rien : l'outil Aire ignore le verrouillage du calque.
     if ((!activeLayer || activeLayer.locked) && tool !== 'area') return;
     lastPlaced.current = { x: point.x, y: point.y };
+    if (tool === 'pdim') {
+      // Cote par points : les points s'ajoutent ; angulaire (3) et niveau (1) se terminent seuls.
+      const previous = activeDraft?.kind === 'polyline' ? activeDraft.points : [];
+      const pts = [...previous, point.x, point.y];
+      if (pdimAutoFinish && pts.length / 2 >= pdimAutoFinish) {
+        onAddPointDimension(pts);
+        setDraft(null);
+        return;
+      }
+      setDraft({ kind: 'polyline', sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts, origin: 'pdim' });
+      return;
+    }
     if (tool === 'polyline' || tool === 'area') {
       setDraft(d => {
         if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === tool) return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
@@ -305,7 +329,7 @@ export default function CanvasView({
     if (tool === 'line' || tool === 'rect' || tool === 'circle') {
       setDraft({ kind: tool, sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [] });
     }
-  }, [activeLayer, tool, activeDraft, onAdd]);
+  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension]);
 
   const handleDown = (e: React.PointerEvent) => {
     discardIncompatibleDraft();
@@ -549,7 +573,7 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'arc' || tool === 'arcCenter') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'arc' || tool === 'arcCenter') {
       startOrContinueDraft(point);
       return;
     }
@@ -881,7 +905,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'area' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
@@ -968,6 +992,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
   return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
 }
 
@@ -1064,6 +1089,47 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
   }
 }
 
+/**
+ * Cote par points : géométrie commune (pdimGeometry), tailles d'annotation constantes à l'écran
+ * dans l'atelier, ou en mm papier dans une fenêtre de feuille.
+ */
+function PointDimensionShape({ obj, selected, zoom, paperScale, layer, colorMode = 'calque' }: { obj: PointDimensionObj; selected: boolean; zoom: number; paperScale?: DrawingScale; layer?: Layer; colorMode?: ColorMode }) {
+  const g = pdimGeometry(obj);
+  // Couleur du trait (objet ou calque), comme les cotes associatives ; ambre en couleurs métier.
+  const color = selected ? '#22d3ee' : colorMode === 'calque' ? effectiveStyle(obj, layer).color : '#fbbf24';
+  if (!g) {
+    return <text x={obj.points[0] ?? 0} y={obj.points[1] ?? 0} fontSize={11 / zoom} fill="#fb7185" fontFamily="JetBrains Mono, monospace">{obj.id} · points insuffisants</text>;
+  }
+  const S = PAPER_DIMENSION_STYLE;
+  // Tailles : mm papier sur une feuille, pixels constants dans l'atelier.
+  const size = paperScale
+    ? { text: paperToModelSize(S.textHeight, paperScale) * TEXT_FONT_SCALE, arrow: paperToModelSize(S.arrowLength, paperScale), half: paperToModelSize(S.arrowHalfWidth, paperScale), gap: paperToModelSize(S.textGap, paperScale), w: Math.max(strokeInModel(S.lineWeight, paperScale), 0.5 / zoom) }
+    : { text: 11 / zoom, arrow: 9 / zoom, half: 3 / zoom, gap: 4 / zoom, w: (selected ? 1.8 : 1.1) / zoom };
+  return (
+    <g data-pdim={obj.mode}>
+      {g.ext.map(([x1, y1, x2, y2], i) => <line key={`e${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={size.w * 0.8} opacity={paperScale ? 1 : 0.65} />)}
+      {g.lines.map(([x1, y1, x2, y2], i) => <line key={`l${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={size.w} />)}
+      {g.arcs.map((a, i) => <path key={`a${i}`} d={arcSvgPath({ cx: a.cx, cy: a.cy, r: a.r, start: a.start, end: a.start + a.sweep })} fill="none" stroke={color} strokeWidth={size.w} />)}
+      {g.arrows.map((a, i) => <polygon key={`f${i}`} points={arrowHead(a.tip, a.from, size.arrow, size.half).map(q => `${q.x},${q.y}`).join(' ')} fill={color} />)}
+      {g.origins.map((o, i) => <circle key={`o${i}`} cx={o.x} cy={o.y} r={size.arrow / 3} fill="none" stroke={color} strokeWidth={size.w} />)}
+      {g.levelMarks.map((q, i) => {
+        const h = size.arrow;
+        return <polygon key={`n${i}`} points={`${q.x},${q.y} ${q.x - h * 0.6},${q.y - h} ${q.x + h * 0.6},${q.y - h}`} fill="none" stroke={color} strokeWidth={size.w} />;
+      })}
+      {g.texts.map((t, i) => {
+        const x = t.at.x + t.normal.x * size.gap;
+        const y = t.at.y + t.normal.y * size.gap;
+        const anchor = Math.abs(t.normal.x) > 0.7 ? (t.normal.x > 0 ? 'start' : 'end') : 'middle';
+        return (
+          <text key={`t${i}`} x={x} y={y} fontSize={size.text} fill={color} fontFamily="JetBrains Mono, monospace" textAnchor={anchor}
+            dominantBaseline={t.normal.y > 0.7 ? 'hanging' : 'auto'}>{t.value}</text>
+        );
+      })}
+      {!paperScale && g.lines.map(([x1, y1, x2, y2], i) => <line key={`h${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={10 / zoom} />)}
+    </g>
+  );
+}
+
 function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calque', paperScale }: { obj: DimensionObj; objects: CadObject[]; selected: boolean; zoom: number; layer?: Layer; colorMode?: ColorMode; paperScale?: DrawingScale }) {
   const target = objects.find(o => o.id === obj.targetId);
   const geom = target ? dimensionGeometry(obj, target) : null;
@@ -1084,7 +1150,8 @@ function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calq
     const m = (mm: number) => paperToModelSize(mm, paperScale);
     const w = Math.max(m(obj.lineWeight ?? S.lineWeight), 0.5 / zoom);
     const a = { x: geom.x1, y: geom.y1 }, b = { x: geom.x2, y: geom.y2 };
-    const arrows = [arrowHead(a, b, m(S.arrowLength), m(S.arrowHalfWidth)), arrowHead(b, a, m(S.arrowLength), m(S.arrowHalfWidth))];
+    // Cote de rayon : une seule flèche, sur le cercle.
+    const arrows = [arrowHead(b, a, m(S.arrowLength), m(S.arrowHalfWidth)), ...(geom.arrows === 'end' ? [] : [arrowHead(a, b, m(S.arrowLength), m(S.arrowHalfWidth))])];
     const t = dimensionTextPosition(geom, m(S.textGap));
     return (
       <g data-cote-papier="">
@@ -1106,7 +1173,7 @@ function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calq
       {geom.ext.map(([x1, y1, x2, y2], i) => (
         <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={0.8 / zoom} opacity={0.65} />
       ))}
-      <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke={color} strokeWidth={sw} strokeDasharray={dash} markerStart="url(#dim-arrow)" markerEnd="url(#dim-arrow)" />
+      <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke={color} strokeWidth={sw} strokeDasharray={dash} markerStart={geom.arrows === 'end' ? undefined : 'url(#dim-arrow)'} markerEnd="url(#dim-arrow)" />
       <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke="transparent" strokeWidth={10 / zoom} />
       <text x={geom.tx} y={geom.ty} fontSize={11 / zoom} fill={color} fontFamily="JetBrains Mono, monospace" textAnchor="middle">
         {dimensionValue(obj, objects)}
@@ -1182,6 +1249,12 @@ function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: Block
       if (geom && distanceSegment(x, y, geom.x1, geom.y1, geom.x2, geom.y2) <= tol) return o;
     }
     if (o.kind === 'text' && pointInText(o, x, y, tol)) return o;
+    if (o.kind === 'pdim') {
+      const g = pdimGeometry(o);
+      if (g && g.lines.some(([x1, y1, x2, y2]) => distanceSegment(x, y, x1, y1, x2, y2) <= tol)) return o;
+      if (g && g.arcs.some(a => Math.abs(Math.hypot(x - a.cx, y - a.cy) - a.r) <= tol)) return o;
+      if (g && g.levelMarks.some(q => Math.hypot(x - q.x, y - q.y) <= tol * 3)) return o;
+    }
     if (o.kind === 'blockRef') {
       const block = blocks.find(b => b.id === o.blockId);
       if (!block) continue;
