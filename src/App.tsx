@@ -28,12 +28,12 @@ import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, unitDecima
 import { measurePolygon, type Measure } from '@/lib/area';
 import { PROFILES, withProfile, withProfileBlocks, type ViewContext } from '@/lib/materials';
 import { openingFits, positionOnWall } from '@/lib/opening';
+import { areaM2, detectRoom, formatM2 } from '@/lib/rooms';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
-import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint } from '@/lib/geometry';
-import { mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
+import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint, mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
 
 /** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
 const COMPACT_BREAKPOINT = 1024;
@@ -50,6 +50,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
   { id: 'opening', label: 'Ouverture', key: 'O', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez un mur : porte ou fenêtre centrée sur ce point' },
+  { id: 'room', label: 'Pièce', key: 'I', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez l’intérieur d’une pièce fermée par des murs : nom et surface' },
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'area', label: 'Aire', key: 'Q', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points du contour, puis Terminer : aire et périmètre (rien n’est créé)' },
@@ -395,6 +396,19 @@ function Workbench() {
     });
   }, [project, openingParams, flash]);
 
+  // Outil Pièce : la pièce fermée qui contient le point, nommée par l'utilisateur.
+  const addRoom = useCallback((x: number, y: number) => {
+    const walls = project.objects.filter((o): o is WallObj => o.kind === 'wall' && project.layers.find(l => l.id === o.layerId)?.visible !== false);
+    const poly = detectRoom(walls, { x, y });
+    if (!poly) { flash('Aucune pièce fermée par des murs à cet endroit.'); return; }
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!layer || layer.locked) { flash('Calque actif verrouillé : pièce non créée.'); return; }
+    const count = project.objects.filter(o => o.kind === 'room').length + 1;
+    const name = window.prompt(`Nom de la pièce (${formatM2(areaM2(poly))})`, `Pièce ${count}`);
+    if (name === null || !name.trim()) return;
+    project.addObject({ kind: 'room', classification: 'architecture', layerId: layer.id, hatch: 'none', x, y }, name.trim());
+  }, [project, flash]);
+
   // Outil Cote par points : paramètres saisis dans le panneau de l'outil.
   const [pdimParams, setPdimParams] = useState<{ mode: PointDimensionMode; axis: PointDimensionObj['axis']; offset: string; reference: string }>(
     { mode: 'chain', axis: 'horizontal', offset: '500', reference: '0' },
@@ -575,6 +589,7 @@ function Workbench() {
         arc: ['arc', 'courbe', 'trois points', 'cintre'],
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
+        room: ['piece', 'surface', 'local', 'room', 'sia', 'carrez'],
         opening: ['porte', 'fenetre', 'baie', 'ouverture', 'door', 'window'],
         wall: ['mur', 'cloison', 'paroi', 'wall', 'batiment'],
         pdim: ['cote', 'serie', 'chainee', 'cumulee', 'angulaire', 'angle', 'niveau', 'altitude', 'dimension'],
@@ -695,6 +710,8 @@ function Workbench() {
       onCreateBlock={createBlockFromSelection}
       displayUnit={displayUnit}
       profile={project.profile}
+      surfaceRule={project.surfaceRule}
+      onSurfaceRule={project.setSurfaceRule}
     />
   );
   const historyEl = (
@@ -867,6 +884,7 @@ function Workbench() {
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
                  tool === 'trim' ? 'Ajuster : cliquez la portion à retirer, entre deux arêtes' :
                  tool === 'extend' ? 'Prolonger : cliquez près de l’extrémité à prolonger' :
+                 tool === 'room' ? 'Pièce : touchez l’intérieur d’une pièce fermée par des murs, puis nommez-la' :
                  tool === 'opening' ? 'Ouverture : touchez un mur à l’endroit du centre de la baie' :
                  tool === 'wall' ? 'Mur : cliquez les points successifs (un mur par segment), puis Entrée ou Terminer' :
                  tool === 'pdim' ? 'Cote par points : désignez les points (angulaire : sommet puis deux branches ; niveau : un point), puis Terminer' :
@@ -975,6 +993,7 @@ function Workbench() {
                 onAddPointDimension={addPointDimension}
                 onAddWall={addWall}
                 onAddOpening={addOpening}
+                onAddRoom={addRoom}
                 pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
                 gridSize={gridSize}
                 projectKey={projectKey}

@@ -10,6 +10,7 @@ import type {
   PointDimensionObj,
   WallObj,
   OpeningObj,
+  RoomObj,
   Layer,
   NewCadObject,
   PrimitiveObject,
@@ -42,11 +43,12 @@ import { occurrencePrimitives } from '@/lib/materials';
 import { hatchParamsOf, pointInLoop } from '@/lib/hatch';
 import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/lib/wall';
 import { openingGeometry, swingPath } from '@/lib/opening';
+import { areaM2, centroid, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -91,6 +93,8 @@ interface Props {
   onAddWall?: (x1: number, y1: number, x2: number, y2: number) => void;
   /** Outil Ouverture : mur désigné et point cliqué (centre de la baie). */
   onAddOpening?: (wallId: string, x: number, y: number) => void;
+  /** Outil Pièce : point intérieur désigné. */
+  onAddRoom?: (x: number, y: number) => void;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -147,6 +151,7 @@ export default function CanvasView({
   onAddPointDimension,
   onAddWall,
   onAddOpening,
+  onAddRoom,
   pdimAutoFinish = null,
   onMoveMany,
   gridSize,
@@ -207,6 +212,7 @@ export default function CanvasView({
   const visibleObjects = objects.filter(o => layerById.get(o.layerId)?.visible !== false);
   const editableObjects = visibleObjects.filter(o => layerById.get(o.layerId)?.locked !== true);
   // Murs visibles : jonctions calculées ensemble (L, T, croix).
+  const roomPolys = useMemo(() => roomPolygons(objects.filter(o => layers.find(l => l.id === o.layerId)?.visible !== false)), [objects, layers]);
   const wallGeom = useMemo(() => wallsGeometry(
     objects.filter((o): o is WallObj => o.kind === 'wall' && layers.find(l => l.id === o.layerId)?.visible !== false),
     objects.filter((o): o is OpeningObj => o.kind === 'opening'),
@@ -370,6 +376,10 @@ export default function CanvasView({
       // Désigner la portion à retirer (ajuster) ou l'extrémité à prolonger.
       const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
       if (hit) onTrimExtend(tool, hit.id, w.x, w.y);
+      return;
+    }
+    if (tool === 'room') {
+      onAddRoom?.(w.x, w.y);
       return;
     }
     if (tool === 'opening') {
@@ -837,6 +847,7 @@ export default function CanvasView({
             <ObjectShape
               key={o.id}
               walls={wallGeom}
+              rooms={roomPolys}
               obj={o}
               objects={objects}
               blocks={blocks}
@@ -1016,12 +1027,14 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls }: {
+export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls, rooms }: {
   obj: CadObject;
   /** Préfixe des motifs de hachure (une fenêtre de feuille définit les siens, au pas papier). */
   hatchPrefix?: string;
   /** Géométrie des murs, jonctions nettoyées (calculée une fois pour tous les murs affichés). */
   walls?: Map<string, WallGeometry>;
+  /** Contours des pièces (null : pièce non fermée). */
+  rooms?: Map<string, { x: number; y: number }[] | null>;
   unit: DisplayUnit;
   layer: Layer | undefined;
   colorMode: ColorMode;
@@ -1037,6 +1050,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'room') return <RoomShape obj={obj} poly={rooms?.get(obj.id) ?? null} selected={selected} zoom={zoom} paperScale={paperScale} />;
   if (obj.kind === 'opening') {
     const host = objects.find(o => o.id === obj.hostId);
     return host?.kind === 'wall' ? <OpeningShape obj={obj} wall={host} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} /> : null;
@@ -1066,6 +1080,29 @@ function WallShape({ obj, geom, view, selected, zoom, layer, colorMode, paperSca
     <g data-mur={obj.id}>
       <PrimitiveShape obj={pseudo} view={view} selected={selected} zoom={zoom} showLabel={false} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} noStroke />
       {edges.map(([a, b], i) => <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={sw} strokeLinecap="square" />)}
+    </g>
+  );
+}
+
+/** Pièce : surface légèrement teintée, étiquette nom + surface au centre ; alerte si la pièce n'est pas fermée. */
+function RoomShape({ obj, poly, selected, zoom, paperScale }: { obj: RoomObj; poly: { x: number; y: number }[] | null; selected: boolean; zoom: number; paperScale?: DrawingScale }) {
+  const size = (px: number, mm: number) => (paperScale ? paperToModelSize(mm, paperScale) * TEXT_FONT_SCALE : px / zoom);
+  if (!poly) {
+    return (
+      <text data-piece={obj.id} x={obj.x} y={obj.y} fontSize={size(11, 2.5)} fill="#fb7185" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+        {obj.name} · pièce non fermée
+      </text>
+    );
+  }
+  const c = centroid(poly);
+  const color = selected ? '#22d3ee' : '#cbd5e1';
+  return (
+    <g data-piece={obj.id}>
+      <polygon points={poly.map(p => `${p.x},${p.y}`).join(' ')} fill={selected ? 'rgba(34,211,238,0.10)' : 'rgba(148,163,184,0.05)'} stroke="none" />
+      <text x={c.x} y={c.y} fontSize={size(13, 3.5)} fill={color} textAnchor="middle" fontFamily="JetBrains Mono, monospace">{obj.name}</text>
+      <text x={c.x} y={c.y + size(13, 3.5) * 1.2} fontSize={size(11, 2.5)} fill={color} textAnchor="middle" fontFamily="JetBrains Mono, monospace" data-surface="">
+        {formatM2(areaM2(poly))}
+      </text>
     </g>
   );
 }
@@ -1392,6 +1429,13 @@ function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], 
       if (geom && distanceSegment(x, y, geom.x1, geom.y1, geom.x2, geom.y2) <= tol) return o;
     }
     if (o.kind === 'text' && pointInText(o, x, y, tol)) return o;
+    if (o.kind === 'room') {
+      // Une pièce se désigne par son étiquette (son point intérieur ou le centre de son contour).
+      const walls = allObjects.filter((w): w is WallObj => w.kind === 'wall');
+      const poly = detectRoom(walls, o);
+      const c = poly ? centroid(poly) : o;
+      if (Math.hypot(x - c.x, y - c.y) <= tol * 5) return o;
+    }
     if (o.kind === 'opening') {
       const host = allObjects.find(h => h.id === o.hostId);
       const g = host?.kind === 'wall' ? openingGeometry(o, host) : null;

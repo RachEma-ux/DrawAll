@@ -174,6 +174,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
           blocks: normalizeBlocks(v.blocks, layers),
           sheets: normalizeSheets(v.sheets, layers),
           ...(typeof v.profileId === 'string' ? { profileId: v.profileId } : {}),
+          ...(v.surfaceRule === 'carrez' || v.surfaceRule === 'sia-416' ? { surfaceRule: v.surfaceRule } : {}),
         };
       });
     if (versions.length > 0) {
@@ -209,6 +210,7 @@ function load(): ProjectState {
 interface SnapshotPatch {
   sheets?: Sheet[];
   profileId?: string;
+  surfaceRule?: 'sia-416' | 'carrez';
   objects?: CadObject[];
   layers?: Layer[];
   blocks?: BlockDef[];
@@ -281,6 +283,7 @@ export function useProject() {
         blocks: patch.blocks ?? cur.blocks,
         sheets: patch.sheets ?? cur.sheets ?? [],
         ...((patch.profileId ?? cur.profileId) ? { profileId: patch.profileId ?? cur.profileId } : {}),
+        ...((patch.surfaceRule ?? cur.surfaceRule) ? { surfaceRule: patch.surfaceRule ?? cur.surfaceRule } : {}),
       };
       return {
         versions: [...s.versions.slice(0, s.pointer + 1), mv],
@@ -710,8 +713,15 @@ export function useProject() {
     commit(`Profil de dessin : ${profileById(id).name}`, { profileId: id });
   }, [profile.id, commit]);
 
+  // ─── Règle de surface des pièces (lot 4.3) ───────────────────────────────────
+  const surfaceRule = current.surfaceRule ?? 'sia-416';
+  const setSurfaceRule = useCallback((rule: 'sia-416' | 'carrez') => {
+    if (rule === surfaceRule) return;
+    commit(`Règle de surface : ${rule === 'carrez' ? 'loi Carrez' : 'SIA 416'}`, { surfaceRule: rule });
+  }, [surfaceRule, commit]);
+
   return {
-    profile, setProfileId,
+    profile, setProfileId, surfaceRule, setSurfaceRule,
     state, objects, layers, blocks, activeLayerId, sheets,
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,

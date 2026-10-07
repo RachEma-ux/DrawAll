@@ -9,6 +9,7 @@ import { projectBounds } from '@/lib/geometry';
 import { pdfBytes, sheetToPdf } from '@/lib/pdf';
 import { withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { wallsGeometry } from '@/lib/wall';
+import { roomPolygons } from '@/lib/rooms';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
   PAPER_FORMATS, STANDARD_SCALES, fitScale, formatScale, layerVisibleInViewport, parseScale, printableArea,
@@ -67,6 +68,7 @@ export default function SheetEditor(p: Props) {
     coupe: withProfile(p.objects, p.profile, 'coupe', p.blocks),
     vue: withProfile(p.objects, p.profile, 'vue', p.blocks),
   }), [p.objects, p.profile, p.blocks]);
+  const roomPolys = useMemo(() => roomPolygons(p.objects), [p.objects]);
   const blocksByContext = useMemo(() => ({
     coupe: withProfileBlocks(p.blocks, p.profile, 'coupe'),
     vue: withProfileBlocks(p.blocks, p.profile, 'vue'),
@@ -390,7 +392,7 @@ export default function SheetEditor(p: Props) {
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
                     {drawn.filter(o => visibleLayer.get(o.layerId)).map(o => (
                       <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false}
-                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} />
+                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} rooms={roomPolys} />
                     ))}
                   </svg>
                   <rect

@@ -261,6 +261,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - Les faces du mur sont coupées sur la largeur de la baie et des tableaux ferment l'épaisseur.
 - DXF : traits et arc ; le lien au mur est perdu (rapport « transformé »).
 
+### 8.3 Pièces et surfaces (règle, lot 4.3)
+
+- Une pièce est désignée par un point intérieur et nommée ; son contour est la face fermée par les faces des murs qui contient ce point (les ouvertures ne l'ouvrent pas). Il est recalculé à chaque modification des murs : la surface suit.
+- Un point qui n'est dans aucune pièce fermée est refusé avec un message ; une pièce qui cesse d'être fermée affiche « pièce non fermée » et sa surface est « non évaluée ».
+- Surface affichée en m² au centième (contour intérieur des murs, piliers et gaines non déduits). La règle de surface du projet (SIA 416 par défaut, ou loi Carrez — décision §7) est rappelée avec ses réserves : ce qui dépend des hauteurs, gaines ou marches n'est pas évalué en 2D.
+- Étiquette : nom (3,5 mm papier) et surface (2,5 mm) au centre de gravité. DXF : contour (LWPOLYLINE) et étiquette (TEXT) ; la surface n'est plus recalculée.
+
 ## 9. Références
 
 | Sujet | Référence |

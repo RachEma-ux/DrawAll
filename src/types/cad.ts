@@ -1,7 +1,7 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -148,7 +148,16 @@ export interface OpeningObj extends Base {
   side: 'gauche' | 'droite';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj;
+/**
+ * Pièce (lot 4.3) : nom et point intérieur. Son contour est la face fermée par les murs qui contient
+ * ce point, recalculé à chaque modification des murs.
+ */
+export interface RoomObj extends Base {
+  kind: 'room';
+  x: number; y: number;
+}
+
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj;
 
 export interface BlockDef {
   id: string;              // identifiant stable BLQ-0001
@@ -215,6 +224,7 @@ export interface MicroVersion {
   blocks: BlockDef[];
   sheets?: Sheet[];        // absent dans les projets antérieurs au lot 2.1
   profileId?: string;      // profil de dessin (lot 3.1) ; absent = profil par défaut
+  surfaceRule?: 'sia-416' | 'carrez'; // règle de surface des pièces (lot 4.3) ; absent = SIA 416
 }
 
 export interface ProjectState {
@@ -255,6 +265,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   pdim: 'Cote par points',
   wall: 'Mur',
   opening: 'Ouverture',
+  room: 'Pièce',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -332,6 +343,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'pdim': return `cote par points (${obj.points.length / 2} points)`;
     case 'wall': return `Mur ép. ${fmt(obj.thickness)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'opening': return `${obj.type === 'porte' ? 'Porte' : 'Fenêtre'} ${fmt(obj.width)} mm · ${obj.hostId}`;
+    case 'room': return `Pièce « ${obj.name} »`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }
