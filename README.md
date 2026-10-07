@@ -6,7 +6,7 @@ Application web de dessin technique, de versionnement de projet et de documentat
 
 Cette branche contient une application full-stack :
 
-- **Atelier 2D** : lignes, rectangles, cercles, arcs (3 points ou centre), polylignes, textes, calques, blocs, hachures, cotes associatives et mesures ; édition par ajuster (couper à une arête), prolonger (jusqu’à une arête), congé (rayon saisi), chanfrein (deux distances), copier-coller (presse-papiers interne) et réseaux rectangulaire et polaire.
+- **Atelier 2D** : lignes, rectangles, cercles, arcs (3 points ou centre), polylignes, textes, calques, blocs, hachures, cotes associatives et mesures ; propriétés de trait ISO 128-2 (couleur, type, épaisseur) par calque et par objet, « du calque » par défaut ; édition par ajuster (couper à une arête), prolonger (jusqu’à une arête), congé (rayon saisi), chanfrein (deux distances), copier-coller (presse-papiers interne) et réseaux rectangulaire et polaire.
 - **Précision de dessin** : accrochage objet activable type par type (extrémités, milieux, centres, intersections, coins, quadrants, insertion, perpendiculaire, tangent, proche), grille réglable (1 à 1 000 mm), mode ortho, saisie de points absolue, relative (`@dx;dy`) et polaire (`@L<angle`), unité d’affichage mm, cm ou m (modèle toujours en millimètres), zoom, panoramique et ajustement de vue.
 - **Interopérabilité DXF** : import `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE` (courbes comprises) avec conversion d’unités ; export DXF R2000 lisible par les lecteurs stricts, hachures comprises ; rapport conservé / transformé / perdu à chaque échange.
 - **Comptes et persistance cloud** : connexion Kimi, projets en base MySQL, révisions optimistes et résolution explicite des conflits.
@@ -66,7 +66,7 @@ Le format DXF est pris en charge de façon volontairement limitée et explicite 
 
 - import : `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE`, `TEXT`, `MTEXT` ; les arcs sont conservés tels quels ; les segments courbes de polyligne (`bulge`) sont approchés avec un écart de corde ≤ 0,05 mm ; les entités en repère symétrique (extrusion 0,0,−1) sont replacées ;
 - unités : l’unité déclarée par le fichier (`$INSUNITS`) est convertie en millimètres ; un fichier sans unité fait demander l’unité ;
-- export : DXF R2000 (`AC1015`) en millimètres — primitives, hachures (`HATCH`), calques ; cotes converties en traits + texte et occurrences de blocs éclatées ;
+- export : DXF R2000 (`AC1015`) en millimètres — primitives, hachures (`HATCH`), calques, types de ligne ISO 128-2 (`LTYPE`), épaisseurs et couleurs (calque ou objet) ; cotes converties en traits + texte et occurrences de blocs éclatées ;
 - chaque import et export affiche un rapport de ce qui est conservé, transformé ou perdu ;
 - l’intégration continue vérifie les exports avec ezdxf (`scripts/check-dxf.py`).
 

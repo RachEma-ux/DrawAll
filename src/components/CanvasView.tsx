@@ -30,6 +30,10 @@ import {
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
+import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
+
+/** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
+export type ColorMode = 'calque' | 'metier';
 
 export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'pan';
 
@@ -41,6 +45,7 @@ interface Props {
   projectKey?: number;
   /** Types d'accrochage objet actifs. */
   snapTypes: readonly ObjectSnapType[];
+  colorMode: ColorMode;
   /** Unité d'affichage et de saisie ; le modèle reste en millimètres. */
   displayUnit: DisplayUnit;
   layers: Layer[];
@@ -113,6 +118,7 @@ export default function CanvasView({
   gridSize,
   projectKey,
   snapTypes,
+  colorMode,
   displayUnit,
   onCursor,
   onSnapChange,
@@ -752,6 +758,8 @@ export default function CanvasView({
               selected={selectedIds.includes(o.id)}
               zoom={tf.k}
               unit={displayUnit}
+              layer={layerById.get(o.layerId)}
+              colorMode={colorMode}
             />
           ))}
 
@@ -919,33 +927,43 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit }: {
+function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode }: {
   obj: CadObject;
   unit: DisplayUnit;
+  layer: Layer | undefined;
+  colorMode: ColorMode;
   objects: CadObject[];
   blocks: BlockDef[];
   view: ViewReading;
   selected: boolean;
   zoom: number;
 }) {
-  if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} />;
-  if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} />;
-  if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} />;
-  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected} unit={unit} />;
+  if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
+  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected} unit={unit} layer={layer} colorMode={colorMode} />;
 }
 
-function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm' }: {
+function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner }: {
   obj: PrimitiveObject;
   unit?: DisplayUnit;
+  layer?: Layer;
+  colorMode?: ColorMode;
+  /** Occurrence de bloc qui porte la primitive : ses propriétés remplacent celles du calque. */
+  owner?: CadObject;
   view: ViewReading;
   selected: boolean;
   zoom: number;
   showLabel: boolean;
 }) {
   const meta = CLASSIFICATION_META[obj.classification];
-  const sw = (selected ? 2.5 : 1.5) / zoom;
-  const color = selected ? '#22d3ee' : meta.color;
-  const dash = view === 'batiment' && obj.classification === 'electrique' ? `${8 / zoom} ${5 / zoom}` : undefined;
+  const st = effectiveStyle(owner ?? obj, layer);
+  const widthPx = screenWidth(st.lineWeight);
+  const sw = (widthPx + (selected ? 1 : 0)) / zoom;
+  const color = selected ? '#22d3ee' : colorMode === 'metier' ? meta.color : st.color;
+  const pattern = screenDash(st.lineType, widthPx);
+  const dash = pattern ? pattern.map(v => v / zoom).join(' ')
+    : colorMode === 'metier' && view === 'batiment' && obj.classification === 'electrique' ? `${8 / zoom} ${5 / zoom}` : undefined;
   const hatchFill = obj.hatch === 'diagonal' ? 'url(#hatch-diagonal)' : obj.hatch === 'cross' ? 'url(#hatch-cross)' : undefined;
   const solidFill = obj.hatch === 'solid';
   const common = { stroke: color, strokeWidth: sw, strokeDasharray: dash };
@@ -1017,7 +1035,7 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm' }: {
   }
 }
 
-function DimensionShape({ obj, objects, selected, zoom }: { obj: DimensionObj; objects: CadObject[]; selected: boolean; zoom: number }) {
+function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calque' }: { obj: DimensionObj; objects: CadObject[]; selected: boolean; zoom: number; layer?: Layer; colorMode?: ColorMode }) {
   const target = objects.find(o => o.id === obj.targetId);
   const geom = target ? dimensionGeometry(obj, target) : null;
   if (!geom) {
@@ -1027,14 +1045,19 @@ function DimensionShape({ obj, objects, selected, zoom }: { obj: DimensionObj; o
       </text>
     );
   }
-  const color = selected ? '#22d3ee' : '#fbbf24';
-  const sw = (selected ? 1.8 : 1.1) / zoom;
+  // Couleur : celle du trait (objet ou calque) ; épaisseur et type : seulement s'ils sont propres à la cote
+  // (une cote reste en trait fin continu par défaut, Conventions §5).
+  const st = effectiveStyle(obj, layer);
+  const color = selected ? '#22d3ee' : colorMode === 'calque' ? st.color : '#fbbf24';
+  const widthPx = obj.lineWeight !== undefined ? screenWidth(obj.lineWeight) : 1.1;
+  const sw = (widthPx + (selected ? 0.7 : 0)) / zoom;
+  const dash = obj.lineType !== undefined ? screenDash(obj.lineType, widthPx)?.map(v => v / zoom).join(' ') : undefined;
   return (
     <g>
       {geom.ext.map(([x1, y1, x2, y2], i) => (
         <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={0.8 / zoom} opacity={0.65} />
       ))}
-      <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke={color} strokeWidth={sw} markerStart="url(#dim-arrow)" markerEnd="url(#dim-arrow)" />
+      <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke={color} strokeWidth={sw} strokeDasharray={dash} markerStart="url(#dim-arrow)" markerEnd="url(#dim-arrow)" />
       <line x1={geom.x1} y1={geom.y1} x2={geom.x2} y2={geom.y2} stroke="transparent" strokeWidth={10 / zoom} />
       <text x={geom.tx} y={geom.ty} fontSize={11 / zoom} fill={color} fontFamily="JetBrains Mono, monospace" textAnchor="middle">
         {dimensionValue(obj, objects)}
@@ -1048,7 +1071,7 @@ function DimensionShape({ obj, objects, selected, zoom }: { obj: DimensionObj; o
   );
 }
 
-function BlockRefShape({ obj, blocks, view, selected, zoom }: { obj: Extract<CadObject, { kind: 'blockRef' }>; blocks: BlockDef[]; view: ViewReading; selected: boolean; zoom: number }) {
+function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode }: { obj: Extract<CadObject, { kind: 'blockRef' }>; blocks: BlockDef[]; view: ViewReading; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode }) {
   const block = blocks.find(b => b.id === obj.blockId);
   if (!block) {
     return (
@@ -1063,7 +1086,7 @@ function BlockRefShape({ obj, blocks, view, selected, zoom }: { obj: Extract<Cad
     <g>
       <g transform={`translate(${obj.x},${obj.y}) scale(${obj.scale})`}>
         {block.primitives.map(p => (
-          <PrimitiveShape key={p.id} obj={p} view={view} selected={false} zoom={zoom / obj.scale} showLabel={false} />
+          <PrimitiveShape key={p.id} obj={p} view={view} selected={false} zoom={zoom / obj.scale} showLabel={false} layer={layer} colorMode={colorMode} owner={obj} />
         ))}
       </g>
       <rect
@@ -1118,9 +1141,11 @@ function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: Block
   return null;
 }
 
-function TextShape({ obj, selected, zoom }: { obj: TextObj; selected: boolean; zoom: number }) {
+function TextShape({ obj, selected, zoom, layer, colorMode }: { obj: TextObj; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode }) {
   const meta = CLASSIFICATION_META[obj.classification];
-  const color = selected ? '#22d3ee' : obj.classification === 'non-classifie' ? '#e2e8f0' : meta.color;
+  const color = selected ? '#22d3ee'
+    : colorMode === 'calque' ? effectiveStyle(obj, layer).color
+    : obj.classification === 'non-classifie' ? '#e2e8f0' : meta.color;
   const anchor = obj.align === 'center' ? 'middle' : obj.align === 'right' ? 'end' : 'start';
   const corners = textCorners(obj);
   return (

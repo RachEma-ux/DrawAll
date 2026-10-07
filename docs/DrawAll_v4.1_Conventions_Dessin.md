@@ -83,13 +83,22 @@ Référence : **ISO 128-2:2022** (conventions de base pour les traits ; remplace
 
 | Usage | Trait | Statut |
 | --- | --- | --- |
-| Contour vu | Continu fort | Règle (lot 3) |
-| Cotes, lignes d'attache, hachures | Continu fin | Règle (lot 3) |
-| Contour caché | Interrompu fin | Règle (lot 3) |
-| Axes, lignes de symétrie | Mixte fin (trait-point) | Règle (lot 3) |
-| Plan de coupe | Mixte fin, renforcé aux extrémités | Règle (lot 3) |
+| Contour vu | Continu fort | Préréglage (profils, lot 3) |
+| Cotes, lignes d'attache, hachures | Continu fin | Préréglage (profils, lot 3) |
+| Contour caché | Interrompu fin | Préréglage (profils, lot 3) |
+| Axes, lignes de symétrie | Mixte fin (trait-point) | Préréglage (profils, lot 3) |
+| Plan de coupe | Mixte fin, renforcé aux extrémités | Préréglage (profils, lot 3) |
 
-Les épaisseurs se définissent **sur la feuille** (en mm papier), pas dans le modèle. Les styles de traits ne sont pas encore implémentés : l'atelier utilise aujourd'hui des traits d'affichage.
+### 3.1 Propriétés de trait (règle, lot 1.9)
+
+- Chaque calque porte une couleur, un type et une épaisseur de trait ; chaque objet peut porter les siens. Une propriété absente sur l'objet vaut **« du calque »** (DXF : BYLAYER).
+- Types disponibles (ISO 128-2, types de base) : 01 continu, 02 interrompu, 04 mixte (trait-point), 05 mixte double (trait-deux points). Motifs en multiples de l'épaisseur d : 02 = 12 d trait, 3 d espace ; 04 = 24 d, 3 d, point 0,5 d, 3 d ; 05 = 24 d, 3 d, 0,5 d, 3 d, 0,5 d, 3 d.
+- Épaisseurs (mm sur la feuille, série ISO de raison √2) : 0,13 · 0,18 · 0,25 · 0,35 · 0,5 · 0,7 · 1 · 1,4 · 2. Par défaut : continu, 0,25 mm.
+- À l'écran, la largeur est proportionnelle à l'épaisseur (0,25 mm → 1,5 px) et les motifs gardent les proportions de la norme. Le rendu à l'échelle de la feuille viendra avec les présentations (lot 2).
+- Couleurs à l'écran : « du trait » (calque ou objet, usage CAO) par défaut, ou « classification métier » (lecture métier, réglage de la barre d'état).
+- DXF : types écrits `CONTINUOUS`, `ACAD_ISO02W100`, `ACAD_ISO04W100`, `ACAD_ISO05W100` (bibliothèque ISO, plume de 1 mm, échelle de type de ligne 1) ; épaisseur en groupe 370 (centièmes de mm) ; couleur en vraie couleur (420). À l'import, les noms usuels (HIDDEN, DASHED, CENTER, PHANTOM…) et les couleurs ACI 1 à 9 sont reconnus.
+
+Les épaisseurs se définissent **sur la feuille** (en mm papier), pas dans le modèle.
 
 ## 4. Hachures
 
@@ -173,7 +182,8 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | Hachure | Non lue (signalée) | Conservée (HATCH) |
 | Cote | Non lue | Transformée en traits + texte ; association perdue |
 | Occurrence de bloc | Non lue (signalée) | Éclatée en entités simples |
-| Calques | Nom et couleur conservés | Nom, couleur, visibilité, verrouillage |
+| Calques | Nom, couleur, type et épaisseur de trait conservés | Nom, couleur, type et épaisseur de trait, visibilité, verrouillage |
+| Propriétés de trait d'un objet | Conservées (types usuels reconnus, ACI 1–9) | Conservées (6, 370, 420 ; BYLAYER sinon) |
 | Identifiants, classification, historique | — | Perdus (non représentables en DXF) |
 | Texte sur une ligne | Conservé (TEXT : contenu, hauteur, rotation, alignement ; %%c %%d %%p décodés) | Conservé (TEXT) |
 | Texte sur plusieurs lignes | Conservé (MTEXT : mise en forme simplifiée en texte brut) | Conservé (MTEXT, point d'attache en haut) |

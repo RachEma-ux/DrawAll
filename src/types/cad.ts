@@ -18,12 +18,17 @@ export type Classification =
 export type ViewReading = 'batiment' | 'industrie';
 export type DisplayLevel = 'essentiel' | 'contextuel' | 'complet';
 
+/** Types de trait de base ISO 128-2 retenus (01, 02, 04, 05). */
+export type LineType = 'continu' | 'interrompu' | 'mixte' | 'mixte-double';
+
 export interface Layer {
   id: string;               // identifiant stable LAY-0001
   name: string;
   color: string;
   visible: boolean;
   locked: boolean;
+  lineType?: LineType;      // défaut : continu
+  lineWeight?: number;      // mm sur la feuille ; défaut : 0,25
 }
 
 interface Base {
@@ -34,6 +39,10 @@ interface Base {
   layerId: string;
   hatch?: HatchStyle;
   createdSeq: number;      // microversion de création
+  // Propriétés de trait propres à l'objet ; absentes = « du calque ».
+  color?: string;
+  lineType?: LineType;
+  lineWeight?: number;     // mm sur la feuille
 }
 
 export interface LineObj extends Base { kind: 'line'; x1: number; y1: number; x2: number; y2: number }

@@ -11,6 +11,7 @@ import type { BlockDef, CadObject, Layer, PrimitiveObject, TextAlign, TextObj } 
 import { textLines } from '@/lib/text';
 import { norm360 } from '@/lib/arc';
 import { dimensionGeometry, dimensionText } from '@/lib/geometry';
+import { DEFAULT_LINE_TYPE, DEFAULT_LINE_WEIGHT, LINE_TYPES, dxfLineWeight, lineTypeDef, lineTypeFromDxf } from '@/lib/linestyle';
 
 /** Écart maximal entre un arc et la polyligne qui l'approche, en millimètres. */
 export const ARC_TOLERANCE_MM = 0.05;
@@ -110,9 +111,14 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
 
   // Tables : types de ligne et calques.
   push(0, 'SECTION'); push(2, 'TABLES');
-  push(0, 'TABLE'); push(2, 'LTYPE'); push(5, nextHandle()); push(100, 'AcDbSymbolTable'); push(70, 1);
-  push(0, 'LTYPE'); push(5, nextHandle()); push(100, 'AcDbSymbolTableRecord'); push(100, 'AcDbLinetypeTableRecord');
-  push(2, 'CONTINUOUS'); push(70, 0); push(3, 'Solid line'); push(72, 65); push(73, 0); push(40, 0);
+  // Types de ligne ISO 128-2 (bibliothèque ISO d'AutoCAD, motifs pour une plume de 1 mm).
+  push(0, 'TABLE'); push(2, 'LTYPE'); push(5, nextHandle()); push(100, 'AcDbSymbolTable'); push(70, LINE_TYPES.length);
+  for (const def of LINE_TYPES) {
+    push(0, 'LTYPE'); push(5, nextHandle()); push(100, 'AcDbSymbolTableRecord'); push(100, 'AcDbLinetypeTableRecord');
+    push(2, def.dxf); push(70, 0); push(3, def.pattern.length ? `ISO 128-2 type ${def.iso} — ${def.label}` : 'Solid line');
+    push(72, 65); push(73, def.pattern.length); push(40, n(def.pattern.reduce((a, v) => a + Math.abs(v), 0)));
+    for (const v of def.pattern) { push(49, n(v)); push(74, 0); }
+  }
   push(0, 'ENDTAB');
   push(0, 'TABLE'); push(2, 'LAYER'); push(5, nextHandle()); push(100, 'AcDbSymbolTable'); push(70, layers.length);
   for (const layer of layers) {
@@ -121,13 +127,21 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
     push(70, layer.locked ? 4 : 0);
     push(62, layer.visible ? 7 : -7);
     push(420, hexToTrueColor(layer.color));
-    push(6, 'CONTINUOUS');
+    push(6, lineTypeDef(layer.lineType ?? DEFAULT_LINE_TYPE).dxf);
+    push(370, dxfLineWeight(layer.lineWeight ?? DEFAULT_LINE_WEIGHT));
   }
   push(0, 'ENDTAB'); push(0, 'ENDSEC');
 
   push(0, 'SECTION'); push(2, 'ENTITIES');
+  // Propriétés de trait de l'objet en cours d'écriture ; absentes = BYLAYER (rien n'est écrit).
+  let style: Pick<CadObject, 'color' | 'lineType' | 'lineWeight'> = {};
+  let styled = 0;
   const entityHeader = (type: string, layer: string, subclass: string) => {
-    push(0, type); push(5, nextHandle()); push(100, 'AcDbEntity'); push(8, layer); push(100, subclass);
+    push(0, type); push(5, nextHandle()); push(100, 'AcDbEntity'); push(8, layer);
+    if (style.lineType !== undefined) push(6, lineTypeDef(style.lineType).dxf);
+    if (style.color !== undefined) push(420, hexToTrueColor(style.color));
+    if (style.lineWeight !== undefined) push(370, dxfLineWeight(style.lineWeight));
+    push(100, subclass);
   };
   const writeOne = (object: PrimitiveObject, layer: string) => {
     writePrimitive(entityHeader, push, object, layer);
@@ -138,6 +152,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
 
   for (const object of objects) {
     const layer = layerNames.get(object.layerId) ?? '0';
+    style = { color: object.color, lineType: object.lineType, lineWeight: object.lineWeight };
+    if (style.color !== undefined || style.lineType !== undefined || style.lineWeight !== undefined) styled++;
     if (object.kind === 'blockRef') {
       const block = blocks.find(b => b.id === object.blockId);
       if (!block) { counts.blockSkipped++; continue; }
@@ -172,7 +188,9 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
 
   const report: ExchangeReport = { kept: [], transformed: [], lost: [] };
   report.kept.push('Unité : millimètre ($INSUNITS = 4), coordonnées à 10⁻⁶ mm près.');
-  report.kept.push(`Calques : ${layers.length} (nom, couleur, visibilité, verrouillage).`);
+  report.kept.push(`Calques : ${layers.length} (nom, couleur, type et épaisseur de trait, visibilité, verrouillage).`);
+  report.kept.push('Types de trait ISO 128-2 : continu (CONTINUOUS), interrompu (ACAD_ISO02W100), mixte (ACAD_ISO04W100), mixte double (ACAD_ISO05W100) ; épaisseurs en centièmes de mm (groupe 370).');
+  if (styled) report.kept.push(`Objets à trait propre : ${styled} (couleur, type ou épaisseur écrits sur l'entité ; sinon « du calque »).`);
   if (counts.line) report.kept.push(`Lignes : ${counts.line} (LINE).`);
   if (counts.circle) report.kept.push(`Cercles : ${counts.circle} (CIRCLE).`);
   if (counts.arc) report.kept.push(`Arcs : ${counts.arc} (ARC natif).`);
@@ -368,11 +386,15 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       const body = readBody(pairs, i + 1);
       const name = valueOf(body, 2);
       if (name) {
+        const lt = lineTypeFromDxf(valueOf(body, 6));
+        const lw = Number(valueOf(body, 370));
         importedLayers.set(normalizeLayerName(name), {
           name,
           color: colorFromBody(body),
           visible: true,
           locked: false,
+          lineType: lt && lt !== 'bylayer' && lt !== DEFAULT_LINE_TYPE ? lt : undefined,
+          lineWeight: Number.isFinite(lw) && lw > 0 ? lw / 100 : undefined,
         });
       }
       i += body.length;
@@ -414,6 +436,8 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       color: imported?.color ?? DEFAULT_LAYER_COLORS[(layerCounter - 1) % DEFAULT_LAYER_COLORS.length],
       visible: true,
       locked: false,
+      ...(imported?.lineType ? { lineType: imported.lineType } : {}),
+      ...(imported?.lineWeight ? { lineWeight: imported.lineWeight } : {}),
     };
     layerByName.set(clean, layer);
     layers.push(layer);
@@ -437,6 +461,14 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
 
     const layer = ensureLayer(valueOf(body, 8) ?? '0');
     const nextId = () => `OBJ-${String(++objectCounter).padStart(4, '0')}`;
+    // Propriétés de trait propres à l'entité (BYLAYER sinon).
+    const ownStyle: Pick<CadObject, 'color' | 'lineType' | 'lineWeight'> = {};
+    const lt = lineTypeFromDxf(valueOf(body, 6));
+    if (lt && lt !== 'bylayer') ownStyle.lineType = lt;
+    const lw = Number(valueOf(body, 370));
+    if (Number.isFinite(lw) && lw > 0) ownStyle.lineWeight = lw / 100;
+    const ownColor = colorFromBody(body);
+    if (ownColor) ownStyle.color = ownColor;
     const base = (label: string, id: string) => ({
       id,
       name: `${label} ${id}`,
@@ -444,6 +476,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       layerId: layer.id,
       hatch: 'none' as const,
       createdSeq: options.createdSeq,
+      ...ownStyle,
     });
 
     if (entity.type === 'LINE') {
@@ -749,10 +782,18 @@ function numberOf(body: Pair[], code: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }
 
+/** Couleurs ACI de base (1 à 9) ; les autres index ne sont pas traduits. */
+const ACI_BASE: Record<number, string> = {
+  1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff', 5: '#0000ff', 6: '#ff00ff', 7: '#ffffff', 8: '#808080', 9: '#c0c0c0',
+};
+
 function colorFromBody(body: Pair[]): string | undefined {
-  const trueColor = Number(valueOf(body, 420));
-  if (Number.isFinite(trueColor) && trueColor > 0) return trueColorToHex(trueColor);
-  return undefined;
+  // Vraie couleur : 0 est le noir (#000000), à distinguer d'un groupe 420 absent.
+  const raw = valueOf(body, 420);
+  const trueColor = raw === undefined ? NaN : Number(raw);
+  if (Number.isFinite(trueColor) && trueColor >= 0) return trueColorToHex(trueColor);
+  const aci = Math.abs(Number(valueOf(body, 62)));
+  return ACI_BASE[aci];
 }
 
 function hexToTrueColor(hex: string): number {

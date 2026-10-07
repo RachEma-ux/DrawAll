@@ -127,7 +127,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 1.6 Copier, coller, réseaux | Fait | #12 |
 | 1.7 Saisie précise | Fait | #13 |
 | 1.8 Accrochages complémentaires | Fait | #14 |
-| 1.9 → 8.4 | À faire | — |
+| 1.9 Propriétés de trait | Fait | #15 |
+| 1.10 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 
@@ -138,6 +139,7 @@ Sur un même projet : dessiner un logement de 2 pièces (murs, portes, surfaces,
 | Décision | Valeur par défaut en attendant | Lots concernés |
 | --- | --- | --- |
 | Unité d'affichage par défaut (mm partout ou cm/m en bâtiment) | mm | 1.7, 2.4 |
+| Couleur des objets à l'écran par défaut (trait du calque, usage CAO, ou classification métier) | Trait du calque | 1.9 |
 | Méthode de projection par défaut | Premier dièdre | 2.3, 5.2 |
 | Profil et sources des correspondances matériau → motif | Profil neutre (diagonales) | 3.1 |
 | Référentiel de surfaces (SIA 416, loi Carrez, autre) | SIA 416 | 4.3 |

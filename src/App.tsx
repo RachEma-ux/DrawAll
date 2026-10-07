@@ -6,7 +6,7 @@ import { Route, Routes } from 'react-router';
 import CloudProjectsPanel from '@/components/CloudProjectsPanel';
 import Header from '@/components/Header';
 import Navigator from '@/components/Navigator';
-import CanvasView, { type ToolId } from '@/components/CanvasView';
+import CanvasView, { type ColorMode, type ToolId } from '@/components/CanvasView';
 import Inspector from '@/components/Inspector';
 import HistoryPanel from '@/components/HistoryPanel';
 import CommandPalette, { type Command } from '@/components/CommandPalette';
@@ -118,6 +118,10 @@ function Workbench() {
   });
   useEffect(() => { try { localStorage.setItem('drawall-accrochages', JSON.stringify(snapTypes)); } catch { /* préférence non conservée */ } }, [snapTypes]);
   const [snapPanelOpen, setSnapPanelOpen] = useState(false);
+  const [colorMode, setColorMode] = useState<ColorMode>(() => {
+    try { return localStorage.getItem('drawall-couleurs') === 'metier' ? 'metier' : 'calque'; } catch { return 'calque'; }
+  });
+  useEffect(() => { try { localStorage.setItem('drawall-couleurs', colorMode); } catch { /* préférence non conservée */ } }, [colorMode]);
   const showCoord = (mm: number) => `${fmt(fromMm(mm, displayUnit), unitDecimals(displayUnit))} ${displayUnit}`;
   // Paramètres du congé et du chanfrein (mm), saisis dans le panneau de l'outil.
   const [cornerParams, setCornerParams] = useState({ r: '10', d1: '10', d2: '10' });
@@ -865,6 +869,7 @@ function Workbench() {
                 gridSize={gridSize}
                 projectKey={projectKey}
                 snapTypes={snapTypes}
+                colorMode={colorMode}
                 displayUnit={displayUnit}
                 onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
@@ -921,6 +926,14 @@ function Workbench() {
               <button onClick={() => setSnapPanelOpen(true)} className="rounded-sm border border-border px-1.5 py-0.5 hover:text-foreground">
                 accrochages {snapEnabled ? `${snapTypes.length}/${OBJECT_SNAP_TYPES.length}` : 'coupés'}
               </button>
+              <label className="flex items-center gap-1">
+                couleurs
+                <select aria-label="Couleurs à l’écran" value={colorMode} onChange={e => setColorMode(e.target.value as ColorMode)}
+                  className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                  <option value="calque">du trait (calque)</option>
+                  <option value="metier">classification métier</option>
+                </select>
+              </label>
               <label className="flex items-center gap-1">
                 grille
                 <select aria-label="Pas de grille" value={gridSize} onChange={e => setGridSize(Number(e.target.value))}
