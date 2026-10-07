@@ -4,6 +4,7 @@ import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel,
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
 import { formatLevel, pdimValues } from '@/lib/pdim';
+import { MATERIALS, effectiveHatch, materialById, profileById, type DrawingProfile } from '@/lib/materials';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
 import {
   canHatch,
@@ -33,9 +34,11 @@ interface Props {
   issues?: string[];
   /** Unité d'affichage des mesures. */
   displayUnit?: DisplayUnit;
+  /** Profil de dessin actif (motif des matériaux). */
+  profile?: DrawingProfile;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm' }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined) }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -216,9 +219,30 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           </div>
         )}
 
+        {obj.kind !== 'dimension' && obj.kind !== 'pdim' && obj.kind !== 'text' && (
+          <div>
+            <p className="ui-label mb-1.5">Matériau</p>
+            <select
+              aria-label="Matériau"
+              value={obj.materialId ?? ''}
+              onChange={e => onUpdate(obj.id, { materialId: e.target.value || undefined }, e.target.value ? `Matériau : ${materialById(e.target.value)?.name}` : 'Retirer le matériau')}
+              className="w-full rounded-sm border border-input bg-background px-2 py-1.5 text-xs outline-none focus:border-cyan-400"
+            >
+              <option value="">— Aucun —</option>
+              {MATERIALS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+        )}
+
         {canHatch(obj) && (
           <div>
             <p className="ui-label mb-1.5">Hachures</p>
+            {obj.materialId && materialById(obj.materialId) ? (
+              <p className="text-[11px] text-muted-foreground">
+                Motif donné par le profil « {profile.name} » ({profile.version}) pour {materialById(obj.materialId)!.name.toLowerCase()} :{' '}
+                <span className="text-foreground">{HATCH_LABEL[effectiveHatch(obj, profile)]}</span>. Retirez le matériau pour choisir un motif à la main.
+              </p>
+            ) : (
             <div className="grid grid-cols-2 gap-1">
               {(Object.keys(HATCH_LABEL) as HatchStyle[]).map(h => (
                 <button
@@ -232,6 +256,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
                 </button>
               ))}
             </div>
+            )}
           </div>
         )}
 

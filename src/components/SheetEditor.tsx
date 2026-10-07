@@ -6,6 +6,7 @@ import type { BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
+import { paperToModelSize } from '@/lib/annotation';
 import { pdfBytes, sheetToPdf } from '@/lib/pdf';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
@@ -360,9 +361,23 @@ export default function SheetEditor(p: Props) {
               return (
                 <g key={v.id} data-testid={`fenetre-${v.id}`}>
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
+                    {(() => {
+                      // Motifs de hachure propres à la fenêtre : pas de 3 mm et trait de 0,18 mm sur la feuille.
+                      const step = paperToModelSize(3, v.scale), w = paperToModelSize(0.18, v.scale);
+                      return (
+                        <defs>
+                          <pattern id={`${v.id}-hatch-diagonal`} width={step} height={step} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                            <line x1={0} y1={0} x2={0} y2={step} stroke="#94a3b8" strokeWidth={w} />
+                          </pattern>
+                          <pattern id={`${v.id}-hatch-cross`} width={step} height={step} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                            <path d={`M 0 0 L 0 ${step} M 0 0 L ${step} 0`} stroke="#94a3b8" strokeWidth={w} />
+                          </pattern>
+                        </defs>
+                      );
+                    })()}
                     {p.objects.filter(o => visibleLayer.get(o.layerId)).map(o => (
                       <ObjectShape key={o.id} obj={o} objects={p.objects} blocks={p.blocks} view={p.view} selected={false}
-                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} />
+                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} />
                     ))}
                   </svg>
                   <rect

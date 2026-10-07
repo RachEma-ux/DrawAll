@@ -1,7 +1,7 @@
 // DrawAll v4.1 — application unique : atelier de dessin + documentation du dossier.
 // Cinq repères permanents (UX1) : navigateur, zone de travail, commandes, inspecteur,
 // panneau des modifications/problèmes.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
 import CloudProjectsPanel from '@/components/CloudProjectsPanel';
 import Header from '@/components/Header';
@@ -26,6 +26,7 @@ import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { measurePolygon, type Measure } from '@/lib/area';
+import { PROFILES, withProfile } from '@/lib/materials';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
@@ -103,6 +104,9 @@ function Workbench() {
   const [panel, setPanel] = useState<'inspector' | 'history' | null>(null);
   const compactRef = useRef(compact);
   const [notice, setNotice] = useState<string | null>(null);
+  // Objets tels qu'ils se dessinent avec le profil de dessin actif (motif tiré du matériau) ;
+  // le modèle (project.objects) n'est pas modifié.
+  const shownObjects = useMemo(() => withProfile(project.objects, project.profile), [project.objects, project.profile]);
   // Incrémenté quand le projet est remplacé : le canevas oublie alors son dernier point posé.
   const [projectKey, setProjectKey] = useState(0);
   // Réglages d'affichage propres à ce navigateur : pas de grille et unité d'affichage.
@@ -267,7 +271,7 @@ function Workbench() {
   }, [project]);
 
   const exportDxf = useCallback(() => {
-    const { content, report } = exportDxfFile(project.objects, project.layers, project.blocks);
+    const { content, report } = exportDxfFile(shownObjects, project.layers, project.blocks);
     const blob = new Blob([content], { type: 'application/dxf' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -277,7 +281,7 @@ function Workbench() {
     if (report.transformed.length > 0 || report.lost.length > 0) {
       window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report));
     }
-  }, [cloudName, project.objects, project.layers, project.blocks]);
+  }, [cloudName, shownObjects, project.layers, project.blocks]);
 
   const importDxfFile = useCallback(async (file: File) => {
     const text = await file.text();
@@ -651,6 +655,7 @@ function Workbench() {
       onRemove={project.removeObject}
       onCreateBlock={createBlockFromSelection}
       displayUnit={displayUnit}
+      profile={project.profile}
     />
   );
   const historyEl = (
@@ -688,7 +693,7 @@ function Workbench() {
       {mode === 'feuilles' ? (
         <SheetEditor
           sheets={project.sheets}
-          objects={project.objects}
+          objects={shownObjects}
           layers={project.layers}
           blocks={project.blocks}
           view={view}
@@ -904,7 +909,7 @@ function Workbench() {
 
             <div className="relative min-h-0 flex-1">
               <CanvasView
-                objects={project.objects}
+                objects={shownObjects}
                 layers={project.layers}
                 blocks={project.blocks}
                 activeLayerId={project.activeLayerId}
@@ -1028,6 +1033,13 @@ function Workbench() {
               <button onClick={() => setSnapPanelOpen(true)} className="rounded-sm border border-border px-1.5 py-0.5 hover:text-foreground">
                 accrochages {snapEnabled ? `${snapTypes.length}/${OBJECT_SNAP_TYPES.length}` : 'coupés'}
               </button>
+              <label className="flex items-center gap-1" title={`${project.profile.source} · domaine : ${project.profile.domain}`}>
+                profil
+                <select aria-label="Profil de dessin" value={project.profile.id} onChange={e => project.setProfileId(e.target.value)}
+                  className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                  {PROFILES.map(p => <option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}
+                </select>
+              </label>
               <label className="flex items-center gap-1">
                 couleurs
                 <select aria-label="Couleurs à l’écran" value={colorMode} onChange={e => setColorMode(e.target.value as ColorMode)}

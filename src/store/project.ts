@@ -22,6 +22,7 @@ import {
 import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, type Placement } from '@/lib/array';
 import { LINE_TYPES } from '@/lib/linestyle';
+import { profileById } from '@/lib/materials';
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
 import { nextIndexLetter } from '@/lib/titleblock';
 
@@ -171,6 +172,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
           layers,
           blocks: normalizeBlocks(v.blocks, layers),
           sheets: normalizeSheets(v.sheets, layers),
+          ...(typeof v.profileId === 'string' ? { profileId: v.profileId } : {}),
         };
       });
     if (versions.length > 0) {
@@ -205,6 +207,7 @@ function load(): ProjectState {
 
 interface SnapshotPatch {
   sheets?: Sheet[];
+  profileId?: string;
   objects?: CadObject[];
   layers?: Layer[];
   blocks?: BlockDef[];
@@ -276,6 +279,7 @@ export function useProject() {
         layers: patch.layers ?? cur.layers,
         blocks: patch.blocks ?? cur.blocks,
         sheets: patch.sheets ?? cur.sheets ?? [],
+        ...((patch.profileId ?? cur.profileId) ? { profileId: patch.profileId ?? cur.profileId } : {}),
       };
       return {
         versions: [...s.versions.slice(0, s.pointer + 1), mv],
@@ -697,7 +701,15 @@ export function useProject() {
     commit(`Supprimer fenêtre ${id}`, { sheets: sheets.map(sh => (sh.id === sheetId ? { ...sh, viewports: sh.viewports.filter(v => v.id !== id) } : sh)) });
   }, [sheets, commit]);
 
+  // ─── Profil de dessin (lot 3.1) ──────────────────────────────────────────────
+  const profile = profileById(current.profileId);
+  const setProfileId = useCallback((id: string) => {
+    if (id === profile.id) return;
+    commit(`Profil de dessin : ${profileById(id).name}`, { profileId: id });
+  }, [profile.id, commit]);
+
   return {
+    profile, setProfileId,
     state, objects, layers, blocks, activeLayerId, sheets,
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,

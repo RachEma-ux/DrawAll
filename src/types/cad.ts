@@ -39,6 +39,8 @@ interface Base {
   layerId: string;
   hatch?: HatchStyle;
   createdSeq: number;      // microversion de création
+  /** Matériau (bibliothèque src/lib/materials.ts) ; le motif affiché en découle par le profil de dessin. */
+  materialId?: string;
   // Propriétés de trait propres à l'objet ; absentes = « du calque ».
   color?: string;
   lineType?: LineType;
@@ -175,6 +177,7 @@ export interface MicroVersion {
   layers: Layer[];
   blocks: BlockDef[];
   sheets?: Sheet[];        // absent dans les projets antérieurs au lot 2.1
+  profileId?: string;      // profil de dessin (lot 3.1) ; absent = profil par défaut
 }
 
 export interface ProjectState {
