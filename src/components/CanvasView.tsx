@@ -17,6 +17,7 @@ import type {
   TextObj,
   ViewReading,
   ViewsObj,
+  CutObj,
 } from '@/types/cad';
 import { CLASSIFICATION_META, dimensionValue, fmt, isClosedPolyline } from '@/types/cad';
 import {
@@ -46,6 +47,7 @@ import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/li
 import { openingGeometry, swingPath } from '@/lib/opening';
 import { areaM2, centroid, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
 import { distanceToViews, linkedViews } from '@/lib/views';
+import { cutView, distanceToCut } from '@/lib/cuts';
 import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol, isSymbol, symbolGeometry, type SymbolObject } from '@/lib/symbols';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
@@ -1099,6 +1101,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'cut') return <CutShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'views') return <ViewsShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (isSymbol(obj)) return <SymbolShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'room') return <RoomShape obj={obj} poly={rooms?.get(obj.id) ?? null} selected={selected} zoom={zoom} paperScale={paperScale} />;
@@ -1154,6 +1157,33 @@ function RoomShape({ obj, poly, selected, zoom, paperScale }: { obj: RoomObj; po
       <text x={c.x} y={c.y + size(13, 3.5) * 1.2} fontSize={size(11, 2.5)} fill={color} textAnchor="middle" fontFamily="JetBrains Mono, monospace" data-surface="">
         {formatM2(areaM2(poly))}
       </text>
+    </g>
+  );
+}
+
+/**
+ * Vue en coupe : contours des surfaces coupées en trait fort, hachures fines à 45° (pas de 3 mm
+ * papier, constant à l'écran), désignation « A–A » de 5 mm.
+ */
+function CutShape({ obj, objects, selected, zoom, layer, colorMode, paperScale }: {
+  obj: CutObj; objects: CadObject[]; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale;
+}) {
+  const m = (mm: number) => (paperScale ? paperToModelSize(mm, paperScale) : (mm * SCREEN_PX_PER_PAPER_MM) / zoom);
+  const c = cutView(obj, objects.find(o => o.id === obj.sourceId), objects.find(o => o.id === obj.markId), objects, m(3), m(5));
+  if (!c.ok) {
+    const src = objects.find(o => o.id === obj.sourceId);
+    const at = src ? objectBounds(src, [], objects) : null;
+    return at ? <text x={at.minX} y={at.maxY + m(8)} fontSize={11 / zoom} fill="#fb7185" fontFamily="JetBrains Mono, monospace">{obj.id} · coupe non évaluée : {c.error}</text> : null;
+  }
+  const g = c.value;
+  const st = effectiveStyle(obj, layer);
+  const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
+  const width = (mm: number, px: number) => (paperScale ? Math.max(strokeInModel(mm, paperScale), 0.5 / zoom) : px / zoom);
+  return (
+    <g data-coupe={obj.id}>
+      {g.hatch.map(([x1, y1, x2, y2], i) => <line key={`h${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={width(0.18, 0.7)} opacity={paperScale ? 1 : 0.8} />)}
+      <g data-arete="">{g.visible.map(([x1, y1, x2, y2], i) => <line key={`v${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={width(0.5, 1.6)} />)}</g>
+      <text x={g.label.x} y={g.label.y} fontSize={m(5) * TEXT_FONT_SCALE} fill={color} textAnchor="middle" fontFamily="Inter, Arial, Helvetica, sans-serif">{g.label.text}</text>
     </g>
   );
 }
@@ -1532,6 +1562,10 @@ function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], 
       if (geom && distanceSegment(x, y, geom.x1, geom.y1, geom.x2, geom.y2) <= tol) return o;
     }
     if (o.kind === 'text' && pointInText(o, x, y, tol)) return o;
+    if (o.kind === 'cut') {
+      const c = cutView(o, allObjects.find(s => s.id === o.sourceId), allObjects.find(s => s.id === o.markId), allObjects, 0, 0);
+      if (c.ok && distanceToCut(c.value, x, y) <= tol) return o;
+    }
     if (o.kind === 'views') {
       const v = linkedViews(o, allObjects.find(s => s.id === o.sourceId), allObjects);
       if (v && distanceToViews(v, x, y) <= tol) return o;

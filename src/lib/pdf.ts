@@ -20,6 +20,7 @@ import { occurrencePrimitives, profileById, withProfile, withProfileBlocks, type
 import { onLevel, viewportLevelId } from '@/lib/levels';
 import { isSymbol, symbolGeometry } from '@/lib/symbols';
 import { linkedViews } from '@/lib/views';
+import { cutView } from '@/lib/cuts';
 
 export const MM_TO_PT = 72 / 25.4;
 
@@ -200,6 +201,18 @@ export function sheetToPdf(input: PdfInput): string {
       const layer = layers.find(l => l.id === o.layerId);
       if (o.kind === 'dimension') { drawDimension(o); continue; }
       if (o.kind === 'pdim') { drawPointDimension(o); continue; }
+      if (o.kind === 'cut') {
+        const c = cutView(o, objects.find(s => s.id === o.sourceId), objects.find(s => s.id === o.markId), objects, 0, 5 / k);
+        if (!c.ok) continue;
+        for (const r of c.value.material) {
+          const pseudo = { ...o, kind: 'polyline', hatch: 'diagonal', hatchParams: undefined, points: [r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h, r.x, r.y] } as unknown as PrimitiveObject;
+          drawHatch(pathOf(pseudo).path, pseudo, []);
+        }
+        setStroke(0.5);
+        for (const [x1, y1, x2, y2] of c.value.visible) { const p = toPdf({ x: x1, y: y1 }), q = toPdf({ x: x2, y: y2 }); out(`${n(p.x)} ${n(p.y)} m ${n(q.x)} ${n(q.y)} l S`); }
+        text(c.value.label.text, modelToPaper(vp, c.value.label), 5, 0, 'center');
+        continue;
+      }
       if (o.kind === 'views') {
         const views = linkedViews(o, objects.find(s => s.id === o.sourceId), objects);
         for (const v of views ?? []) {

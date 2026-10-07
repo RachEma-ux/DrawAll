@@ -779,6 +779,7 @@ function Workbench() {
       surfaceRule={project.surfaceRule}
       onSurfaceRule={project.setSurfaceRule}
       onAddViews={project.addViews}
+      onAddCut={project.addCut}
       onSelect={project.setSelectedId}
     />
   );
