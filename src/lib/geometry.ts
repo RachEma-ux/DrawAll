@@ -2,6 +2,7 @@
 // contrainte orthogonale et limites de vue. Les fonctions sont pures pour être testables.
 import type { BlockDef, CadObject, DimensionObj, Layer, PrimitiveObject } from '@/types/cad';
 import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExtents } from '@/types/cad';
+import { normalizeAngle, textBounds } from '@/lib/text';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -142,6 +143,9 @@ function collectObjectSnaps(
       }
       return;
     }
+    case 'text':
+      add('insertion', object.x, object.y);
+      return;
   }
 }
 
@@ -220,6 +224,7 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
       return;
     }
     case 'dimension':
+    case 'text':
       return;
   }
 }
@@ -312,6 +317,8 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
       const g = target ? dimensionGeometry(object, target) : null;
       return g ? boundsOfPoints([{ x: g.x1, y: g.y1 }, { x: g.x2, y: g.y2 }]) : null;
     }
+    case 'text':
+      return textBounds(object);
   }
 }
 
@@ -435,6 +442,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'polyline': return { points: object.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)) };
     case 'dimension': return { offset: object.offset + (object.style === 'vertical' ? dx : dy) };
     case 'blockRef': return { x: object.x + dx, y: object.y + dy };
+    case 'text': return { x: object.x + dx, y: object.y + dy };
   }
 }
 
@@ -486,6 +494,11 @@ export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg
     }
     case 'dimension':
       return null; // cote associative : elle suit sa cible
+    case 'text': {
+      // angleDeg > 0 tourne dans le sens horaire à l'écran ; la rotation du texte est trigonométrique (repère DXF).
+      const p = rotatePoint(object.x, object.y, cx, cy, rad);
+      return { x: p.x, y: p.y, rotation: normalizeAngle(object.rotation - angleDeg) };
+    }
   }
 }
 
@@ -509,6 +522,9 @@ export function mirrorObject(object: CadObject, axis: 'x' | 'y', value: number):
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
     case 'dimension':
       return { offset: -object.offset };
+    case 'text':
+      // Le texte reste lisible (pas de lettres en miroir) : seul son point d'insertion est symétrisé.
+      return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
   }
 }
 
@@ -523,6 +539,7 @@ export function scaleObject(object: CadObject, cx: number, cy: number, factor: n
     case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
     case 'blockRef': return { x: s(object.x, cx), y: s(object.y, cy), scale: round(object.scale * factor) };
     case 'dimension': return { offset: round(object.offset * factor) };
+    case 'text': return { x: s(object.x, cx), y: s(object.y, cy), height: round(object.height * factor) };
   }
 }
 
@@ -553,6 +570,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'polyline':
     case 'dimension':
     case 'blockRef':
+    case 'text':
       return null;
   }
 }

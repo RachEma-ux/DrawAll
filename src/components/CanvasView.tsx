@@ -9,6 +9,7 @@ import type {
   Layer,
   NewCadObject,
   PrimitiveObject,
+  TextObj,
   ViewReading,
 } from '@/types/cad';
 import { CLASSIFICATION_META, dimensionValue, fmt, isClosedPolyline } from '@/types/cad';
@@ -25,8 +26,9 @@ import {
   type Point,
   type SnapPoint,
 } from '@/lib/geometry';
+import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'polyline' | 'dimension' | 'measure' | 'block' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -45,6 +47,10 @@ interface Props {
   onAdd: (partial: NewCadObject) => void;
   onAddDimension: (targetId: string) => void;
   onInsertBlock: (blockId: string, x: number, y: number) => void;
+  /** Pose d'un texte au point donné (outil Texte). */
+  onPlaceText: (x: number, y: number) => void;
+  /** Édition du contenu d'un texte existant (double-clic). */
+  onEditText: (id: string) => void;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -80,6 +86,8 @@ export default function CanvasView({
   onAdd,
   onAddDimension,
   onInsertBlock,
+  onPlaceText,
+  onEditText,
   onMoveMany,
   onCursor,
   onSnapChange,
@@ -256,6 +264,10 @@ export default function CanvasView({
       if (activeBlockId && activeLayer && !activeLayer.locked) onInsertBlock(activeBlockId, point.x, point.y);
       return;
     }
+    if (tool === 'text') {
+      if (activeLayer && !activeLayer.locked) onPlaceText(point.x, point.y);
+      return;
+    }
     if (activeDraft && (tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'measure')) return;
     startOrContinueDraft(point);
   };
@@ -406,6 +418,10 @@ export default function CanvasView({
     }
     if (tool === 'block') {
       if (activeBlockId && activeLayer && !activeLayer.locked) onInsertBlock(activeBlockId, x, y);
+      return;
+    }
+    if (tool === 'text') {
+      if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
     if (tool === 'polyline') {
@@ -584,7 +600,14 @@ export default function CanvasView({
         onPointerLeave={e => { if (e.pointerType === 'mouse' && pointers.current.size === 0) { updateHover(null); drag.current = { mode: null, lx: 0, ly: 0 }; } }}
         onContextMenu={e => e.preventDefault()}
         onWheel={handleWheel}
-        onDoubleClick={finishPolyline}
+        onDoubleClick={e => {
+          if (tool === 'select') {
+            const w = toWorld(e);
+            const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, 6 / tf.k);
+            if (hit?.kind === 'text') { onEditText(hit.id); return; }
+          }
+          finishPolyline();
+        }}
       >
         <defs>
           <pattern id="grid-min" width="10" height="10" patternUnits="userSpaceOnUse">
@@ -705,7 +728,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'polyline' || tool === 'measure' || tool === 'dimension' || tool === 'block') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'polyline' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {activeDraft && activeDraft.kind !== 'measure' && (
             <div className="flex max-w-full flex-wrap items-center gap-1 rounded-sm border border-cyan-400/50 bg-[#0c1220]/95 p-1 font-mono text-[10px] text-muted-foreground shadow-lg">
@@ -787,6 +810,7 @@ function ObjectShape({ obj, objects, blocks, view, selected, zoom }: {
 }) {
   if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} />;
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} />;
+  if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} />;
   return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected} />;
 }
 
@@ -951,6 +975,7 @@ function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: Block
       const geom = target ? dimensionGeometry(o, target) : null;
       if (geom && distanceSegment(x, y, geom.x1, geom.y1, geom.x2, geom.y2) <= tol) return o;
     }
+    if (o.kind === 'text' && pointInText(o, x, y, tol)) return o;
     if (o.kind === 'blockRef') {
       const block = blocks.find(b => b.id === o.blockId);
       if (!block) continue;
@@ -959,4 +984,30 @@ function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: Block
     }
   }
   return null;
+}
+
+function TextShape({ obj, selected, zoom }: { obj: TextObj; selected: boolean; zoom: number }) {
+  const meta = CLASSIFICATION_META[obj.classification];
+  const color = selected ? '#22d3ee' : obj.classification === 'non-classifie' ? '#e2e8f0' : meta.color;
+  const anchor = obj.align === 'center' ? 'middle' : obj.align === 'right' ? 'end' : 'start';
+  const corners = textCorners(obj);
+  return (
+    <g>
+      <text
+        x={obj.x}
+        y={obj.y}
+        fontSize={obj.height * TEXT_FONT_SCALE}
+        fill={color}
+        textAnchor={anchor}
+        fontFamily="Inter, Arial, Helvetica, sans-serif"
+        transform={obj.rotation ? `rotate(${-obj.rotation} ${obj.x} ${obj.y})` : undefined}
+        style={{ whiteSpace: 'pre' }}
+      >
+        {textLines(obj.content).map((line, i) => (
+          <tspan key={i} x={obj.x} dy={i === 0 ? 0 : obj.height * TEXT_LINE_SPACING}>{line || ' '}</tspan>
+        ))}
+      </text>
+      <polygon points={corners.map(p => `${p.x},${p.y}`).join(' ')} fill="transparent" stroke={selected ? '#22d3ee' : 'none'} strokeWidth={1 / zoom} strokeDasharray={`${4 / zoom} ${3 / zoom}`} />
+    </g>
+  );
 }

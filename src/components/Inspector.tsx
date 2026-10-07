@@ -76,14 +76,14 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
     fields.push(
       { label: 'X (mm)', el: num(obj.x, n => ({ x: n })) },
       { label: 'Y (mm)', el: num(obj.y, n => ({ y: n })) },
-      { label: 'Largeur (mm)', el: num(obj.w, n => ({ w: Math.max(1, n) })) },
-      { label: 'Hauteur (mm)', el: num(obj.h, n => ({ h: Math.max(1, n) })) },
+      { label: 'Largeur (mm)', el: num(obj.w, n => ({ w: n > 0 ? n : obj.w })) },
+      { label: 'Hauteur (mm)', el: num(obj.h, n => ({ h: n > 0 ? n : obj.h })) },
     );
   } else if (obj.kind === 'circle') {
     fields.push(
       { label: 'Centre X (mm)', el: num(obj.cx, n => ({ cx: n })) },
       { label: 'Centre Y (mm)', el: num(obj.cy, n => ({ cy: n })) },
-      { label: 'Rayon (mm)', el: num(obj.r, n => ({ r: Math.max(1, n) })) },
+      { label: 'Rayon (mm)', el: num(obj.r, n => ({ r: n > 0 ? n : obj.r })) },
     );
   } else if (obj.kind === 'dimension') {
     fields.push({ label: 'Décalage (mm)', el: num(obj.offset, n => ({ offset: n })) });
@@ -91,7 +91,14 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
     fields.push(
       { label: 'X (mm)', el: num(obj.x, n => ({ x: n })) },
       { label: 'Y (mm)', el: num(obj.y, n => ({ y: n })) },
-      { label: 'Échelle', el: num(obj.scale, n => ({ scale: Math.max(0.1, n) })) },
+      { label: 'Échelle', el: num(obj.scale, n => ({ scale: n > 0 ? n : obj.scale })) },
+    );
+  } else if (obj.kind === 'text') {
+    fields.push(
+      { label: 'X (mm)', el: num(obj.x, n => ({ x: n })) },
+      { label: 'Y (mm)', el: num(obj.y, n => ({ y: n })) },
+      { label: 'Hauteur (mm)', el: num(obj.height, n => ({ height: n > 0 ? n : obj.height })) },
+      { label: 'Rotation (°)', el: num(obj.rotation, n => ({ rotation: n })) },
     );
   }
 
@@ -211,6 +218,34 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             >
               {blocks.map(b => <option key={b.id} value={b.id}>{b.id} — {b.name}</option>)}
             </select>
+          </div>
+        )}
+
+        {obj.kind === 'text' && (
+          <div>
+            <p className="ui-label mb-1.5">Texte</p>
+            <textarea
+              key={`${obj.id}-${obj.content}`}
+              defaultValue={obj.content}
+              rows={Math.min(6, obj.content.split('\n').length + 1)}
+              aria-label="Contenu du texte"
+              className="w-full resize-y rounded-sm border border-input bg-background px-2 py-1.5 text-xs outline-none focus:border-cyan-400"
+              onBlur={e => {
+                const value = e.target.value.replace(/\s+$/, '');
+                if (value.trim() && value !== obj.content) onUpdate(obj.id, { content: value }, 'Modifier texte');
+              }}
+            />
+            <div className="mt-1.5 grid grid-cols-3 gap-1">
+              {(['left', 'center', 'right'] as const).map(a => (
+                <button
+                  key={a}
+                  onClick={() => onUpdate(obj.id, { align: a }, 'Aligner texte')}
+                  className={`rounded-sm border px-2 py-1.5 font-mono text-[10px] ${obj.align === a ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                >
+                  {a === 'left' ? 'Gauche' : a === 'center' ? 'Centre' : 'Droite'}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

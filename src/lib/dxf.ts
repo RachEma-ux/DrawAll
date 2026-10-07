@@ -7,7 +7,8 @@
 //   lecteurs stricts (ezdxf, AutoCAD). Les hachures sont exportées en entités HATCH.
 // - Chaque échange produit un rapport : ce qui est conservé, transformé ou perdu.
 // Convention : DrawAll travaille en Y descendant (SVG), DXF en Y ascendant.
-import type { BlockDef, CadObject, Layer, PrimitiveObject } from '@/types/cad';
+import type { BlockDef, CadObject, Layer, PrimitiveObject, TextAlign, TextObj } from '@/types/cad';
+import { textLines } from '@/lib/text';
 import { dimensionGeometry, dimensionText } from '@/lib/geometry';
 
 /** Écart maximal entre un arc et la polyligne qui l'approche, en millimètres. */
@@ -72,7 +73,7 @@ export interface DxfExportResult {
 interface Pair { code: number; value: string }
 
 const DEFAULT_LAYER_COLORS = ['#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185'];
-const SUPPORTED = new Set(['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE']);
+const SUPPORTED = new Set(['LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'TEXT', 'MTEXT']);
 const EPS = 1e-9;
 
 // ─── Export ────────────────────────────────────────────────────────────────
@@ -83,10 +84,10 @@ export function exportToDxf(objects: CadObject[], layers: Layer[], blocks: Block
 
 export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDef[]): DxfExportResult {
   const out: string[] = [];
-  const push = (code: number, value: string | number) => out.push(String(code), String(value));
+  const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { line: 0, circle: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0 };
+  const counts = { line: 0, circle: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -101,6 +102,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   // En-tête : version R2000, unités et mesure métrique.
   push(0, 'SECTION'); push(2, 'HEADER');
   push(9, '$ACADVER'); push(1, 'AC1015');
+  push(9, '$DWGCODEPAGE'); push(3, 'ANSI_1252');
   push(9, '$INSUNITS'); push(70, 4); // millimètres
   push(9, '$MEASUREMENT'); push(70, 1); // métrique
   push(0, 'ENDSEC');
@@ -158,6 +160,11 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       push(100, 'AcDbText');
       continue;
     }
+    if (object.kind === 'text') {
+      if (writeText(entityHeader, push, object, layer)) counts.mtext++;
+      else counts.text++;
+      continue;
+    }
     writeOne(object, layer);
   }
   push(0, 'ENDSEC'); push(0, 'EOF');
@@ -168,6 +175,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.line) report.kept.push(`Lignes : ${counts.line} (LINE).`);
   if (counts.circle) report.kept.push(`Cercles : ${counts.circle} (CIRCLE).`);
   if (counts.polyline) report.kept.push(`Polylignes : ${counts.polyline} (LWPOLYLINE).`);
+  if (counts.text) report.kept.push(`Textes sur une ligne : ${counts.text} (TEXT : contenu, hauteur, rotation, alignement).`);
+  if (counts.mtext) report.kept.push(`Textes sur plusieurs lignes : ${counts.mtext} (MTEXT).`);
   if (counts.hatch) report.kept.push(`Hachures : ${counts.hatch} (HATCH, motif ANSI31 / ANSI37 / SOLID).`);
   if (counts.rect) report.transformed.push(`Rectangles : ${counts.rect} → polylignes fermées (LWPOLYLINE).`);
   if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
@@ -192,6 +201,48 @@ function primitivePoints(object: PrimitiveObject): { points: number[]; closed: b
     return { points: closed ? p.slice(0, -2) : p, closed };
   }
   return null;
+}
+
+const ALIGN_CODE: Record<TextAlign, number> = { left: 0, center: 1, right: 2 };
+
+/**
+ * Texte : une ligne → TEXT (point d'insertion = ligne de base) ; plusieurs lignes → MTEXT
+ * (point d'attache en haut, direction donnée par un vecteur pour éviter toute ambiguïté
+ * d'unité d'angle). Renvoie vrai si un MTEXT a été écrit.
+ */
+function writeText(header: EntityHeader, push: Push, t: TextObj, layer: string): boolean {
+  const lines = textLines(t.content);
+  const rad = (t.rotation * Math.PI) / 180;
+  if (lines.length === 1) {
+    header('TEXT', layer, 'AcDbText');
+    push(10, n(t.x)); push(20, n(-t.y)); push(30, 0);
+    push(40, n(t.height));
+    push(1, lines[0]);
+    if (t.rotation) push(50, n(t.rotation));
+    const code = ALIGN_CODE[t.align];
+    if (code) push(72, code);
+    if (code) { push(11, n(t.x)); push(21, n(-t.y)); push(31, 0); }
+    push(100, 'AcDbText');
+    return false;
+  }
+  // Coin haut du bloc de texte : ligne de base + hauteur, dans la direction perpendiculaire.
+  const topX = t.x - Math.sin(rad) * t.height;
+  const topY = -t.y + Math.cos(rad) * t.height;
+  header('MTEXT', layer, 'AcDbMText');
+  push(10, n(topX)); push(20, n(topY)); push(30, 0);
+  push(40, n(t.height));
+  push(71, ALIGN_CODE[t.align] + 1);
+  push(72, 1);
+  // Le contenu est découpé en morceaux de 250 caractères (codes 3 puis 1).
+  const value = lines.map(escapeMText).join('\\P');
+  for (let i = 0; i + 250 < value.length; i += 250) push(3, value.slice(i, i + 250));
+  push(1, value.slice(Math.floor((value.length - 1) / 250) * 250));
+  push(11, n(Math.cos(rad))); push(21, n(Math.sin(rad))); push(31, 0);
+  return true;
+}
+
+function escapeMText(line: string): string {
+  return line.replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}');
 }
 
 function writePrimitive(header: EntityHeader, push: Push, object: PrimitiveObject, layer: string): void {
@@ -359,7 +410,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
     return layer;
   };
 
-  const stats = { line: 0, circle: 0, arc: 0, polyline: 0, bulgeSegments: 0, maxArcError: 0, mirrored: 0, outOfPlane: 0, widths: 0, degenerate: 0 };
+  const stats = { text: 0, line: 0, circle: 0, arc: 0, polyline: 0, bulgeSegments: 0, maxArcError: 0, mirrored: 0, outOfPlane: 0, widths: 0, degenerate: 0 };
   let objectCounter = options.objectStart;
   const objects: CadObject[] = [];
   for (const entity of entities) {
@@ -404,6 +455,14 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       const id = nextId();
       objects.push({ ...base('Cercle', id), kind: 'circle', cx: round(cx), cy: round(-cy), r: round(r) });
       stats.circle++;
+      continue;
+    }
+    if (entity.type === 'TEXT' || entity.type === 'MTEXT') {
+      const text = parseTextEntity(entity.type, body, k, sx);
+      if (!text) { stats.degenerate++; continue; }
+      const id = nextId();
+      objects.push({ ...base('Texte', id), name: text.content.split('\n')[0].slice(0, 40) || `Texte ${id}`, kind: 'text', ...text });
+      stats.text++;
       continue;
     }
     if (entity.type === 'ARC') {
@@ -472,6 +531,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
   else report.transformed.push(`Unité : ${unitText} → millimètre (×${formatFactor(unitDef.toMm)}).`);
   if (stats.line) report.kept.push(`Lignes : ${stats.line}.`);
   if (stats.circle) report.kept.push(`Cercles : ${stats.circle}.`);
+  if (stats.text) report.kept.push(`Textes : ${stats.text} (contenu, hauteur, rotation, alignement ; mise en forme MTEXT simplifiée).`);
   if (stats.polyline) report.kept.push(`Polylignes : ${stats.polyline}.`);
   if (stats.arc || stats.bulgeSegments) {
     const parts = [stats.arc ? `${stats.arc} arc(s)` : '', stats.bulgeSegments ? `${stats.bulgeSegments} segment(s) courbe(s) de polyligne` : ''].filter(Boolean).join(' et ');
@@ -491,7 +551,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
     report.lost.push(text);
     warnings.push(text);
   }
-  if (entities.length === 0) warnings.push('Aucune entité LINE, CIRCLE, ARC ou LWPOLYLINE trouvée dans le fichier DXF.');
+  if (entities.length === 0) warnings.push('Aucune entité LINE, CIRCLE, ARC, LWPOLYLINE, TEXT ou MTEXT trouvée dans le fichier DXF.');
 
   return {
     objects,
@@ -501,6 +561,70 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
     unit: { key: unitDef.key, label: unitDef.label, toMm: unitDef.toMm, source: unitSource },
     unitMissing,
   };
+}
+
+/** Codes de contrôle des TEXT (%%c, %%d, %%p) et de mise en forme des MTEXT, ramenés à du texte simple. */
+export function decodeDxfText(raw: string, mtext: boolean): string {
+  let t = raw.replace(/%%[cC]/g, 'Ø').replace(/%%[dD]/g, '°').replace(/%%[pP]/g, '±').replace(/%%[uUoO]/g, '').replace(/%%%/g, '%');
+  if (!mtext) return t;
+  t = t
+    .replace(/\\\\/g, '\uE000')
+    .replace(/\\\{/g, '\uE001')
+    .replace(/\\\}/g, '\uE002')
+    .replace(/\\P/g, '\n')
+    .replace(/\\~/g, ' ')
+    .replace(/\\S([^;]*)[\^#/]([^;]*);/g, '$1/$2')
+    .replace(/\\[ACcFfHhQqTtWwp][^;]*;/g, '')
+    .replace(/\\[LlOoKkNn]/g, '')
+    .replace(/[{}]/g, '')
+    .replace(/\uE001/g, '{')
+    .replace(/\uE002/g, '}')
+    .replace(/\uE000/g, '\\');
+  return t;
+}
+
+function parseTextEntity(type: 'TEXT' | 'MTEXT', body: Pair[], k: number, sx: number): Pick<TextObj, 'x' | 'y' | 'content' | 'height' | 'rotation' | 'align'> | null {
+  const height = Math.abs(numberOf(body, 40, 0)) * k;
+  if (height <= EPS) return null;
+  if (type === 'TEXT') {
+    const content = decodeDxfText(valueOf(body, 1) ?? '', false);
+    if (!content.trim()) return null;
+    const h = Number(valueOf(body, 72) ?? '0');
+    const align: TextAlign = h === 1 || h === 4 ? 'center' : h === 2 ? 'right' : 'left';
+    const useAlignPoint = h !== 0 && valueOf(body, 11) !== undefined;
+    const x = sx * numberOf(body, useAlignPoint ? 11 : 10, 0) * k;
+    const y = numberOf(body, useAlignPoint ? 21 : 20, 0) * k;
+    let rotation = numberOf(body, 50, 0);
+    if (sx < 0) rotation = 180 - rotation;
+    return { x: round(x), y: round(-y), content, height: round(height), rotation: normalizeDeg(rotation), align };
+  }
+  // MTEXT : contenu en morceaux (codes 3) puis fin (code 1).
+  const raw = body.filter(p => p.code === 3).map(p => p.value).join('') + (valueOf(body, 1) ?? '');
+  const content = decodeDxfText(raw, true).replace(/\n+$/, '');
+  if (!content.trim()) return null;
+  const attach = Math.min(9, Math.max(1, Number(valueOf(body, 71) ?? '1') || 1));
+  const align: TextAlign = (['left', 'center', 'right'] as const)[(attach - 1) % 3];
+  const row = Math.floor((attach - 1) / 3); // 0 haut, 1 milieu, 2 bas
+  let rotation = valueOf(body, 11) !== undefined
+    ? (Math.atan2(numberOf(body, 21, 0), numberOf(body, 11, 1)) * 180) / Math.PI
+    : numberOf(body, 50, 0);
+  if (sx < 0) rotation = 180 - rotation;
+  const lines = content.split('\n').length;
+  const blockHeight = height + (lines - 1) * height * 1.4;
+  // Distance (vers le bas, repère local) du point d'attache à la ligne de base de la 1re ligne.
+  const down = row === 0 ? height : row === 1 ? height - blockHeight / 2 : -(lines - 1) * height * 1.4;
+  const rad = (rotation * Math.PI) / 180;
+  const ax = sx * numberOf(body, 10, 0) * k;
+  const ay = numberOf(body, 20, 0) * k;
+  const bx = ax + Math.sin(rad) * down;
+  const by = ay - Math.cos(rad) * down;
+  return { x: round(bx), y: round(-by), content, height: round(height), rotation: normalizeDeg(rotation), align };
+}
+
+function normalizeDeg(deg: number): number {
+  let a = ((deg % 360) + 360) % 360;
+  if (a > 180) a -= 360;
+  return Math.round(a * 1e6) / 1e6;
 }
 
 /** Texte lisible d'un rapport d'échange (pour une boîte de dialogue ou un journal). */
@@ -569,9 +693,21 @@ function toPairs(text: string): Pair[] {
   const pairs: Pair[] = [];
   for (let i = 0; i + 1 < lines.length; i += 2) {
     const code = Number(lines[i].trim());
-    if (Number.isFinite(code)) pairs.push({ code, value: lines[i + 1].trim() });
+    if (Number.isFinite(code)) pairs.push({ code, value: decodeDxfString(lines[i + 1].trim()) });
   }
   return pairs;
+}
+
+/**
+ * Chaînes DXF R2000 : les caractères hors ASCII s'écrivent « \U+XXXX » (lisibles quel que soit
+ * le jeu de caractères du lecteur) ; les caractères au-delà de U+FFFF passent par leurs deux moitiés UTF-16.
+ */
+export function encodeDxfString(value: string): string {
+  return value.replace(/[\u0080-\uFFFF]/g, ch => `\\U+${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`);
+}
+
+export function decodeDxfString(value: string): string {
+  return value.replace(/\\U\+([0-9A-Fa-f]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 function readBody(pairs: Pair[], start: number): Pair[] {

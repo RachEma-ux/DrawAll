@@ -1,7 +1,8 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'polyline' | 'dimension' | 'blockRef';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'polyline' | 'dimension' | 'blockRef' | 'text';
+export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
 export type DimensionStyle = 'horizontal' | 'vertical' | 'aligned' | 'radial';
@@ -48,6 +49,21 @@ export interface DimensionObj extends Base {
   offset: number;
 }
 
+/**
+ * Texte : point d'insertion sur la ligne de base, hauteur des majuscules en mm (modèle),
+ * rotation en degrés dans le sens trigonométrique (repère DXF, Y vers le haut).
+ * Le contenu peut compter plusieurs lignes (séparées par « \n »).
+ */
+export interface TextObj extends Base {
+  kind: 'text';
+  x: number;
+  y: number;
+  content: string;
+  height: number;
+  rotation: number;
+  align: TextAlign;
+}
+
 /** Occurrence d'un bloc réutilisable. */
 export interface BlockRefObj extends Base {
   kind: 'blockRef';
@@ -58,7 +74,7 @@ export interface BlockRefObj extends Base {
 }
 
 export type PrimitiveObject = LineObj | RectObj | CircleObj | PolylineObj;
-export type CadObject = PrimitiveObject | DimensionObj | BlockRefObj;
+export type CadObject = PrimitiveObject | DimensionObj | BlockRefObj | TextObj;
 
 export interface BlockDef {
   id: string;              // identifiant stable BLQ-0001
@@ -115,6 +131,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   polyline: 'Polyligne',
   dimension: 'Cote',
   blockRef: 'Bloc',
+  text: 'Texte',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -146,6 +163,9 @@ export function readingFor(obj: CadObject, view: ViewReading): { title: string; 
   const dim = dimensionOf(obj);
   if (obj.kind === 'dimension') {
     return { title: 'Cote associative', detail: `Mesure dérivée de ${obj.targetId} — recalculée à chaque modification de la cible.` };
+  }
+  if (obj.kind === 'text') {
+    return { title: 'Annotation', detail: `« ${obj.content.split('\n')[0]} » — texte de ${fmt(obj.height)} mm, lisible dans les deux lectures.` };
   }
   if (obj.kind === 'blockRef') {
     return { title: 'Occurrence de bloc', detail: `Référence ${obj.blockId} — la définition reste unique et réutilisable.` };
@@ -185,6 +205,7 @@ export function dimensionOf(obj: CadObject): string {
     }
     case 'dimension': return `cote → ${obj.targetId}`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
+    case 'text': return `texte h ${fmt(obj.height)} mm`;
   }
 }
 

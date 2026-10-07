@@ -20,6 +20,7 @@ import type { DisplayLevel, ViewReading } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
+import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, selectionCenter } from '@/lib/geometry';
@@ -28,7 +29,7 @@ import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, sele
 const COMPACT_BREAKPOINT = 1024;
 
 /** Outils toujours visibles sur petit écran ; les autres sont regroupés dans « Plus ». */
-const PRIMARY_TOOLS: ToolId[] = ['select', 'line', 'rect', 'circle', 'polyline'];
+const PRIMARY_TOOLS: ToolId[] = ['select', 'line', 'rect', 'circle', 'polyline'];  // Texte, Cote, Mesure… dans « Plus »
 
 const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: DisplayLevel[]; hint: string }[] = [
   { id: 'select', label: 'Sélection', short: 'Sél.', key: 'V', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Sélectionner et déplacer' },
@@ -38,6 +39,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'measure', label: 'Mesure', key: 'M', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Cliquez-glissez pour mesurer une distance' },
+  { id: 'text', label: 'Texte', key: 'T', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez ou cliquez le point d’insertion, puis saisissez le texte' },
   { id: 'block', label: 'Bloc', key: 'B', levels: ['contextuel', 'complet'], hint: 'Cliquez pour insérer le bloc actif' },
   { id: 'pan', label: 'Panoramique', short: 'Vue', key: 'H', levels: ['contextuel', 'complet'], hint: 'Déplacer la vue (molette : zoom)' },
 ];
@@ -212,6 +214,32 @@ function Workbench() {
     setMode('docs');
   }, []);
 
+  // Texte : pose au point choisi, contenu saisi par l'utilisateur ; double-clic pour modifier.
+  const placeText = useCallback((x: number, y: number) => {
+    const content = window.prompt('Texte à poser', '');
+    if (!content || !content.trim()) return;
+    project.addObject({
+      kind: 'text',
+      classification: 'non-classifie',
+      layerId: project.activeLayerId,
+      hatch: 'none',
+      x,
+      y,
+      content: content.trim(),
+      height: DEFAULT_TEXT_HEIGHT,
+      rotation: 0,
+      align: 'left',
+    }, content.trim().slice(0, 40));
+  }, [project]);
+
+  const editText = useCallback((id: string) => {
+    const obj = project.objects.find(o => o.id === id);
+    if (obj?.kind !== 'text') return;
+    const content = window.prompt('Modifier le texte', obj.content);
+    if (content === null || !content.trim() || content === obj.content) return;
+    project.updateObject(id, { content: content.trim() }, 'Modifier texte');
+  }, [project]);
+
   const prepareBlockInsertion = useCallback((blockId: string) => {
     setActiveBlockId(blockId);
     setMode('atelier');
@@ -343,6 +371,7 @@ function Workbench() {
         rect: ['rectangle', 'cadre', 'box', 'rect'],
         circle: ['cercle', 'arc', 'circle', 'rond'],
         polyline: ['polyligne', 'polyline', 'contour', 'profil'],
+        text: ['texte', 'annotation', 'etiquette', 'text', 'label'],
         dimension: ['cote', 'cotation', 'dimension', 'mesure associative'],
         measure: ['mesure', 'distance', 'mesurer'],
         block: ['bloc', 'symbole', 'inserer', 'occurrence'],
@@ -680,6 +709,8 @@ function Workbench() {
                 onAdd={project.addObject}
                 onAddDimension={project.addDimension}
                 onInsertBlock={project.insertBlock}
+                onPlaceText={placeText}
+                onEditText={editText}
                 onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
                 onSnapChange={setCurrentSnap}

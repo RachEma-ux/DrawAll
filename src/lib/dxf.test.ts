@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CadObject, Layer } from '@/types/cad';
-import { ARC_TOLERANCE_MM, bulgeArc, exportDxf, exportToDxf, parseDxf } from './dxf';
+import { ARC_TOLERANCE_MM, bulgeArc, decodeDxfString, encodeDxfString, exportDxf, exportToDxf, parseDxf } from './dxf';
 
 const layers: Layer[] = [
   { id: 'LAY-0001', name: 'Dessin', color: '#22d3ee', visible: true, locked: false },
@@ -34,7 +34,7 @@ function lineLength(o: CadObject | undefined): number {
 function entityPairs(content: string, type: string): [number, string][] {
   const lines = content.split('\n');
   const pairs: [number, string][] = [];
-  for (let i = 0; i + 1 < lines.length; i += 2) pairs.push([Number(lines[i]), lines[i + 1]]);
+  for (let i = 0; i + 1 < lines.length; i += 2) pairs.push([Number(lines[i]), decodeDxfString(lines[i + 1])]);
   const start = pairs.findIndex(([c, v]) => c === 0 && v === type);
   if (start < 0) return [];
   const end = pairs.findIndex(([c], i) => i > start && c === 0);
@@ -97,7 +97,7 @@ describe('export DXF', () => {
       { ...base, id: 'OBJ-0002', name: 'Cote', kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 40 },
     ];
     const { content, report } = exportDxf(objects, layers, []);
-    expect(content).toMatch(/\n5[\s\u202f]000 mm\n/);
+    expect(entityPairs(content, 'TEXT').find(([c]) => c === 1)?.[1]).toMatch(/^5[\s\u202f]000 mm$/);
     expect(report.transformed.join(' ')).toContain('association');
     keepFixture('cote.dxf', content);
   });
@@ -224,5 +224,60 @@ describe('import DXF — courbes', () => {
     expect(parsed.objects).toHaveLength(0);
     expect(parsed.warnings.join(' ')).toContain('SPLINE');
     expect(parsed.report.lost.join(' ')).toContain('SPLINE');
+  });
+});
+
+describe('DXF — texte', () => {
+  const single: CadObject = { ...base, id: 'OBJ-0001', name: 'Séjour', kind: 'text', x: 100, y: -50, content: 'Séjour 24,5 m²', height: 25, rotation: 30, align: 'center' };
+  const multi: CadObject = { ...base, id: 'OBJ-0002', name: 'Note', kind: 'text', x: 0, y: 0, content: 'Ligne 1\nLigne {2}', height: 10, rotation: 0, align: 'left' };
+
+  it('exporte une ligne en TEXT et plusieurs lignes en MTEXT', () => {
+    const { content, report } = exportDxf([single, multi], layers, []);
+    const text = entityPairs(content, 'TEXT');
+    expect(text.find(([c]) => c === 1)?.[1]).toBe('Séjour 24,5 m²');
+    expect(text.find(([c]) => c === 72)?.[1]).toBe('1');
+    expect(text.find(([c]) => c === 50)?.[1]).toBe('30');
+    const mtext = entityPairs(content, 'MTEXT');
+    expect(mtext.find(([c]) => c === 1)?.[1]).toBe('Ligne 1\\PLigne \\{2\\}');
+    expect(report.kept.join(' ')).toContain('Textes sur une ligne : 1');
+    expect(report.kept.join(' ')).toContain('plusieurs lignes : 1');
+    keepFixture('texte.dxf', content);
+  });
+
+  it('relit ses propres textes à l’identique', () => {
+    const parsed = parseDxf(exportToDxf([single, multi], layers, []), options);
+    expect(parsed.objects).toHaveLength(2);
+    expect(parsed.objects[0]).toMatchObject({ kind: 'text', x: 100, y: -50, content: 'Séjour 24,5 m²', height: 25, rotation: 30, align: 'center' });
+    const m = parsed.objects[1];
+    expect(m).toMatchObject({ kind: 'text', content: 'Ligne 1\nLigne {2}', height: 10, rotation: 0, align: 'left' });
+    if (m.kind === 'text') {
+      expect(m.x).toBeCloseTo(0, 6);
+      expect(m.y).toBeCloseTo(0, 6);
+    }
+  });
+
+  it('décode les codes de contrôle TEXT et la mise en forme MTEXT', () => {
+    const parsed = parseDxf(dxf([
+      '0', 'TEXT', '8', '0', '10', '0', '20', '0', '40', '2.5', '1', 'Perçage %%c12,5 %%p0,1',
+      '0', 'MTEXT', '8', '0', '10', '0', '20', '100', '40', '5', '71', '1', '3', '{\\fArial|b1;Titre}\\P', '1', 'Sous-titre\\~a',
+    ], 4), options);
+    expect(parsed.objects.map(o => (o.kind === 'text' ? o.content : ''))).toEqual(['Perçage Ø12,5 ±0,1', 'Titre\nSous-titre a']);
+    const mtext = parsed.objects[1];
+    // Attache en haut à gauche : la ligne de base est une hauteur sous le point d'attache (y DXF 100 → y écran −95).
+    if (mtext.kind === 'text') expect(mtext.y).toBeCloseTo(-95, 6);
+  });
+
+  it('écrit les caractères accentués en \\U+XXXX (lisibles par tout lecteur R2000)', () => {
+    const content = exportToDxf([single], [{ ...layers[0], name: 'Bâtiment' }], []);
+    expect(content).toContain('B\\U+00E2timent');
+    expect(content).toContain('S\\U+00E9jour');
+    expect(content).not.toMatch(/[\u0080-\uFFFF]/);
+    expect(encodeDxfString('Ø 12')).toBe('\\U+00D8 12');
+    expect(parseDxf(content, options).layers.concat(layers).some(l => l.name === 'Bâtiment' || l.name === 'Dessin')).toBe(true);
+  });
+
+  it('applique l’unité du fichier à la position et à la hauteur', () => {
+    const parsed = parseDxf(dxf(['0', 'TEXT', '8', '0', '10', '1', '20', '2', '40', '0.25', '1', 'A'], 6), options);
+    expect(parsed.objects[0]).toMatchObject({ kind: 'text', x: 1000, y: -2000, height: 250 });
   });
 });
