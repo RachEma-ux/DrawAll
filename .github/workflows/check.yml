@@ -1,7 +1,8 @@
 name: Contrôle
 
 # Contrôle de qualité à chaque poussée et demande de fusion : types, lint, tests,
-# build, et lisibilité des DXF exportés par un lecteur strict (ezdxf).
+# build, lisibilité des DXF exportés par un lecteur strict (ezdxf) et recette
+# navigateur Playwright (ordinateur et téléphone).
 # Indépendant du workflow de déploiement (main.yml).
 
 on:
@@ -44,3 +45,20 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Installer Chromium pour la recette
+        run: npx playwright install --with-deps chromium
+
+      - name: Recette navigateur (ordinateur et téléphone)
+        run: npm run e2e
+
+      - name: Rapport de recette
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-recette-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+          if-no-files-found: ignore

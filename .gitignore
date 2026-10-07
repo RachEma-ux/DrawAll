@@ -39,3 +39,7 @@ build/
 # Test coverage
 coverage/
 .nyc_output/
+
+# Recette Playwright
+playwright-report/
+test-results/

@@ -574,6 +574,7 @@ export default function CanvasView({
     <div className="relative h-full w-full overflow-hidden">
       <svg
         ref={ref}
+        data-testid="canvas"
         className={`h-full w-full select-none ${cursorClass}`}
         style={{ touchAction: 'none' }}
         onPointerDown={onPointerDown}
