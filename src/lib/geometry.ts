@@ -1,7 +1,7 @@
 // Moteur géométrique 2D de l'atelier : accrochages objet, intersections,
 // contrainte orthogonale et limites de vue. Les fonctions sont pures pour être testables.
 import type { BlockDef, CadObject, DimensionObj, Layer, PrimitiveObject } from '@/types/cad';
-import { dimensionValue, isClosedPolyline } from '@/types/cad';
+import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExtents } from '@/types/cad';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -359,29 +359,15 @@ function boundsOfPoints(points: Point[]): Bounds {
 }
 
 export function dimensionGeometry(dim: DimensionObj, target: CadObject): { x1: number; y1: number; x2: number; y2: number; tx: number; ty: number; ext: [number, number, number, number][] } | null {
-  if (dim.style === 'radial' && target.kind === 'circle') {
+  const style = effectiveDimensionStyle(dim.style, target);
+  if (!style) return null;
+  if (style === 'radial' && target.kind === 'circle') {
     const a = -Math.PI / 4;
     const x2 = target.cx + Math.cos(a) * target.r;
     const y2 = target.cy + Math.sin(a) * target.r;
     return { x1: target.cx, y1: target.cy, x2, y2, tx: (target.cx + x2) / 2, ty: (target.cy + y2) / 2 - 8, ext: [] };
   }
-  if (target.kind === 'rect' && dim.style === 'horizontal') {
-    const y = target.y + (dim.offset >= 0 ? target.h + dim.offset : dim.offset);
-    return {
-      x1: target.x, y1: y, x2: target.x + target.w, y2: y,
-      tx: target.x + target.w / 2, ty: y - 8,
-      ext: [[target.x, target.y, target.x, y], [target.x + target.w, target.y, target.x + target.w, y]],
-    };
-  }
-  if (target.kind === 'rect' && dim.style === 'vertical') {
-    const x = target.x + (dim.offset >= 0 ? target.w + dim.offset : dim.offset);
-    return {
-      x1: x, y1: target.y, x2: x, y2: target.y + target.h,
-      tx: x + 8, ty: target.y + target.h / 2,
-      ext: [[target.x, target.y, x, target.y], [target.x, target.y + target.h, x, target.y + target.h]],
-    };
-  }
-  if (target.kind === 'line') {
+  if (style === 'aligned' && target.kind === 'line') {
     const len = Math.hypot(target.x2 - target.x1, target.y2 - target.y1) || 1;
     const nx = -(target.y2 - target.y1) / len;
     const ny = (target.x2 - target.x1) / len;
@@ -390,8 +376,47 @@ export function dimensionGeometry(dim: DimensionObj, target: CadObject): { x1: n
     const x2 = target.x2 + nx * off, y2 = target.y2 + ny * off;
     return { x1, y1, x2, y2, tx: (x1 + x2) / 2, ty: (y1 + y2) / 2 - 8, ext: [[target.x1, target.y1, x1, y1], [target.x2, target.y2, x2, y2]] };
   }
-  if (target.kind === 'rect') return dimensionGeometry({ ...dim, style: 'horizontal' }, target);
+  // Cotes horizontales (ΔX) et verticales (ΔY) : mesurées entre deux points de référence.
+  if (style !== 'horizontal' && style !== 'vertical') return null;
+  const refs = dimensionReferencePoints(target, style, dim.offset >= 0);
+  if (!refs) return null;
+  const [a, b] = refs;
+  if (style === 'horizontal') {
+    const y = dim.offset >= 0 ? Math.max(a.y, b.y) + dim.offset : Math.min(a.y, b.y) + dim.offset;
+    return {
+      x1: a.x, y1: y, x2: b.x, y2: y,
+      tx: (a.x + b.x) / 2, ty: y - 8,
+      ext: [[a.x, a.y, a.x, y], [b.x, b.y, b.x, y]],
+    };
+  }
+  if (style === 'vertical') {
+    const x = dim.offset >= 0 ? Math.max(a.x, b.x) + dim.offset : Math.min(a.x, b.x) + dim.offset;
+    return {
+      x1: x, y1: a.y, x2: x, y2: b.y,
+      tx: x + 8, ty: (a.y + b.y) / 2,
+      ext: [[a.x, a.y, x, a.y], [b.x, b.y, x, b.y]],
+    };
+  }
   return null;
+}
+
+/** Points de référence d'une cote horizontale ou verticale (extrémités de la mesure). */
+// Pour une emprise (rectangle, polyligne), l'arête de référence est celle du côté de la cote :
+// décalage positif = sous l'objet (horizontale) ou à sa droite (verticale), négatif = au-dessus ou à gauche.
+function dimensionReferencePoints(target: CadObject, style: 'horizontal' | 'vertical', positive: boolean): [Point, Point] | null {
+  let e: Bounds;
+  switch (target.kind) {
+    case 'line': return [{ x: target.x1, y: target.y1 }, { x: target.x2, y: target.y2 }];
+    case 'rect': e = { minX: target.x, minY: target.y, maxX: target.x + target.w, maxY: target.y + target.h }; break;
+    case 'polyline': e = polylineExtents(target.points); break;
+    default: return null;
+  }
+  if (style === 'horizontal') {
+    const y = positive ? e.maxY : e.minY;
+    return [{ x: e.minX, y }, { x: e.maxX, y }];
+  }
+  const x = positive ? e.maxX : e.minX;
+  return [{ x, y: e.minY }, { x, y: e.maxY }];
 }
 
 export function distanceSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {

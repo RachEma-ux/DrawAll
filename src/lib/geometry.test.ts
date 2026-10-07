@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { CadObject, Layer } from '@/types/cad';
-import { constrainOrtho, findSnap, moveObject } from './geometry';
+import type { CadObject, DimensionObj, DimensionStyle, Layer } from '@/types/cad';
+import { dimensionMeasure, dimensionOf, dimensionValue, fmt, supportedDimensionStyles } from '@/types/cad';
+import { constrainOrtho, dimensionGeometry, findSnap, moveObject } from './geometry';
 
 const layers: Layer[] = [
   { id: 'LAY-0001', name: 'Dessin', color: '#22d3ee', visible: true, locked: false },
@@ -87,5 +88,69 @@ describe('transformations', () => {
       { ...base, id: 'OBJ-0008', name: 'B', kind: 'circle', cx: 200, cy: 200, r: 50 },
     ];
     expect(selectionCenter(['OBJ-0007', 'OBJ-0008'], objects, [])).toEqual({ x: 125, y: 125 });
+  });
+});
+
+describe('cotes', () => {
+  const line: CadObject = { ...base, id: 'OBJ-0001', name: 'Ligne', kind: 'line', x1: 0, y1: 0, x2: 3000, y2: 4000 };
+  const dim = (style: DimensionStyle, targetId = 'OBJ-0001', offset = 40): DimensionObj => ({
+    ...base, id: 'OBJ-0009', name: 'Cote', kind: 'dimension', targetId, style, offset,
+  });
+
+  it.each([
+    ['horizontal', 3000],
+    ['vertical', 4000],
+    ['aligned', 5000],
+  ] as const)('une cote %s sur une ligne mesure %i mm', (style, expected) => {
+    expect(dimensionMeasure(dim(style), line)?.value).toBe(expected);
+  });
+
+  it('dessine la cote horizontale parallèle à X sur la portée ΔX', () => {
+    const g = dimensionGeometry(dim('horizontal'), line)!;
+    expect(g.y1).toBe(g.y2);
+    expect(Math.abs(g.x2 - g.x1)).toBe(3000);
+    expect(g.y1).toBe(4040);
+  });
+
+  it('dessine la cote verticale parallèle à Y sur la portée ΔY', () => {
+    const g = dimensionGeometry(dim('vertical'), line)!;
+    expect(g.x1).toBe(g.x2);
+    expect(Math.abs(g.y2 - g.y1)).toBe(4000);
+  });
+
+  it('place la cote d\'un rectangle du côté du décalage', () => {
+    const rect: CadObject = { ...base, id: 'OBJ-0002', name: 'Platine', kind: 'rect', x: 0, y: 0, w: 200, h: 120 };
+    expect(dimensionGeometry(dim('horizontal', 'OBJ-0002', 20), rect)!.y1).toBe(140);
+    expect(dimensionGeometry(dim('horizontal', 'OBJ-0002', -20), rect)!.y1).toBe(-20);
+    expect(dimensionMeasure(dim('vertical', 'OBJ-0002'), rect)?.value).toBe(120);
+  });
+
+  it('applique le style par défaut quand le style demandé ne convient pas à la cible', () => {
+    const circle: CadObject = { ...base, id: 'OBJ-0003', name: 'Perçage', kind: 'circle', cx: 0, cy: 0, r: 6.25 };
+    expect(supportedDimensionStyles(circle)).toEqual(['radial']);
+    expect(dimensionGeometry(dim('horizontal', 'OBJ-0003'), circle)).not.toBeNull();
+    expect(dimensionValue(dim('horizontal', 'OBJ-0003'), [circle])).toBe('Ø 12,5 mm');
+  });
+
+  it('mesure l\'emprise d\'une polyligne', () => {
+    const poly: CadObject = { ...base, id: 'OBJ-0004', name: 'Profil', kind: 'polyline', points: [0, 0, 100, 0, 100, 50, 20, 80] };
+    expect(dimensionMeasure(dim('horizontal', 'OBJ-0004'), poly)?.value).toBe(100);
+    expect(dimensionMeasure(dim('vertical', 'OBJ-0004'), poly)?.value).toBe(80);
+  });
+});
+
+describe('précision affichée', () => {
+  it('affiche jusqu\'à deux décimales sans arrondir au millimètre', () => {
+    expect(fmt(12.345)).toBe('12,35');
+    expect(fmt(12.49)).toBe('12,49');
+    expect(fmt(0.8)).toBe('0,8');
+    expect(fmt(5000)).toMatch(/^5[\s\u202f]000$/);
+    expect(fmt(-0)).toBe('0');
+  });
+
+  it('ne modifie pas la géométrie stockée', () => {
+    const line: CadObject = { ...base, id: 'OBJ-0001', name: 'Ligne', kind: 'line', x1: 0, y1: 0, x2: 12.345, y2: 0 };
+    expect(dimensionOf(line)).toBe('L 12,35 mm');
+    expect(line.kind === 'line' && line.x2).toBe(12.345);
   });
 });

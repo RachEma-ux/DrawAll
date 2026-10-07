@@ -11,10 +11,13 @@ import {
   type NewCadObject,
   type PrimitiveObject,
   type ProjectState,
+  supportedDimensionStyles,
 } from '@/types/cad';
 import { moveObject } from '@/lib/geometry';
 
 const STORAGE_KEY = 'drawall-projet-v1';
+/** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
+const GEOMETRY_EPSILON = 1e-6;
 const LAYER_COLORS = ['#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185'];
 
 function seedProject(): ProjectState {
@@ -233,7 +236,7 @@ export function useProject() {
     });
     setSelectedId(id);
     return id;
-  }, [state.counter, current.seq, objects, commit]);
+  }, [state.counter, current.seq, objects, commit, setSelectedId]);
 
   const updateObject = useCallback((id: string, patch: Partial<CadObject>, label = 'Modifier') => {
     commit(`${label} ${id}`, { objects: objects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)) });
@@ -338,10 +341,9 @@ export function useProject() {
 
   const addDimension = useCallback((targetId: string) => {
     const target = objects.find(o => o.id === targetId);
-    if (!target || target.kind === 'dimension' || target.kind === 'blockRef') return null;
-    const style: DimensionStyle =
-      target.kind === 'circle' ? 'radial' :
-      target.kind === 'rect' ? 'horizontal' : 'aligned';
+    if (!target) return null;
+    const style: DimensionStyle | undefined = supportedDimensionStyles(target)[0];
+    if (!style) return null;
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
     const dim: CadObject = {
       id,
@@ -358,7 +360,7 @@ export function useProject() {
     commit(`Coter ${targetId}`, { objects: [...objects, dim], counter: state.counter + 1 });
     setSelectedId(id);
     return id;
-  }, [objects, state.counter, current.seq, commit]);
+  }, [objects, state.counter, current.seq, commit, setSelectedId]);
 
   const createBlockFromObject = useCallback((objectId: string) => {
     const source = objects.find(o => o.id === objectId);
@@ -388,7 +390,7 @@ export function useProject() {
     });
     setSelectedId(refId);
     return blockId;
-  }, [objects, blocks, state.blockCounter, state.counter, current.seq, commit]);
+  }, [objects, blocks, state.blockCounter, state.counter, current.seq, commit, setSelectedId]);
 
   const insertBlock = useCallback((blockId: string, x: number, y: number) => {
     const block = blocks.find(b => b.id === blockId);
@@ -410,7 +412,7 @@ export function useProject() {
     commit(`Insérer bloc ${blockId}`, { objects: [...objects, ref], counter: state.counter + 1 });
     setSelectedId(id);
     return id;
-  }, [blocks, state.counter, activeLayerId, current.seq, objects, commit]);
+  }, [blocks, state.counter, activeLayerId, current.seq, objects, commit, setSelectedId]);
 
   const importObjects = useCallback((importedObjects: CadObject[], importedLayers: Layer[], label = 'Importer DXF') => {
     if (importedObjects.length === 0) return 0;
@@ -438,7 +440,7 @@ export function useProject() {
     });
     setSelectedId(stamped[stamped.length - 1]?.id ?? null);
     return stamped.length;
-  }, [layers, objects, state.counter, state.layerCounter, current.seq, commit]);
+  }, [layers, objects, state.counter, state.layerCounter, current.seq, commit, setSelectedId]);
 
   const removeBlock = useCallback((blockId: string) => {
     commit(`Supprimer bloc ${blockId}`, {
@@ -455,7 +457,7 @@ export function useProject() {
   const goTo = useCallback((index: number) => {
     setState(s => ({ ...s, pointer: Math.max(0, Math.min(s.versions.length - 1, index)) }));
     setSelectedId(null);
-  }, []);
+  }, [setSelectedId]);
 
   const nameVersion = useCallback((name: string) => {
     setState(s => ({
@@ -467,12 +469,12 @@ export function useProject() {
   const reset = useCallback(() => {
     setState(seedProject());
     setSelectedId(null);
-  }, []);
+  }, [setSelectedId]);
 
   const loadState = useCallback((next: unknown) => {
     setState(normalizeProjectState(next));
     setSelectedId(null);
-  }, []);
+  }, [setSelectedId]);
 
   const canUndo = state.pointer > 0;
   const canRedo = state.pointer < state.versions.length - 1;
@@ -484,14 +486,19 @@ export function useProject() {
       out.push({ level: 'avertissement', text: `${unclassified.length} objet(s) sans classification métier — lectures indisponibles (${unclassified.map(o => o.id).join(', ')}).` });
     }
     for (const o of objects) {
-      if (o.kind === 'line' && Math.hypot(o.x2 - o.x1, o.y2 - o.y1) < 1) {
+      if (o.kind === 'line' && Math.hypot(o.x2 - o.x1, o.y2 - o.y1) <= GEOMETRY_EPSILON) {
         out.push({ level: 'avertissement', text: `${o.id} : ligne de longueur nulle — géométrie à réparer.` });
       }
-      if (o.kind === 'rect' && (o.w < 1 || o.h < 1)) {
+      if (o.kind === 'rect' && (o.w <= GEOMETRY_EPSILON || o.h <= GEOMETRY_EPSILON)) {
         out.push({ level: 'avertissement', text: `${o.id} : rectangle dégénéré — géométrie à réparer.` });
       }
-      if (o.kind === 'dimension' && !objects.some(t => t.id === o.targetId)) {
-        out.push({ level: 'avertissement', text: `${o.id} : cote orpheline — cible ${o.targetId} absente.` });
+      if (o.kind === 'dimension') {
+        const target = objects.find(t => t.id === o.targetId);
+        if (!target) {
+          out.push({ level: 'avertissement', text: `${o.id} : cote orpheline — cible ${o.targetId} absente.` });
+        } else if (!supportedDimensionStyles(target).includes(o.style)) {
+          out.push({ level: 'info', text: `${o.id} : style « ${o.style} » non applicable à ${target.id} — style par défaut utilisé.` });
+        }
       }
       if (o.kind === 'blockRef' && !blocks.some(b => b.id === o.blockId)) {
         out.push({ level: 'avertissement', text: `${o.id} : occurrence orpheline — bloc ${o.blockId} absent.` });
