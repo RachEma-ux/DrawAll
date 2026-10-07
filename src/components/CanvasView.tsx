@@ -950,7 +950,7 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode }: {
+export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode }: {
   obj: CadObject;
   unit: DisplayUnit;
   layer: Layer | undefined;

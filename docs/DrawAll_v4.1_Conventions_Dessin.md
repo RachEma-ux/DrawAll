@@ -86,7 +86,8 @@ Remarque : le support pédagogique « Dessin Technique » associe dans un premie
 - Une **fenêtre** occupe un rectangle de la feuille et montre le modèle à une échelle (rapport papier : réel), centrée sur un point du modèle ; elle peut masquer des calques pour elle seule.
 - Passage papier ↔ modèle : longueur papier = longueur réelle × échelle (5 000 mm au 1:50 = 100 mm ; au 1:100 = 50 mm). L'échelle ne modifie jamais le modèle.
 - Les feuilles sont versionnées avec le projet (historique, annulation) ; une fenêtre qui déborde de la zone utile est signalée.
-- L'éditeur de feuille (lot 2.2), le cartouche (2.3) et l'export PDF calibré (2.5) suivent.
+- Éditeur (mode « Feuilles », lot 2.2) : feuilles A4 à A0 en portrait ou paysage, cadre de la zone utile, fenêtres ajoutées cadrées sur le dessin à l'échelle normalisée qui le fait tenir, déplacées et redimensionnées au geste (accrochage au millimètre papier) ou par saisie ; échelle, centre et calques propres à chaque fenêtre.
+- Le cartouche (2.3) et l'export PDF calibré (2.5) suivent.
 
 ## 3. Traits
 

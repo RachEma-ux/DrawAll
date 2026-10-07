@@ -28,6 +28,7 @@ import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, unitDecima
 import { measurePolygon, type Measure } from '@/lib/area';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
+import SheetEditor from '@/components/SheetEditor';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint } from '@/lib/geometry';
 import { mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
@@ -77,7 +78,7 @@ function Workbench() {
   const renameCloudProject = trpc.projects.rename.useMutation();
   const deleteCloudProject = trpc.projects.remove.useMutation();
   const skipDirtyTracking = useRef(false);
-  const [mode, setMode] = useState<'atelier' | 'docs'>('atelier');
+  const [mode, setMode] = useState<'atelier' | 'feuilles' | 'docs'>('atelier');
   const [docsSub, setDocsSub] = useState<'concept' | 'architecture' | 'exigences'>('concept');
   const [focusReq, setFocusReq] = useState<string | null>(null);
   const [level, setLevel] = useState<DisplayLevel>('contextuel');
@@ -556,9 +557,14 @@ function Workbench() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); return; }
-      if (paletteOpen || mode !== 'atelier') return;
+      if (paletteOpen || (mode !== 'atelier' && mode !== 'feuilles')) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (mode === 'feuilles') {
+        // Feuilles : seuls annuler et rétablir s'appliquent (les autres raccourcis éditent le dessin).
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) project.redo(); else project.undo(); }
+        return;
+      }
       if (e.key === 'F8') { e.preventDefault(); setOrthoEnabled(v => !v); return; }
       if (e.key === 'F9') { e.preventDefault(); setSnapEnabled(v => !v); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -657,7 +663,22 @@ function Workbench() {
         versionLabel={`révision v${project.current.seq}`}
       />
 
-      {mode === 'docs' ? (
+      {mode === 'feuilles' ? (
+        <SheetEditor
+          sheets={project.sheets}
+          objects={project.objects}
+          layers={project.layers}
+          blocks={project.blocks}
+          view={view}
+          colorMode={colorMode}
+          onAddSheet={project.addSheet}
+          onUpdateSheet={project.updateSheet}
+          onRemoveSheet={project.removeSheet}
+          onAddViewport={project.addViewport}
+          onUpdateViewport={project.updateViewport}
+          onRemoveViewport={project.removeViewport}
+        />
+      ) : mode === 'docs' ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-[#0c1220]/60 px-2 py-1.5 sm:px-6">
             {([

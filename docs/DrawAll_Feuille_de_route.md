@@ -130,7 +130,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 1.9 Propriétés de trait | Fait | #15 |
 | 1.10 Mesure d'aire et de périmètre | Fait | #16 |
 | 2.1 Modèle feuille / fenêtre | Fait | #17 |
-| 2.2 → 8.4 | À faire | — |
+| 2.2 Éditeur de feuille | Fait | #18 |
+| 2.3 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 
