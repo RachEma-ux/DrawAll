@@ -85,3 +85,10 @@ function clean(v: number): number {
 
 /** Décimales affichées : même finesse (0,01 mm) quelle que soit l'unité. */
 export const unitDecimals = (u: DisplayUnit) => 2 + Math.round(Math.log10(unitFactor(u)));
+
+/** Longueur affichée dans l'unité choisie, avec son symbole. */
+export const formatLength = (mm: number, u: DisplayUnit, fmt: (n: number, d?: number) => string) => `${fmt(fromMm(mm, u), unitDecimals(u))} ${u}`;
+
+/** Aire affichée dans l'unité choisie au carré (2 décimales en mm² et cm², 3 en m²). */
+export const formatArea = (mm2: number, u: DisplayUnit, fmt: (n: number, d?: number) => string) =>
+  `${fmt(mm2 / unitFactor(u) ** 2, u === 'm' ? 3 : 2)} ${u}²`;

@@ -35,7 +35,7 @@ import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -71,6 +71,8 @@ interface Props {
   onTrimExtend: (mode: 'trim' | 'extend', id: string, x: number, y: number) => void;
   /** Congé ou chanfrein entre deux lignes, chacune désignée du côté à conserver. */
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
+  /** Outil Aire : contour désigné par points (aucun objet créé). */
+  onMeasureArea: (points: number[]) => void;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -88,6 +90,15 @@ interface Draft {
   sx: number; sy: number;
   cx: number; cy: number;
   points: number[];
+  /** Outil qui a commencé le tracé (une suite de points d'Aire ne devient jamais une polyligne). */
+  origin?: ToolId;
+}
+
+/** Longueur d'une suite de sommets (une polyligne de longueur nulle n'est pas créée). */
+function pathLength(p: number[]): number {
+  let l = 0;
+  for (let i = 2; i + 1 < p.length; i += 2) l += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+  return l;
 }
 
 /** Longueur en deçà de laquelle un tracé est considéré comme nul (mm) — aucune taille minimale métier. */
@@ -114,6 +125,7 @@ export default function CanvasView({
   onEditText,
   onTrimExtend,
   onCorner,
+  onMeasureArea,
   onMoveMany,
   gridSize,
   projectKey,
@@ -132,7 +144,7 @@ export default function CanvasView({
   const [tf, setTf] = useState({ x: 60, y: 40, k: 1 });
   const [draft, setDraft] = useState<Draft | null>(null);
   const activeDraft = draft && (
-    (draft.kind === 'polyline' && tool === 'polyline') ||
+    (draft.kind === 'polyline' && (draft.origin ?? 'polyline') === tool) ||
     (draft.kind === 'measure' && tool === 'measure') ||
     ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle' || draft.kind === 'arc' || draft.kind === 'arcCenter') && draft.kind === tool)
   ) ? draft : null;
@@ -218,7 +230,7 @@ export default function CanvasView({
     setDraft(d => {
       if (!d) return d;
       const compatible =
-        (d.kind === 'polyline' && tool === 'polyline') ||
+        (d.kind === 'polyline' && (d.origin ?? 'polyline') === tool) ||
         (d.kind === 'measure' && tool === 'measure') ||
         ((d.kind === 'line' || d.kind === 'rect' || d.kind === 'circle' || d.kind === 'arc' || d.kind === 'arcCenter') && d.kind === tool);
       return compatible ? d : null;
@@ -242,21 +254,29 @@ export default function CanvasView({
   }, [activeLayer, onAdd]);
 
   const finishPolyline = useCallback(() => {
+    // L'outil Aire réutilise le tracé de polyligne mais mesure au lieu de créer.
+    if (tool === 'area') {
+      if (draft?.kind === 'polyline' && draft.points.length >= 2) onMeasureArea(draft.points);
+      setDraft(null);
+      return;
+    }
     setDraft(d => {
-      if (d?.kind === 'polyline' && d.points.length >= 4 && activeLayer && !activeLayer.locked) {
+      // Seul un tracé commencé par l'outil Polyligne crée une polyligne.
+      if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === 'polyline' && d.points.length >= 4 && pathLength(d.points) > MIN_LENGTH && activeLayer && !activeLayer.locked) {
         onAdd({ kind: 'polyline', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', points: d.points });
       }
       return null;
     });
-  }, [activeLayer, onAdd]);
+  }, [activeLayer, onAdd, tool, draft, onMeasureArea]);
 
   const startOrContinueDraft = useCallback((point: SnapPoint) => {
-    if (!activeLayer || activeLayer.locked) return;
+    // Mesurer ne crée rien : l'outil Aire ignore le verrouillage du calque.
+    if ((!activeLayer || activeLayer.locked) && tool !== 'area') return;
     lastPlaced.current = { x: point.x, y: point.y };
-    if (tool === 'polyline') {
+    if (tool === 'polyline' || tool === 'area') {
       setDraft(d => {
-        if (d?.kind === 'polyline') return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
-        return { kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y] };
+        if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === tool) return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
+        return { kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y], origin: tool };
       });
       return;
     }
@@ -527,7 +547,7 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'arc' || tool === 'arcCenter') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'arc' || tool === 'arcCenter') {
       startOrContinueDraft(point);
       return;
     }
@@ -790,8 +810,11 @@ export default function CanvasView({
               fill="#22d3ee" fillOpacity={0.08} stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
           )}
           {activeDraft && activeDraft.kind === 'polyline' && (
-            <polyline points={[...activeDraft.points, activeDraft.cx, activeDraft.cy].join(',')} fill="none"
-              stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
+            tool === 'area'
+              ? <polygon points={[...activeDraft.points, activeDraft.cx, activeDraft.cy].join(',')} fill="#34d399" fillOpacity={0.12}
+                  stroke="#34d399" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
+              : <polyline points={[...activeDraft.points, activeDraft.cx, activeDraft.cy].join(',')} fill="none"
+                  stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
           )}
           {activeDraft && (activeDraft.kind === 'arc' || activeDraft.kind === 'arcCenter') && (() => {
             // Aperçu : segment vers le curseur au 1er point, arc complet ensuite.
@@ -856,7 +879,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'area' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
