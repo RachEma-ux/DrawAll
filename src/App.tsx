@@ -27,16 +27,19 @@ import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, sele
 /** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
 const COMPACT_BREAKPOINT = 1024;
 
-const TOOLS: { id: ToolId; label: string; key: string; levels: DisplayLevel[]; hint: string }[] = [
-  { id: 'select', label: 'Sélection', key: 'V', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Sélectionner et déplacer' },
+/** Outils toujours visibles sur petit écran ; les autres sont regroupés dans « Plus ». */
+const PRIMARY_TOOLS: ToolId[] = ['select', 'line', 'rect', 'circle', 'polyline'];
+
+const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: DisplayLevel[]; hint: string }[] = [
+  { id: 'select', label: 'Sélection', short: 'Sél.', key: 'V', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Sélectionner et déplacer' },
   { id: 'line', label: 'Ligne', key: 'L', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Deux points accrochés à la grille' },
-  { id: 'rect', label: 'Rectangle', key: 'R', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Par deux coins opposés' },
+  { id: 'rect', label: 'Rectangle', short: 'Rect.', key: 'R', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Par deux coins opposés' },
   { id: 'circle', label: 'Cercle', key: 'C', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Centre puis rayon' },
-  { id: 'polyline', label: 'Polyligne', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
+  { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'measure', label: 'Mesure', key: 'M', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Cliquez-glissez pour mesurer une distance' },
   { id: 'block', label: 'Bloc', key: 'B', levels: ['contextuel', 'complet'], hint: 'Cliquez pour insérer le bloc actif' },
-  { id: 'pan', label: 'Panoramique', key: 'H', levels: ['contextuel', 'complet'], hint: 'Déplacer la vue (molette : zoom)' },
+  { id: 'pan', label: 'Panoramique', short: 'Vue', key: 'H', levels: ['contextuel', 'complet'], hint: 'Déplacer la vue (molette : zoom)' },
 ];
 
 export default function App() {
@@ -81,6 +84,7 @@ function Workbench() {
   const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT);
   const [panel, setPanel] = useState<'inspector' | 'history' | null>(null);
   const compactRef = useRef(compact);
+  const [moreOpen, setMoreOpen] = useState(false);
   // Navigateur du projet : toujours présent, pliable ; plié par défaut sur petit écran.
   const [navOpen, setNavOpen] = useState(() => !(typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT));
   const dxfInputRef = useRef<HTMLInputElement>(null);
@@ -405,6 +409,8 @@ function Workbench() {
   }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, nudgeSelection]);
 
   const visibleTools = TOOLS.filter(t => t.levels.includes(level));
+  const primaryTools = visibleTools.filter(t => PRIMARY_TOOLS.includes(t.id));
+  const moreTools = visibleTools.filter(t => !PRIMARY_TOOLS.includes(t.id));
 
   // Repères permanents : affichés en colonnes sur grand écran, en tiroirs sur petit écran.
   const navigatorEl = (
@@ -492,10 +498,29 @@ function Workbench() {
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
           {/* Navigateur — repère permanent 1, pliable (plié par défaut sur petit écran) */}
-          {navOpen ? (
-            <aside className={`shrink-0 ${compact ? 'w-[min(17rem,78vw)] border-r border-border' : 'w-56'}`}>{navigatorEl}</aside>
+          {compact ? (
+            // Petit écran : le rail reste en place et le panneau déplié passe par-dessus le canevas.
+            <>
+              <button
+                onClick={() => setNavOpen(true)}
+                aria-label="Déplier le navigateur du projet"
+                title="Déplier le navigateur du projet"
+                className="flex w-9 shrink-0 flex-col items-center gap-3 border-r border-border bg-[#0c1220] py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground transition-colors hover:text-cyan-300"
+              >
+                <span aria-hidden="true">▸</span>
+                <span style={{ writingMode: 'vertical-rl' }}>Navigateur du projet</span>
+                <span className="text-cyan-400">{project.objects.length}</span>
+              </button>
+              {navOpen && (
+                <aside data-testid="navigator-overlay" className="absolute inset-y-0 left-0 z-30 w-[min(18rem,85vw)] border-r border-border bg-[#0c1220] shadow-2xl shadow-black/60">
+                  {navigatorEl}
+                </aside>
+              )}
+            </>
+          ) : navOpen ? (
+            <aside className="w-56 shrink-0">{navigatorEl}</aside>
           ) : (
             <button
               onClick={() => setNavOpen(true)}
@@ -510,22 +535,38 @@ function Workbench() {
           )}
 
           {/* Zone de travail + commandes — repères permanents 2 et 3 */}
-          <main className="flex min-w-0 flex-1 flex-col border-l border-border">
-            <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#0c1220]/60 px-2 py-1">
-              {visibleTools.map(t => (
+          <main className="relative flex min-w-0 flex-1 flex-col border-l border-border">
+            <div className={`flex shrink-0 items-center gap-1 border-b border-border bg-[#0c1220]/60 px-2 py-1 ${compact ? '' : 'overflow-x-auto'}`}>
+              {/* Petit écran : les outils fréquents défilent si besoin, « Plus » reste toujours accessible à droite. */}
+              <div className={`flex items-center gap-1 ${compact ? 'min-w-0 flex-1 overflow-x-auto' : 'contents'}`}>
+              {(compact ? primaryTools : visibleTools).map(t => (
                 <button
                   key={t.id}
                   onClick={() => setTool(t.id)}
                   title={`${t.hint} (${t.key})`}
-                  className={`shrink-0 whitespace-nowrap rounded-sm px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors lg:py-1 ${
+                  aria-label={t.label}
+                  className={`shrink-0 whitespace-nowrap rounded-sm px-2 py-2 sm:px-2.5 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors lg:py-1 ${
                     tool === t.id ? 'bg-cyan-400 text-[#050810]' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                   }`}
                 >
-                  {t.label} <span className="hidden opacity-50 2xl:inline">{t.key}</span>
+                  {compact && t.short ? t.short : t.label} <span className="hidden opacity-50 2xl:inline">{t.key}</span>
                 </button>
               ))}
-              <span className="mx-2 h-4 w-px shrink-0 bg-border" />
-              <button
+              </div>
+              {compact && (
+                <button
+                  onClick={() => setMoreOpen(o => !o)}
+                  aria-expanded={moreOpen}
+                  aria-label="Plus d’outils"
+                  className={`shrink-0 whitespace-nowrap rounded-sm border px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] ${
+                    moreTools.some(t => t.id === tool) ? 'border-cyan-400 bg-cyan-400 text-[#050810]' : moreOpen ? 'border-cyan-400/60 text-cyan-300' : 'border-border text-muted-foreground'
+                  }`}
+                >
+                  {moreTools.find(t => t.id === tool)?.short ?? moreTools.find(t => t.id === tool)?.label ?? 'Plus'} ▾
+                </button>
+              )}
+              {!compact && <span className="mx-2 h-4 w-px shrink-0 bg-border" />}
+              {!compact && <button
                 onClick={() => setSnapEnabled(v => !v)}
                 title="Accrochage objet : extrémités, milieux, centres, quadrants et intersections (F9)"
                 className={`shrink-0 rounded-sm border px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] lg:py-1 ${
@@ -533,8 +574,8 @@ function Workbench() {
                 }`}
               >
                 Snap <span className="hidden opacity-50 2xl:inline">F9</span>
-              </button>
-              <button
+              </button>}
+              {!compact && <button
                 onClick={() => setOrthoEnabled(v => !v)}
                 title="Contrainte horizontale / verticale (F8)"
                 className={`shrink-0 rounded-sm border px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] lg:py-1 ${
@@ -542,7 +583,7 @@ function Workbench() {
                 }`}
               >
                 Ortho <span className="hidden opacity-50 2xl:inline">F8</span>
-              </button>
+              </button>}
               <span className="ml-3 hidden min-w-0 flex-1 truncate font-mono text-[9px] text-muted-foreground/60 xl:inline">
                 {tool === 'polyline' ? 'Cliquez les points — Entrée/double-clic pour valider, Échap pour annuler' :
                  tool === 'select' ? 'Cliquez un objet, glissez sur le fond pour une fenêtre de sélection, Maj+clic pour ajouter, Suppr pour effacer' :
@@ -556,6 +597,38 @@ function Workbench() {
                 {currentSnap ? `${currentSnap.label} · ` : ''}{snapEnabled ? 'accrochage objet + grille 10 mm' : 'grille 10 mm'}
               </span>
             </div>
+
+            {compact && moreOpen && (
+              <div data-testid="more-tools" className="absolute right-2 top-11 z-30 flex w-56 flex-col gap-1 rounded-sm border border-border bg-[#0c1220] p-2 shadow-2xl shadow-black/60">
+                {moreTools.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setTool(t.id); setMoreOpen(false); }}
+                    aria-label={t.label}
+                    className={`rounded-sm px-2.5 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] ${
+                      tool === t.id ? 'bg-cyan-400 text-[#050810]' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+                <div className="my-1 h-px bg-border" />
+                <button
+                  onClick={() => setSnapEnabled(v => !v)}
+                  aria-pressed={snapEnabled}
+                  className={`rounded-sm border px-2.5 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] ${snapEnabled ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground'}`}
+                >
+                  Accrochage objet {snapEnabled ? '· actif' : '· inactif'}
+                </button>
+                <button
+                  onClick={() => setOrthoEnabled(v => !v)}
+                  aria-pressed={orthoEnabled}
+                  className={`rounded-sm border px-2.5 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] ${orthoEnabled ? 'border-emerald-400/60 bg-emerald-400/10 text-emerald-300' : 'border-border text-muted-foreground'}`}
+                >
+                  Ortho {orthoEnabled ? '· actif' : '· inactif'}
+                </button>
+              </div>
+            )}
 
             {/* Barre d'édition — opérations sur la sélection */}
             <div className={`shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#0a0f1c]/80 px-2 py-1 lg:flex lg:flex-wrap ${compact && !hasSelection ? 'hidden' : 'flex'}`}>
