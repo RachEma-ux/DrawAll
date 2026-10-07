@@ -49,11 +49,17 @@ export function arrowHead(tip: Pt, from: Pt, length: number, halfWidth: number):
 }
 
 /**
- * Position du texte d'une cote : au milieu de la ligne de cote, décalé de l'écart papier au-dessus
- * (cote horizontale ou alignée) ou à droite (cote verticale).
+ * Position du texte d'une cote : au milieu de la ligne de cote, à l'écart papier mesuré
+ * perpendiculairement à la ligne — au-dessus d'une ligne plutôt horizontale (texte centré), à droite
+ * d'une ligne plutôt verticale (texte aligné à gauche, qui ne chevauche donc pas la ligne).
  */
 export function dimensionTextPosition(line: { x1: number; y1: number; x2: number; y2: number }, gapModel: number): { x: number; y: number; anchor: 'middle' | 'start' } {
   const mx = (line.x1 + line.x2) / 2, my = (line.y1 + line.y2) / 2;
-  const vertical = Math.abs(line.x2 - line.x1) < 1e-9;
-  return vertical ? { x: mx + gapModel, y: my, anchor: 'start' } : { x: mx, y: my - gapModel, anchor: 'middle' };
+  const dx = line.x2 - line.x1, dy = line.y2 - line.y1, l = Math.hypot(dx, dy);
+  if (l < 1e-9) return { x: mx, y: my - gapModel, anchor: 'middle' };
+  let n = { x: dy / l, y: -dx / l };                 // une normale à la ligne (Y vers le bas)
+  const steep = Math.abs(dy) > Math.abs(dx);
+  // Côté retenu : à droite (x > 0) pour une ligne plutôt verticale, au-dessus (y < 0) sinon.
+  if ((steep && n.x < 0) || (!steep && n.y > 0)) n = { x: -n.x, y: -n.y };
+  return { x: mx + n.x * gapModel, y: my + n.y * gapModel, anchor: steep ? 'start' : 'middle' };
 }

@@ -1089,7 +1089,8 @@ function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calq
     return (
       <g data-cote-papier="">
         {geom.ext.map(([x1, y1, x2, y2], i) => <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={w} />)}
-        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={w} />
+        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={w}
+          strokeDasharray={obj.lineType !== undefined ? dashInModel(obj.lineType, obj.lineWeight ?? S.lineWeight, paperScale)?.join(' ') : undefined} />
         {arrows.map((tri, i) => <polygon key={i} points={tri.map(q => `${q.x},${q.y}`).join(' ')} fill={color} />)}
         <text x={t.x} y={t.y} fontSize={m(S.textHeight) * TEXT_FONT_SCALE} fill={color} fontFamily="JetBrains Mono, monospace" textAnchor={t.anchor}>
           {dimensionValue(obj, objects)}
@@ -1133,8 +1134,9 @@ function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, pa
   return (
     <g>
       <g transform={`translate(${obj.x},${obj.y}) scale(${obj.scale})`}>
+        {/* Sous scale(s), une unité locale vaut s × zoom pixels : le zoom vu par la primitive est zoom × s. */}
         {block.primitives.map(p => (
-          <PrimitiveShape key={p.id} obj={p} view={view} selected={false} zoom={zoom / obj.scale} showLabel={false} layer={layer} colorMode={colorMode} owner={obj}
+          <PrimitiveShape key={p.id} obj={p} view={view} selected={false} zoom={zoom * obj.scale} showLabel={false} layer={layer} colorMode={colorMode} owner={obj}
             paperScale={paperScale && { paper: paperScale.paper * obj.scale, model: paperScale.model }} />
         ))}
       </g>

@@ -38,4 +38,17 @@ describe('annotations papier ↔ modèle', () => {
     expect(dimensionTextPosition({ x1: 0, y1: 0, x2: 100, y2: 0 }, 50)).toEqual({ x: 50, y: -50, anchor: 'middle' });
     expect(dimensionTextPosition({ x1: 0, y1: 0, x2: 0, y2: 100 }, 50)).toEqual({ x: 50, y: 50, anchor: 'start' });
   });
+
+  it('cote oblique : l’écart est mesuré perpendiculairement à la ligne', () => {
+    for (const [x2, y2] of [[100, 100], [100, -30], [10, 100], [-10, 100]]) {
+      const t = dimensionTextPosition({ x1: 0, y1: 0, x2, y2 }, 5);
+      const m = { x: x2 / 2, y: y2 / 2 };
+      // Distance du point de texte à la droite de cote = écart demandé.
+      const d = Math.abs((t.x - m.x) * y2 - (t.y - m.y) * x2) / Math.hypot(x2, y2);
+      expect(d).toBeCloseTo(5, 9);
+      expect(t.anchor).toBe(Math.abs(y2) > Math.abs(x2) ? 'start' : 'middle');
+    }
+    // Ligne presque verticale : le texte est à droite, jamais sur la ligne.
+    expect(dimensionTextPosition({ x1: 0, y1: 0, x2: 1, y2: 100 }, 5).x).toBeGreaterThan(0.5);
+  });
 });

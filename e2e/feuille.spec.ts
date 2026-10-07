@@ -140,6 +140,19 @@ test('lot 2.4 — cote : texte et flèches de même taille sur la feuille au 1:5
   expect(sizes[1].arrow / sizes[0].arrow).toBeLessThan(1.05);
 });
 
+test('lot 2.4 — le type de trait propre à une cote est conservé sur la feuille', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, [
+    { id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 2000, y2: 0 },
+    { id: 'OBJ-0002', kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 100, lineType: 'interrompu' },
+  ]);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  const dash = await page.locator('[data-testid="fenetre-FEN-0001"] [data-cote-papier] > line').last().getAttribute('stroke-dasharray');
+  expect(dash).toBeTruthy();
+});
+
 test('lot 2.2 — annuler une modification de feuille sans quitter le mode Feuilles', async ({ page }) => {
   await openAtelier(page);
   await loadObjects(page, plan);
