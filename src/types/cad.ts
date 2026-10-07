@@ -1,7 +1,7 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -159,12 +159,39 @@ export interface RoomObj extends Base {
   x: number; y: number;
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj;
+/** Nord (lot 4.5) : centre du symbole et direction du nord, en degrés antihoraires depuis le haut de l'écran. */
+export interface NorthObj extends Base {
+  kind: 'north';
+  x: number; y: number;
+  rotation: number;
+}
+
+/**
+ * Repère de coupe (lot 4.5) : trace du plan de coupe de (x1, y1) à (x2, y2), repère (« A ») et sens
+ * de la vue : à gauche du trait parcouru, à droite si `flip`.
+ */
+export interface SectionMarkObj extends Base {
+  kind: 'section';
+  x1: number; y1: number; x2: number; y2: number;
+  label: string;
+  flip?: boolean;
+}
+
+/** Cote de niveau en plan (lot 4.5) : point et altitude saisie (mm, par rapport au ±0,00). */
+export interface LevelMarkObj extends Base {
+  kind: 'levelMark';
+  x: number; y: number;
+  elevation: number;
+}
+
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj;
 
 export interface BlockDef {
   id: string;              // identifiant stable BLQ-0001
   name: string;
   description?: string;
+  /** Gabarit de la bibliothèque bâtiment d'origine (lot 4.5). */
+  libraryKey?: string;
   primitives: PrimitiveObject[];
 }
 
@@ -274,6 +301,9 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   wall: 'Mur',
   opening: 'Ouverture',
   room: 'Pièce',
+  north: 'Nord',
+  section: 'Repère de coupe',
+  levelMark: 'Cote de niveau',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -352,6 +382,9 @@ export function dimensionOf(obj: CadObject): string {
     case 'wall': return `Mur ép. ${fmt(obj.thickness)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'opening': return `${obj.type === 'porte' ? 'Porte' : 'Fenêtre'} ${fmt(obj.width)} mm · ${obj.hostId}`;
     case 'room': return `Pièce « ${obj.name} »`;
+    case 'north': return `Nord à ${fmt(obj.rotation)}°`;
+    case 'section': return `Coupe ${obj.label} · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
+    case 'levelMark': return `Niveau ${fmt(obj.elevation / 1000)} m`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }

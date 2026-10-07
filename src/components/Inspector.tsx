@@ -398,6 +398,43 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           );
         })()}
 
+        {(obj.kind === 'north' || obj.kind === 'section' || obj.kind === 'levelMark') && (() => {
+          // Symboles (lot 4.5) : valeurs saisies ; nombre décimal à virgule ou point.
+          const numInput = (label: string, value: number, apply: (v: number) => void, unit: string) => (
+            <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              {label}
+              <span className="flex items-center gap-1">
+                <input key={`${obj.id}-${label}-${value}`} aria-label={label} defaultValue={String(Math.round(value * 1000) / 1000).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => { const v = Number(e.target.value.trim().replace(',', '.')); if (Number.isFinite(v) && v !== value) apply(v); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> {unit}
+              </span>
+            </label>
+          );
+          return (
+            <div className="space-y-1.5">
+              <p className="ui-label mb-1.5">{obj.kind === 'north' ? 'Nord' : obj.kind === 'section' ? 'Repère de coupe' : 'Cote de niveau'}</p>
+              {obj.kind === 'north' && numInput('Angle du nord', obj.rotation, v => onUpdate(obj.id, { rotation: v }, 'Orienter le nord'), '°')}
+              {obj.kind === 'levelMark' && numInput('Altitude', obj.elevation / 1000, v => onUpdate(obj.id, { elevation: Math.round(v * 1000) }, 'Cote de niveau : altitude'), 'm')}
+              {obj.kind === 'section' && (
+                <>
+                  <label className="block text-[11px] text-muted-foreground">Repère
+                    <input key={`${obj.id}-${obj.label}`} aria-label="Repère de la coupe" defaultValue={obj.label}
+                      onBlur={e => { const v = e.target.value.trim(); if (v && v !== obj.label) onUpdate(obj.id, { label: v }, 'Repère de coupe'); }}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                      className="mt-0.5 w-full rounded-sm border border-input bg-background px-2 py-1 text-xs" />
+                  </label>
+                  <button onClick={() => onUpdate(obj.id, { flip: !obj.flip }, 'Inverser le sens de la coupe')}
+                    className="w-full rounded-sm border border-border px-1.5 py-1.5 font-mono text-[10px] text-muted-foreground hover:text-foreground">
+                    Inverser le sens de la vue
+                  </button>
+                </>
+              )}
+              <p className="font-mono text-[9px] leading-relaxed text-muted-foreground">Taille fixe sur le papier : le symbole garde ses dimensions à toutes les échelles.</p>
+            </div>
+          );
+        })()}
+
         {obj.kind === 'opening' && (() => {
           const host = objects.find(o => o.id === obj.hostId);
           const num = (key: 'width' | 'position', label: string) => (

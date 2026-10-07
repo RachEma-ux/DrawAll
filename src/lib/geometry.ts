@@ -454,6 +454,10 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
   switch (object.kind) {
     case 'line': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'wall': { const q = wallQuad(object); return q ? boundsOfPoints(q) : boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]); }
+    // Symboles : taille papier, emprise réduite à leurs points d'insertion.
+    case 'section': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
+    case 'north':
+    case 'levelMark': return { minX: object.x, minY: object.y, maxX: object.x, maxY: object.y };
     case 'room': {
       // Emprise du contour si la pièce est fermée, sinon le point intérieur.
       const walls = objects.filter((o): o is WallObj => o.kind === 'wall');
@@ -633,6 +637,9 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'wall': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'opening': return {}; // l'ouverture suit son mur
     case 'room': return { x: object.x + dx, y: object.y + dy };
+    case 'north':
+    case 'levelMark': return { x: object.x + dx, y: object.y + dy };
+    case 'section': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'rect': return { x: object.x + dx, y: object.y + dy };
     case 'circle': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'arc': return { cx: object.cx + dx, cy: object.cy + dy };
@@ -692,6 +699,7 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
   const rad = (angleDeg * Math.PI) / 180;
   switch (object.kind) {
     case 'line':
+    case 'section':
     case 'wall': {
       const a = rotatePoint(object.x1, object.y1, cx, cy, rad);
       const b = rotatePoint(object.x2, object.y2, cx, cy, rad);
@@ -730,9 +738,15 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
       return transformPdim(object, q => rotatePoint(q.x, q.y, cx, cy, rad), { rotation: angleDeg });
     case 'opening':
       return {};
-    case 'room': {
+    case 'room':
+    case 'levelMark': {
       const p = rotatePoint(object.x, object.y, cx, cy, rad);
       return { x: p.x, y: p.y };
+    }
+    case 'north': {
+      // Le nord tourne avec le dessin (rotation antihoraire, angleDeg horaire).
+      const p = rotatePoint(object.x, object.y, cx, cy, rad);
+      return { x: p.x, y: p.y, rotation: normalizeAngle(object.rotation - angleDeg) };
     }
     case 'text': {
       // angleDeg > 0 tourne dans le sens horaire à l'écran ; la rotation du texte est trigonométrique (repère DXF).
@@ -784,7 +798,16 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
     case 'opening':
       return {};
     case 'room':
+    case 'levelMark':
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
+    case 'north':
+      // La flèche reste un nord lisible, réfléchie comme une direction.
+      return axis === 'x' ? { x: mx(object.x), rotation: normalizeAngle(-object.rotation) } : { y: mx(object.y), rotation: normalizeAngle(180 - object.rotation) };
+    case 'section':
+      // La symétrie inverse le côté de la vue.
+      return axis === 'x'
+        ? { x1: mx(object.x1), x2: mx(object.x2), flip: !object.flip }
+        : { y1: mx(object.y1), y2: mx(object.y2), flip: !object.flip };
     case 'text':
       // Le texte reste lisible (pas de lettres en miroir) : seul son point d'insertion est symétrisé.
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
@@ -811,7 +834,10 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'dimension': return { offset: round(object.offset * factor) };
     case 'pdim': return transformPdim(object, q => ({ x: s(q.x, cx), y: s(q.y, cy) }), { factor });
     case 'opening': return { position: round(object.position * factor), width: round(object.width * factor) };
-    case 'room': return { x: s(object.x, cx), y: s(object.y, cy) };
+    case 'room':
+    case 'north':
+    case 'levelMark': return { x: s(object.x, cx), y: s(object.y, cy) };
+    case 'section': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy) };
     case 'text': return { x: s(object.x, cx), y: s(object.y, cy), height: round(object.height * factor) };
   }
 }
@@ -849,6 +875,9 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'wall':
     case 'opening':
     case 'room':
+    case 'north':
+    case 'section':
+    case 'levelMark':
       return null;
   }
 }

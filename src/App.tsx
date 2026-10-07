@@ -16,7 +16,7 @@ import NotFound from '@/pages/NotFound';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { useProject } from '@/store/project';
-import type { CadObject, DisplayLevel, OpeningObj, PointDimensionMode, PointDimensionObj, ViewReading, WallObj } from '@/types/cad';
+import type { CadObject, DisplayLevel, OpeningObj, PointDimensionMode, PointDimensionObj, SectionMarkObj, ViewReading, WallObj } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
@@ -52,6 +52,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
   { id: 'opening', label: 'Ouverture', key: 'O', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez un mur : porte ou fenêtre centrée sur ce point' },
   { id: 'room', label: 'Pièce', key: 'I', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez l’intérieur d’une pièce fermée par des murs : nom et surface' },
+  { id: 'symbol', label: 'Symbole', key: 'Y', levels: ['contextuel', 'complet'], hint: 'Nord, repère de coupe (deux points) ou cote de niveau en plan' },
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'area', label: 'Aire', key: 'Q', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points du contour, puis Terminer : aire et périmètre (rien n’est créé)' },
@@ -301,9 +302,11 @@ function Workbench() {
     a.href = URL.createObjectURL(blob);
     a.download = `${cloudName.trim() || 'drawall-projet'}.dxf`;
     a.click();
-    URL.revokeObjectURL(a.href);
+    // Le lien reste valide le temps du téléchargement ; le rapport s'affiche ensuite.
+    const href = a.href;
+    window.setTimeout(() => URL.revokeObjectURL(href), 1000);
     if (report.transformed.length > 0 || report.lost.length > 0) {
-      window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report));
+      window.setTimeout(() => window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report)), 0);
     }
   }, [cloudName, shownObjects, shownBlocks, project.layers, project.sheets, project.levels, project.activeLevelId]);
 
@@ -423,6 +426,37 @@ function Workbench() {
     if (name === null || !name.trim()) return;
     project.addObject({ kind: 'room', classification: 'architecture', layerId: layer.id, hatch: 'none', x, y }, name.trim());
   }, [project, flash]);
+
+  // Outil Symbole (lot 4.5) : type et valeurs saisis dans le panneau de l'outil.
+  const [symbolParams, setSymbolParams] = useState<{ kind: 'north' | 'section' | 'levelMark'; rotation: string; label: string; flip: boolean; elevation: string }>(
+    { kind: 'north', rotation: '0', label: '', flip: false, elevation: '' },
+  );
+  const activeLevel = project.levels.find(l => l.id === project.activeLevelId)!;
+  /** Prochain repère de coupe libre : A, B, C… puis A1, B1… */
+  const nextSectionLabel = useMemo(() => {
+    const used = new Set(project.allObjects.filter(o => o.kind === 'section').map(o => (o as SectionMarkObj).label));
+    for (let i = 0; ; i++) { const l = String.fromCharCode(65 + (i % 26)) + (i >= 26 ? String(Math.floor(i / 26)) : ''); if (!used.has(l)) return l; }
+  }, [project.allObjects]);
+  const addSymbol = useCallback((points: number[]) => {
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!layer || layer.locked) { flash('Calque actif verrouillé : symbole non créé.'); return; }
+    const num = (v: string) => Number(v.trim().replace(',', '.'));
+    const base = { classification: 'architecture' as const, layerId: layer.id, hatch: 'none' as const };
+    if (symbolParams.kind === 'north') {
+      const rotation = num(symbolParams.rotation || '0');
+      if (!Number.isFinite(rotation)) { flash('Angle du nord illisible.'); return; }
+      project.addObject({ ...base, kind: 'north', x: points[0], y: points[1], rotation }, 'Nord');
+    } else if (symbolParams.kind === 'levelMark') {
+      const m = symbolParams.elevation.trim() === '' ? activeLevel.elevation / 1000 : num(symbolParams.elevation);
+      if (!Number.isFinite(m)) { flash('Altitude illisible : saisir des mètres, par exemple 2,80.'); return; }
+      project.addObject({ ...base, kind: 'levelMark', x: points[0], y: points[1], elevation: Math.round(m * 1000) });
+    } else {
+      if (points.length < 4 || Math.hypot(points[2] - points[0], points[3] - points[1]) <= 1e-6) { flash('Repère de coupe : deux points distincts.'); return; }
+      const label = symbolParams.label.trim() || nextSectionLabel;
+      project.addObject({ ...base, kind: 'section', x1: points[0], y1: points[1], x2: points[2], y2: points[3], label, ...(symbolParams.flip ? { flip: true } : {}) }, `Coupe ${label}`);
+      setSymbolParams(p => ({ ...p, label: '' }));
+    }
+  }, [project, symbolParams, activeLevel, nextSectionLabel, flash]);
 
   // Outil Cote par points : paramètres saisis dans le panneau de l'outil.
   const [pdimParams, setPdimParams] = useState<{ mode: PointDimensionMode; axis: PointDimensionObj['axis']; offset: string; reference: string }>(
@@ -615,6 +649,7 @@ function Workbench() {
         dimension: ['cote', 'cotation', 'dimension', 'mesure associative'],
         measure: ['mesure', 'distance', 'mesurer'],
         block: ['bloc', 'symbole', 'inserer', 'occurrence'],
+        symbol: ['symbole', 'nord', 'coupe', 'repere de coupe', 'niveau', 'altitude', 'cote de niveau'],
         pan: ['panoramique', 'pan', 'deplacer la vue', 'main', 'hand'],
       }[t.id],
       run: () => { setMode('atelier'); setTool(t.id); },
@@ -708,6 +743,7 @@ function Workbench() {
       onInsertBlock={prepareBlockInsertion}
       onCreateBlock={createBlockFromSelection}
       onRemoveBlock={project.removeBlock}
+      onAddLibraryBlock={key => { const id = project.addLibraryBlock(key); if (id) prepareBlockInsertion(id); }}
       layerUsed={id => project.allObjects.some(o => o.layerId === id)}
       levels={project.levels}
       activeLevelId={project.activeLevelId}
@@ -912,6 +948,7 @@ function Workbench() {
                  tool === 'room' ? 'Pièce : touchez l’intérieur d’une pièce fermée par des murs, puis nommez-la' :
                  tool === 'opening' ? 'Ouverture : touchez un mur à l’endroit du centre de la baie' :
                  tool === 'wall' ? 'Mur : cliquez les points successifs (un mur par segment), puis Entrée ou Terminer' :
+                 tool === 'symbol' ? (symbolParams.kind === 'section' ? 'Repère de coupe : cliquez le début puis la fin de la trace ; la vue regarde à gauche du trait (« Inverser » pour l’autre côté)' : symbolParams.kind === 'north' ? 'Nord : cliquez l’emplacement du symbole' : 'Cote de niveau : cliquez le point ; l’altitude saisie est affichée') :
                  tool === 'pdim' ? 'Cote par points : désignez les points (angulaire : sommet puis deux branches ; niveau : un point), puis Terminer' :
                  tool === 'area' ? 'Aire : cliquez les sommets du contour, puis Entrée ou Terminer' :
                  tool === 'fillet' ? 'Congé : cliquez la première ligne puis la seconde, du côté à conserver' :
@@ -1020,6 +1057,8 @@ function Workbench() {
                 onAddWall={addWall}
                 onAddOpening={addOpening}
                 onAddRoom={addRoom}
+                onAddSymbol={addSymbol}
+                symbolPoints={symbolParams.kind === 'section' ? 2 : 1}
                 pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
                 gridSize={gridSize}
                 projectKey={projectKey}
@@ -1083,6 +1122,43 @@ function Workbench() {
                     <option value="gauche">Nu gauche</option>
                     <option value="droite">Nu droit</option>
                   </select>
+                </div>
+              )}
+              {tool === 'symbol' && (
+                <div role="group" aria-label="Paramètres du symbole" className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg sm:top-12">
+                  <select aria-label="Type de symbole" value={symbolParams.kind} onChange={e => setSymbolParams(p => ({ ...p, kind: e.target.value as typeof p.kind }))}
+                    className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                    <option value="north">Nord</option>
+                    <option value="section">Repère de coupe</option>
+                    <option value="levelMark">Cote de niveau</option>
+                  </select>
+                  {symbolParams.kind === 'north' && (
+                    <label className="flex items-center gap-1">Angle
+                      <input aria-label="Angle du nord (degrés)" inputMode="decimal" value={symbolParams.rotation}
+                        onChange={e => setSymbolParams(p => ({ ...p, rotation: e.target.value }))}
+                        className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> °
+                    </label>
+                  )}
+                  {symbolParams.kind === 'section' && (
+                    <>
+                      <label className="flex items-center gap-1">Repère
+                        <input aria-label="Repère de coupe" value={symbolParams.label} placeholder={nextSectionLabel}
+                          onChange={e => setSymbolParams(p => ({ ...p, label: e.target.value }))}
+                          className="w-12 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" />
+                      </label>
+                      <label className="flex items-center gap-1">
+                        <input type="checkbox" aria-label="Inverser le sens de la vue" checked={symbolParams.flip} onChange={e => setSymbolParams(p => ({ ...p, flip: e.target.checked }))} />
+                        Inverser
+                      </label>
+                    </>
+                  )}
+                  {symbolParams.kind === 'levelMark' && (
+                    <label className="flex items-center gap-1">Altitude
+                      <input aria-label="Altitude de la cote de niveau (m)" inputMode="decimal" value={symbolParams.elevation} placeholder={String(activeLevel.elevation / 1000).replace('.', ',')}
+                        onChange={e => setSymbolParams(p => ({ ...p, elevation: e.target.value }))}
+                        className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> m
+                    </label>
+                  )}
                 </div>
               )}
               {tool === 'pdim' && (

@@ -18,6 +18,7 @@ import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
 import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import { occurrencePrimitives, profileById, withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { onLevel, viewportLevelId } from '@/lib/levels';
+import { isSymbol, symbolGeometry } from '@/lib/symbols';
 
 export const MM_TO_PT = 72 / 25.4;
 
@@ -196,6 +197,23 @@ export function sheetToPdf(input: PdfInput): string {
       const layer = layers.find(l => l.id === o.layerId);
       if (o.kind === 'dimension') { drawDimension(o); continue; }
       if (o.kind === 'pdim') { drawPointDimension(o); continue; }
+      if (isSymbol(o)) {
+        // Symbole à sa taille papier : traits fins 0,25 mm / forts 0,7 mm, surfaces pleines, textes.
+        const g = symbolGeometry(o, 1 / k);
+        if (!g) continue;
+        for (const c of g.circles) { setStroke(0.25); out(`${arcPath(toPdf(c.c), c.r * k * MM_TO_PT, 0, 360)} h S`); }
+        for (const l of g.lines) {
+          setStroke(l.weight === 'fort' ? 0.7 : 0.25, l.dash ? [12, 2, 1, 2] : undefined);
+          const p = toPdf(l.a), q = toPdf(l.b);
+          out(`${n(p.x)} ${n(p.y)} m ${n(q.x)} ${n(q.y)} l S`);
+        }
+        for (const f of g.fills) {
+          const q = f.map(toPdf);
+          out(`${q.map((p, i) => `${n(p.x)} ${n(p.y)} ${i ? 'l' : 'm'}`).join(' ')} h f`);
+        }
+        for (const t of g.texts) text(t.text, modelToPaper(vp, t.at), t.height * k, 0, t.anchor === 'middle' ? 'center' : 'left');
+        continue;
+      }
       if (o.kind === 'room') {
         const poly = rooms.get(o.id);
         if (!poly) continue;
