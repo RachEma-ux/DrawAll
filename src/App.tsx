@@ -1,7 +1,7 @@
 // DrawAll v4.1 — application unique : atelier de dessin + documentation du dossier.
 // Cinq repères permanents (UX1) : navigateur, zone de travail, commandes, inspecteur,
 // panneau des modifications/problèmes.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
 import CloudProjectsPanel from '@/components/CloudProjectsPanel';
 import Header from '@/components/Header';
@@ -23,6 +23,9 @@ import { fmt } from '@/types/cad';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import type { SnapPoint } from '@/lib/geometry';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject, selectionCenter } from '@/lib/geometry';
+
+/** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
+const COMPACT_BREAKPOINT = 1024;
 
 const TOOLS: { id: ToolId; label: string; key: string; levels: DisplayLevel[]; hint: string }[] = [
   { id: 'select', label: 'Sélection', key: 'V', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Sélectionner et déplacer' },
@@ -74,12 +77,17 @@ function Workbench() {
   const [orthoEnabled, setOrthoEnabled] = useState(true);
   const [currentSnap, setCurrentSnap] = useState<SnapPoint | null>(null);
   const [zoom, setZoom] = useState(1);
-  const [isNarrow, setIsNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1100);
-  const [narrowDismissed, setNarrowDismissed] = useState(false);
+  // Sous 1 024 px (téléphone, tablette en portrait), les repères permanents deviennent des tiroirs.
+  const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT);
+  const [panel, setPanel] = useState<'navigator' | 'inspector' | 'history' | null>(null);
   const dxfInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const onResize = () => setIsNarrow(window.innerWidth < 1100);
+    const onResize = () => {
+      const next = window.innerWidth < COMPACT_BREAKPOINT;
+      setCompact(next);
+      if (!next) setPanel(null);
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -392,6 +400,52 @@ function Workbench() {
 
   const visibleTools = TOOLS.filter(t => t.levels.includes(level));
 
+  // Repères permanents : affichés en colonnes sur grand écran, en tiroirs sur petit écran.
+  const navigatorEl = (
+    <Navigator
+      objects={project.objects}
+      layers={project.layers}
+      blocks={project.blocks}
+      selectedId={project.selectedId}
+      activeLayerId={project.activeLayerId}
+      onSelect={id => { project.setSelectedId(id); if (compact) setPanel(null); }}
+      onAddLayer={project.addLayer}
+      onUpdateLayer={project.updateLayer}
+      onRemoveLayer={project.removeLayer}
+      onSetActiveLayer={project.setActiveLayerId}
+      onInsertBlock={id => { prepareBlockInsertion(id); if (compact) setPanel(null); }}
+      onCreateBlock={createBlockFromSelection}
+      onRemoveBlock={project.removeBlock}
+    />
+  );
+  const inspectorEl = (
+    <Inspector
+      obj={selected}
+      issues={selected ? project.diagnostics.filter(d => d.level === 'avertissement' && new RegExp(`\\b${selected.id}\\b`).test(d.text)).map(d => d.text) : []}
+      objects={project.objects}
+      layers={project.layers}
+      blocks={project.blocks}
+      view={view}
+      level={level}
+      onUpdate={project.updateObject}
+      onRemove={project.removeObject}
+      onCreateBlock={createBlockFromSelection}
+    />
+  );
+  const historyEl = (
+    <HistoryPanel
+      versions={project.versions}
+      pointer={project.pointer}
+      diagnostics={project.diagnostics}
+      onGoTo={project.goTo}
+      onNameVersion={project.nameVersion}
+      compact={level === 'essentiel'}
+      syncLabel={SYNC_META[syncStatus].label}
+      syncColor={SYNC_META[syncStatus].color}
+    />
+  );
+  const warningCount = project.diagnostics.filter(d => d.level === 'avertissement').length;
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <Header
@@ -412,14 +466,14 @@ function Workbench() {
 
       {mode === 'docs' ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex shrink-0 gap-1 border-b border-border bg-[#0c1220]/60 px-6 py-1.5">
+          <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-[#0c1220]/60 px-2 py-1.5 sm:px-6">
             {([
               ['concept', 'Concept produit'],
               ['architecture', 'Architecture de référence'],
               ['exigences', 'Exigences — 324 entrées + T01–T20'],
             ] as const).map(([id, label]) => (
               <button key={id} onClick={() => { setDocsSub(id); setFocusReq(null); }}
-                className={`rounded-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-colors ${
+                className={`shrink-0 whitespace-nowrap rounded-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-colors ${
                   docsSub === id ? 'bg-accent text-cyan-300' : 'text-muted-foreground hover:text-foreground'
                 }`}>
                 {label}
@@ -432,58 +486,42 @@ function Workbench() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1">
-          {/* Navigateur — repère permanent 1 */}
-          <aside className="w-56 shrink-0">
-            <Navigator
-              objects={project.objects}
-              layers={project.layers}
-              blocks={project.blocks}
-              selectedId={project.selectedId}
-              activeLayerId={project.activeLayerId}
-              onSelect={project.setSelectedId}
-              onAddLayer={project.addLayer}
-              onUpdateLayer={project.updateLayer}
-              onRemoveLayer={project.removeLayer}
-              onSetActiveLayer={project.setActiveLayerId}
-              onInsertBlock={prepareBlockInsertion}
-              onCreateBlock={createBlockFromSelection}
-              onRemoveBlock={project.removeBlock}
-            />
-          </aside>
+          {/* Navigateur — repère permanent 1 (tiroir sur petit écran) */}
+          {!compact && <aside className="w-56 shrink-0">{navigatorEl}</aside>}
 
           {/* Zone de travail + commandes — repères permanents 2 et 3 */}
           <main className="flex min-w-0 flex-1 flex-col border-l border-border">
-            <div className="flex shrink-0 items-center gap-1 border-b border-border bg-[#0c1220]/60 px-2 py-1">
+            <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#0c1220]/60 px-2 py-1">
               {visibleTools.map(t => (
                 <button
                   key={t.id}
                   onClick={() => setTool(t.id)}
                   title={`${t.hint} (${t.key})`}
-                  className={`rounded-sm px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors ${
+                  className={`shrink-0 whitespace-nowrap rounded-sm px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors lg:py-1 ${
                     tool === t.id ? 'bg-cyan-400 text-[#050810]' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                   }`}
                 >
-                  {t.label} <span className="opacity-50">{t.key}</span>
+                  {t.label} <span className="hidden opacity-50 2xl:inline">{t.key}</span>
                 </button>
               ))}
-              <span className="mx-2 h-4 w-px bg-border" />
+              <span className="mx-2 h-4 w-px shrink-0 bg-border" />
               <button
                 onClick={() => setSnapEnabled(v => !v)}
                 title="Accrochage objet : extrémités, milieux, centres, quadrants et intersections (F9)"
-                className={`rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] ${
+                className={`shrink-0 rounded-sm border px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] lg:py-1 ${
                   snapEnabled ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Snap <span className="opacity-50">F9</span>
+                Snap <span className="hidden opacity-50 2xl:inline">F9</span>
               </button>
               <button
                 onClick={() => setOrthoEnabled(v => !v)}
                 title="Contrainte horizontale / verticale (F8)"
-                className={`rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] ${
+                className={`shrink-0 rounded-sm border px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] lg:py-1 ${
                   orthoEnabled ? 'border-emerald-400/60 bg-emerald-400/10 text-emerald-300' : 'border-border text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Ortho <span className="opacity-50">F8</span>
+                Ortho <span className="hidden opacity-50 2xl:inline">F8</span>
               </button>
               <span className="ml-3 hidden min-w-0 flex-1 truncate font-mono text-[9px] text-muted-foreground/60 xl:inline">
                 {tool === 'polyline' ? 'Cliquez les points — Entrée/double-clic pour valider, Échap pour annuler' :
@@ -500,8 +538,8 @@ function Workbench() {
             </div>
 
             {/* Barre d'édition — opérations sur la sélection */}
-            <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border bg-[#0a0f1c]/80 px-2 py-1">
-              <span className="px-1 font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground/70">
+            <div className={`shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#0a0f1c]/80 px-2 py-1 lg:flex lg:flex-wrap ${compact && !hasSelection ? 'hidden' : 'flex'}`}>
+              <span className="shrink-0 whitespace-nowrap px-1 font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground/70">
                 Édition{hasSelection ? ` — ${selection.length} objet${selection.length > 1 ? 's' : ''}` : ''}
               </span>
               {([
@@ -521,7 +559,7 @@ function Workbench() {
                   onClick={a.run}
                   disabled={!hasSelection}
                   title={a.hint}
-                  className="rounded-sm px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors disabled:cursor-not-allowed disabled:opacity-30 enabled:text-muted-foreground enabled:hover:bg-accent enabled:hover:text-foreground"
+                  className="shrink-0 whitespace-nowrap rounded-sm px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors lg:py-1 disabled:cursor-not-allowed disabled:opacity-30 enabled:text-muted-foreground enabled:hover:bg-accent enabled:hover:text-foreground"
                 >
                   {a.label}
                 </button>
@@ -556,22 +594,11 @@ function Workbench() {
               />
             </div>
 
-            {/* Panneau des modifications / problèmes — repère permanent 5 */}
-            <div className="h-44 shrink-0 border-t border-border">
-              <HistoryPanel
-                versions={project.versions}
-                pointer={project.pointer}
-                diagnostics={project.diagnostics}
-                onGoTo={project.goTo}
-                onNameVersion={project.nameVersion}
-                compact={level === 'essentiel'}
-                syncLabel={SYNC_META[syncStatus].label}
-                syncColor={SYNC_META[syncStatus].color}
-              />
-            </div>
+            {/* Panneau des modifications / problèmes — repère permanent 5 (tiroir sur petit écran) */}
+            {!compact && <div className="h-44 shrink-0 border-t border-border">{historyEl}</div>}
 
             {/* Barre d'état */}
-            <div className="flex h-7 shrink-0 items-center gap-4 border-t border-border bg-[#0c1220]/90 px-3 font-mono text-[10px] text-muted-foreground">
+            <div className="flex h-7 shrink-0 items-center gap-4 overflow-x-auto whitespace-nowrap border-t border-border bg-[#0c1220]/90 px-3 font-mono text-[10px] text-muted-foreground">
               <span className="text-cyan-400">
                 {cursor.x === null ? '—' : `X ${fmt(cursor.x)} mm`} · {cursor.y === null ? '—' : `Y ${fmt(cursor.y)} mm`}
               </span>
@@ -582,26 +609,44 @@ function Workbench() {
               <span>v{project.current.seq}{project.current.named ? ` · ${project.current.named}` : ''}</span>
               <span>zoom {(zoom * 100).toFixed(0)} %</span>
               <span>{orthoEnabled ? 'ORTHO' : 'libre'} · {snapEnabled ? 'SNAP objet' : 'SNAP grille'}</span>
-              <span className="ml-auto">unités : millimètre · référentiel : local projet · DXF : Y ascendant</span>
+              <span className="ml-auto hidden lg:inline">unités : millimètre · référentiel : local projet · DXF : Y ascendant</span>
             </div>
+            {/* Navigation des repères sur petit écran */}
+            {compact && (
+              <nav className="grid shrink-0 grid-cols-3 border-t border-border bg-[#0c1220]">
+                {([
+                  ['navigator', 'Projet', `${project.objects.length}`],
+                  ['inspector', 'Inspecteur', selected ? selected.id : ''],
+                  ['history', 'Historique', warningCount > 0 ? `${warningCount} ⚠` : `v${project.current.seq}`],
+                ] as const).map(([id, label, badge]) => (
+                  <button
+                    key={id}
+                    onClick={() => setPanel(cur => (cur === id ? null : id))}
+                    className={`flex flex-col items-center gap-0.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] ${
+                      panel === id ? 'bg-cyan-400/10 text-cyan-300' : 'text-muted-foreground'
+                    }`}
+                  >
+                    <span>{label}</span>
+                    <span className={`text-[9px] normal-case tracking-normal ${id === 'history' && warningCount > 0 ? 'text-amber-300' : 'opacity-60'}`}>{badge || '—'}</span>
+                  </button>
+                ))}
+              </nav>
+            )}
           </main>
 
-          {/* Inspecteur — repère permanent 4 */}
-          <aside className="w-64 shrink-0 border-l border-border">
-            <Inspector
-              obj={selected}
-              issues={selected ? project.diagnostics.filter(d => d.level === 'avertissement' && new RegExp(`\\b${selected.id}\\b`).test(d.text)).map(d => d.text) : []}
-              objects={project.objects}
-              layers={project.layers}
-              blocks={project.blocks}
-              view={view}
-              level={level}
-              onUpdate={project.updateObject}
-              onRemove={project.removeObject}
-              onCreateBlock={createBlockFromSelection}
-            />
-          </aside>
+          {/* Inspecteur — repère permanent 4 (tiroir sur petit écran) */}
+          {!compact && <aside className="w-64 shrink-0 border-l border-border">{inspectorEl}</aside>}
         </div>
+      )}
+
+      {compact && mode === 'atelier' && panel && (
+        <Drawer
+          side={panel === 'navigator' ? 'left' : panel === 'inspector' ? 'right' : 'bottom'}
+          title={panel === 'navigator' ? 'Navigateur du projet' : panel === 'inspector' ? 'Inspecteur' : 'Modifications et problèmes'}
+          onClose={() => setPanel(null)}
+        >
+          {panel === 'navigator' ? navigatorEl : panel === 'inspector' ? inspectorEl : historyEl}
+        </Drawer>
       )}
 
       <input
@@ -634,26 +679,32 @@ function Workbench() {
       />
       <CommandPalette key={paletteOpen ? 'open' : 'closed'} open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} onOpenRequirement={openRequirement} />
 
-      {isNarrow && !narrowDismissed && mode === 'atelier' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#050810]/95 p-6">
-          <div className="max-w-sm rounded-md border border-border bg-[#0c1220] p-6 text-center">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-cyan-300">Écran trop étroit</p>
-            <p className="mt-3 text-sm text-foreground">
-              DrawAll est un atelier de dessin de précision conçu pour un écran d’au moins 1 100 px de large
-              (ordinateur ou tablette en paysage).
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Sur téléphone, les panneaux se chevauchent et le tracé au doigt n’est pas fiable au millimètre.
-            </p>
-            <button
-              onClick={() => setNarrowDismissed(true)}
-              className="mt-5 rounded-sm border border-border px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
-            >
-              Continuer quand même
-            </button>
-          </div>
+    </div>
+  );
+}
+
+/** Tiroir des repères permanents sur petit écran (navigateur, inspecteur, historique). */
+function Drawer({ side, title, onClose, children }: { side: 'left' | 'right' | 'bottom'; title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const position = side === 'left'
+    ? 'inset-y-0 left-0 w-[86vw] max-w-sm border-r'
+    : side === 'right'
+      ? 'inset-y-0 right-0 w-[86vw] max-w-sm border-l'
+      : 'inset-x-0 bottom-0 h-[65dvh] border-t';
+  return (
+    <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={title}>
+      <button aria-label="Fermer" className="absolute inset-0 h-full w-full cursor-default bg-black/60" onClick={onClose} />
+      <div className={`absolute flex flex-col border-border bg-[#0c1220] shadow-2xl shadow-black/60 ${position}`}>
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{title}</span>
+          <button onClick={onClose} className="rounded-sm border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground hover:text-foreground">✕</button>
         </div>
-      )}
+        <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      </div>
     </div>
   );
 }
