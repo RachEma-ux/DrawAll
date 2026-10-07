@@ -29,7 +29,7 @@ export default function Navigator(p: Props) {
     items: p.objects.filter(o => o.classification === c),
   })).filter(g => g.items.length > 0);
   const selected = p.objects.find(o => o.id === p.selectedId) ?? null;
-  const canCreateBlock = !!selected && ['line', 'rect', 'circle', 'polyline'].includes(selected.kind);
+  const canCreateBlock = !!selected && ['line', 'rect', 'circle', 'arc', 'polyline'].includes(selected.kind);
 
   const addLayer = () => {
     const name = window.prompt('Nom du nouveau calque', `Calque ${p.layers.length + 1}`);

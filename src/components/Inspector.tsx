@@ -45,7 +45,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
   const bat = readingFor(obj, 'batiment');
   const ind = readingFor(obj, 'industrie');
   const layer = layers.find(l => l.id === obj.layerId);
-  const isPrimitive = obj.kind === 'line' || obj.kind === 'rect' || obj.kind === 'circle' || obj.kind === 'polyline';
+  const isPrimitive = obj.kind === 'line' || obj.kind === 'rect' || obj.kind === 'circle' || obj.kind === 'arc' || obj.kind === 'polyline';
 
   const num = (v: number, apply: (n: number) => Partial<CadObject>) => (
     <input
@@ -84,6 +84,14 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
       { label: 'Centre X (mm)', el: num(obj.cx, n => ({ cx: n })) },
       { label: 'Centre Y (mm)', el: num(obj.cy, n => ({ cy: n })) },
       { label: 'Rayon (mm)', el: num(obj.r, n => ({ r: n > 0 ? n : obj.r })) },
+    );
+  } else if (obj.kind === 'arc') {
+    fields.push(
+      { label: 'Centre X (mm)', el: num(obj.cx, n => ({ cx: n })) },
+      { label: 'Centre Y (mm)', el: num(obj.cy, n => ({ cy: n })) },
+      { label: 'Rayon (mm)', el: num(obj.r, n => ({ r: n > 0 ? n : obj.r })) },
+      { label: 'Début (°)', el: num(obj.start, n => ({ start: n })) },
+      { label: 'Fin (°)', el: num(obj.end, n => ({ end: n })) },
     );
   } else if (obj.kind === 'dimension') {
     fields.push({ label: 'Décalage (mm)', el: num(obj.offset, n => ({ offset: n })) });

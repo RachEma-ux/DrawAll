@@ -9,6 +9,7 @@
 // Convention : DrawAll travaille en Y descendant (SVG), DXF en Y ascendant.
 import type { BlockDef, CadObject, Layer, PrimitiveObject, TextAlign, TextObj } from '@/types/cad';
 import { textLines } from '@/lib/text';
+import { norm360 } from '@/lib/arc';
 import { dimensionGeometry, dimensionText } from '@/lib/geometry';
 
 /** Écart maximal entre un arc et la polyligne qui l'approche, en millimètres. */
@@ -87,7 +88,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { line: 0, circle: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -174,6 +175,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   report.kept.push(`Calques : ${layers.length} (nom, couleur, visibilité, verrouillage).`);
   if (counts.line) report.kept.push(`Lignes : ${counts.line} (LINE).`);
   if (counts.circle) report.kept.push(`Cercles : ${counts.circle} (CIRCLE).`);
+  if (counts.arc) report.kept.push(`Arcs : ${counts.arc} (ARC natif).`);
   if (counts.polyline) report.kept.push(`Polylignes : ${counts.polyline} (LWPOLYLINE).`);
   if (counts.text) report.kept.push(`Textes sur une ligne : ${counts.text} (TEXT : contenu, hauteur, rotation, alignement).`);
   if (counts.mtext) report.kept.push(`Textes sur plusieurs lignes : ${counts.mtext} (MTEXT).`);
@@ -257,6 +259,13 @@ function writePrimitive(header: EntityHeader, push: Push, object: PrimitiveObjec
     push(10, n(object.cx)); push(20, n(-object.cy)); push(30, 0); push(40, n(object.r));
     return;
   }
+  if (object.kind === 'arc') {
+    header('ARC', layer, 'AcDbCircle');
+    push(10, n(object.cx)); push(20, n(-object.cy)); push(30, 0); push(40, n(object.r));
+    push(100, 'AcDbArc');
+    push(50, n(norm360(object.start))); push(51, n(norm360(object.end)));
+    return;
+  }
   const poly = primitivePoints(object);
   if (!poly) return;
   header('LWPOLYLINE', layer, 'AcDbPolyline');
@@ -323,6 +332,7 @@ function transformPrimitive(p: PrimitiveObject, x: number, y: number, scale: num
     case 'line': return { ...p, x1: x + p.x1 * scale, y1: y + p.y1 * scale, x2: x + p.x2 * scale, y2: y + p.y2 * scale };
     case 'rect': return { ...p, x: x + p.x * scale, y: y + p.y * scale, w: p.w * scale, h: p.h * scale };
     case 'circle': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
+    case 'arc': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
     case 'polyline': return { ...p, points: p.points.map((v, i) => (i % 2 === 0 ? x + v * scale : y + v * scale)) };
   }
 }
@@ -474,14 +484,9 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       let end = numberOf(body, 51, 360);
       // Symétrie X : l'angle θ devient 180° − θ et le sens de parcours s'inverse.
       if (mirror) [start, end] = [180 - end, 180 - start];
-      let sweep = end - start;
-      while (sweep <= 0) sweep += 360;
-      while (sweep > 360) sweep -= 360;
-      const a0 = (start * Math.PI) / 180;
-      const { points, error } = arcPoints(cx, cy, r, a0, (sweep * Math.PI) / 180);
-      stats.maxArcError = Math.max(stats.maxArcError, error);
+      // Arc natif : aucune approximation (même centre, même rayon, mêmes angles).
       const id = nextId();
-      objects.push({ ...base('Arc', id), kind: 'polyline', points: flipY(points) });
+      objects.push({ ...base('Arc', id), kind: 'arc', cx: round(cx), cy: round(-cy), r: round(r), start: norm360(start), end: norm360(end) });
       stats.arc++;
       continue;
     }
@@ -513,7 +518,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
         if (arc) {
           stats.bulgeSegments++;
           stats.maxArcError = Math.max(stats.maxArcError, arc.error);
-          pts.push(...arc.points.slice(2));
+          for (let i = 2; i < arc.points.length; i++) pts.push(arc.points[i]);
           continue;
         }
       }
@@ -533,8 +538,9 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
   if (stats.circle) report.kept.push(`Cercles : ${stats.circle}.`);
   if (stats.text) report.kept.push(`Textes : ${stats.text} (contenu, hauteur, rotation, alignement ; mise en forme MTEXT simplifiée).`);
   if (stats.polyline) report.kept.push(`Polylignes : ${stats.polyline}.`);
-  if (stats.arc || stats.bulgeSegments) {
-    const parts = [stats.arc ? `${stats.arc} arc(s)` : '', stats.bulgeSegments ? `${stats.bulgeSegments} segment(s) courbe(s) de polyligne` : ''].filter(Boolean).join(' et ');
+  if (stats.arc) report.kept.push(`Arcs : ${stats.arc} (ARC natif, sans approximation).`);
+  if (stats.bulgeSegments) {
+    const parts = `${stats.bulgeSegments} segment(s) courbe(s) de polyligne`;
     report.transformed.push(`Courbes : ${parts} approchés par des polylignes (écart maximal ${formatMm(stats.maxArcError)} mm, tolérance ${formatMm(ARC_TOLERANCE_MM)} mm).`);
     if (stats.maxArcError > ARC_TOLERANCE_MM + 1e-9) {
       const text = `Tolérance d'approximation dépassée : écart de ${formatMm(stats.maxArcError)} mm sur un arc trop grand (plafond de ${MAX_ARC_STEPS.toLocaleString('fr-FR')} segments).`;

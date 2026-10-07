@@ -33,7 +33,7 @@ Un dessin peut être « sans échelle d'impression » ; il n'est jamais « sans 
 | --- | --- | --- |
 | Précision stockée | Nombre flottant double ; export DXF à 10⁻⁶ mm | Ce que conserve la géométrie. Jamais arrondie par l'affichage ni par l'inspecteur. |
 | Tolérance de calcul | 10⁻⁶ mm | En deçà, une longueur est considérée comme nulle. Aucune taille minimale métier n'est imposée (un perçage de Ø 0,8 mm est possible). |
-| Tolérance d'approximation | 0,05 mm (écart de corde) | Écart maximal entre un arc importé et la polyligne qui le représente ; annoncé dans le rapport. Au-delà de 100 000 segments par arc (rayons de l'ordre de la centaine de kilomètres), la tolérance n'est plus tenue et le rapport le signale. |
+| Tolérance d'approximation | 0,05 mm (écart de corde) | Écart maximal entre un segment courbe de polyligne importé (`bulge`) et la polyligne qui le représente ; annoncé dans le rapport. Au-delà de 100 000 segments par arc (rayons de l'ordre de la centaine de kilomètres), la tolérance n'est plus tenue et le rapport le signale. |
 | Précision affichée | 2 décimales au plus | Présentation des cotes et des mesures. Préréglage ; ne modifie jamais la géométrie. |
 
 La tolérance de fabrication (variation physique admissible d'une pièce, ISO 2768, ISO 286) est une donnée métier portée par l'objet ; elle n'est pas une précision d'affichage.
@@ -156,7 +156,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | --- | --- | --- |
 | Ligne | Conservée | Conservée (LINE) |
 | Cercle | Conservé | Conservé (CIRCLE) |
-| Arc | Approché en polyligne (≤ 0,05 mm) | — (pas d'arc natif dans le modèle) |
+| Arc | Conservé (ARC natif : centre, rayon, angles) | Conservé (ARC) |
 | Polyligne droite | Conservée | Conservée (LWPOLYLINE, nombre de sommets exact) |
 | Segment courbe de polyligne | Approché en polyligne (≤ 0,05 mm) | — |
 | Largeur de polyligne | Perdue (signalée) | — |

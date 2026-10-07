@@ -3,6 +3,7 @@
 import type { BlockDef, CadObject, DimensionObj, Layer, PrimitiveObject } from '@/types/cad';
 import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExtents } from '@/types/cad';
 import { normalizeAngle, textBounds } from '@/lib/text';
+import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } from '@/lib/arc';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -17,7 +18,7 @@ export interface SnapPoint extends Point {
 }
 
 interface Segment { x1: number; y1: number; x2: number; y2: number; objectId: string }
-interface CircleGeom { cx: number; cy: number; r: number; objectId: string }
+interface CircleGeom { cx: number; cy: number; r: number; objectId: string; arc?: { start: number; end: number } }
 
 const SNAP_PRIORITY: Record<SnapType, number> = {
   intersection: 0,
@@ -118,6 +119,15 @@ function collectObjectSnaps(
       add('quadrant', object.cx - object.r, object.cy);
       add('quadrant', object.cx, object.cy - object.r);
       return;
+    case 'arc': {
+      const [e1, e2] = arcEndpoints(object);
+      add('endpoint', e1.x, e1.y);
+      add('endpoint', e2.x, e2.y);
+      const m = arcMidpoint(object);
+      add('midpoint', m.x, m.y);
+      add('center', object.cx, object.cy);
+      return;
+    }
     case 'polyline':
       for (let i = 0; i + 1 < object.points.length; i += 2) add('endpoint', object.points[i], object.points[i + 1]);
       for (let i = 0; i + 3 < object.points.length; i += 2) {
@@ -178,12 +188,14 @@ function collectIntersections(objects: CadObject[], blocks: BlockDef[], x: numbe
       if (p) add(p.x, p.y, segments[j].objectId);
     }
     for (const circle of circles) {
-      for (const p of segmentCircleIntersections(segments[i], circle)) add(p.x, p.y, circle.objectId);
+      for (const p of segmentCircleIntersections(segments[i], circle)) if (onCircleGeom(circle, p)) add(p.x, p.y, circle.objectId);
     }
   }
   for (let i = 0; i < circles.length; i++) {
     for (let j = i + 1; j < circles.length; j++) {
-      for (const p of circleCircleIntersections(circles[i], circles[j])) add(p.x, p.y, circles[j].objectId);
+      for (const p of circleCircleIntersections(circles[i], circles[j])) {
+        if (onCircleGeom(circles[i], p) && onCircleGeom(circles[j], p)) add(p.x, p.y, circles[j].objectId);
+      }
     }
   }
 }
@@ -206,6 +218,9 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
     case 'circle':
       circles.push({ cx: object.cx, cy: object.cy, r: object.r, objectId: object.id });
       return;
+    case 'arc':
+      circles.push({ cx: object.cx, cy: object.cy, r: object.r, objectId: object.id, arc: { start: object.start, end: object.end } });
+      return;
     case 'polyline':
       for (let i = 0; i + 3 < object.points.length; i += 2) {
         segments.push({ x1: object.points[i], y1: object.points[i + 1], x2: object.points[i + 2], y2: object.points[i + 3], objectId: object.id });
@@ -227,6 +242,11 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
     case 'text':
       return;
   }
+}
+
+/** Un point d'un cercle porteur appartient-il à l'arc (ou au cercle complet) ? */
+function onCircleGeom(c: CircleGeom, p: Point): boolean {
+  return !c.arc || angleInArc({ cx: c.cx, cy: c.cy, r: c.r, ...c.arc }, angleOf(c.cx, c.cy, p), 1e-6);
 }
 
 function segmentIntersection(a: Segment, b: Segment): Point | null {
@@ -282,6 +302,7 @@ function transformPrimitive(p: PrimitiveObject, x: number, y: number, scale: num
     case 'line': return { ...p, x1: x + p.x1 * scale, y1: y + p.y1 * scale, x2: x + p.x2 * scale, y2: y + p.y2 * scale };
     case 'rect': return { ...p, x: x + p.x * scale, y: y + p.y * scale, w: p.w * scale, h: p.h * scale };
     case 'circle': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
+    case 'arc': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
     case 'polyline': return { ...p, points: p.points.map((v, i) => (i % 2 === 0 ? x + v * scale : y + v * scale)) };
   }
 }
@@ -301,6 +322,7 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
     case 'line': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'rect': return { minX: object.x, minY: object.y, maxX: object.x + object.w, maxY: object.y + object.h };
     case 'circle': return { minX: object.cx - object.r, minY: object.cy - object.r, maxX: object.cx + object.r, maxY: object.cy + object.r };
+    case 'arc': return arcBounds(object);
     case 'polyline': {
       const pts: Point[] = [];
       for (let i = 0; i + 1 < object.points.length; i += 2) pts.push({ x: object.points[i], y: object.points[i + 1] });
@@ -324,13 +346,20 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
 
 export function projectBounds(objects: CadObject[], blocks: BlockDef[]): Bounds | null {
   const bounds = objects.map(o => objectBounds(o, blocks, objects)).filter((b): b is Bounds => !!b);
+  return unionBounds(bounds);
+}
+
+/** Union d'emprises, sans étaler de grands tableaux en arguments (pile d'appels). */
+export function unionBounds(bounds: Bounds[]): Bounds | null {
   if (bounds.length === 0) return null;
-  return {
-    minX: Math.min(...bounds.map(b => b.minX)),
-    minY: Math.min(...bounds.map(b => b.minY)),
-    maxX: Math.max(...bounds.map(b => b.maxX)),
-    maxY: Math.max(...bounds.map(b => b.maxY)),
-  };
+  const u = { ...bounds[0] };
+  for (const b of bounds) {
+    if (b.minX < u.minX) u.minX = b.minX;
+    if (b.minY < u.minY) u.minY = b.minY;
+    if (b.maxX > u.maxX) u.maxX = b.maxX;
+    if (b.maxY > u.maxY) u.maxY = b.maxY;
+  }
+  return u;
 }
 
 export function blockBounds(block: BlockDef): Bounds {
@@ -348,6 +377,7 @@ export function primitiveBounds(o: PrimitiveObject): Bounds {
     case 'line': return { minX: Math.min(o.x1, o.x2), minY: Math.min(o.y1, o.y2), maxX: Math.max(o.x1, o.x2), maxY: Math.max(o.y1, o.y2) };
     case 'rect': return { minX: o.x, minY: o.y, maxX: o.x + o.w, maxY: o.y + o.h };
     case 'circle': return { minX: o.cx - o.r, minY: o.cy - o.r, maxX: o.cx + o.r, maxY: o.cy + o.r };
+    case 'arc': return arcBounds(o);
     case 'polyline': {
       const pts: Point[] = [];
       for (let i = 0; i + 1 < o.points.length; i += 2) pts.push({ x: o.points[i], y: o.points[i + 1] });
@@ -357,17 +387,16 @@ export function primitiveBounds(o: PrimitiveObject): Bounds {
 }
 
 function boundsOfPoints(points: Point[]): Bounds {
-  return {
-    minX: Math.min(...points.map(p => p.x)),
-    minY: Math.min(...points.map(p => p.y)),
-    maxX: Math.max(...points.map(p => p.x)),
-    maxY: Math.max(...points.map(p => p.y)),
-  };
+  return unionBounds(points.map(p => ({ minX: p.x, minY: p.y, maxX: p.x, maxY: p.y })))!;
 }
 
 export function dimensionGeometry(dim: DimensionObj, target: CadObject): { x1: number; y1: number; x2: number; y2: number; tx: number; ty: number; ext: [number, number, number, number][] } | null {
   const style = effectiveDimensionStyle(dim.style, target);
   if (!style) return null;
+  if (style === 'radial' && target.kind === 'arc') {
+    const m = arcMidpoint(target);
+    return { x1: target.cx, y1: target.cy, x2: m.x, y2: m.y, tx: (target.cx + m.x) / 2, ty: (target.cy + m.y) / 2 - 8, ext: [] };
+  }
   if (style === 'radial' && target.kind === 'circle') {
     const a = -Math.PI / 4;
     const x2 = target.cx + Math.cos(a) * target.r;
@@ -439,6 +468,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'line': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'rect': return { x: object.x + dx, y: object.y + dy };
     case 'circle': return { cx: object.cx + dx, cy: object.cy + dy };
+    case 'arc': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'polyline': return { points: object.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)) };
     case 'dimension': return { offset: object.offset + (object.style === 'vertical' ? dx : dy) };
     case 'blockRef': return { x: object.x + dx, y: object.y + dy };
@@ -480,6 +510,11 @@ export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg
       const p = rotatePoint(object.cx, object.cy, cx, cy, rad);
       return { cx: p.x, cy: p.y };
     }
+    case 'arc': {
+      // angleDeg > 0 = sens horaire à l'écran = angles DXF décroissants.
+      const p = rotatePoint(object.cx, object.cy, cx, cy, rad);
+      return { cx: p.x, cy: p.y, start: norm360(object.start - angleDeg), end: norm360(object.end - angleDeg) };
+    }
     case 'polyline': {
       const points: number[] = [];
       for (let i = 0; i + 1 < object.points.length; i += 2) {
@@ -516,6 +551,11 @@ export function mirrorObject(object: CadObject, axis: 'x' | 'y', value: number):
         : { y: mx(object.y + object.h) };
     case 'circle':
       return axis === 'x' ? { cx: mx(object.cx) } : { cy: mx(object.cy) };
+    case 'arc':
+      // Symétrie : l'angle θ devient 180° − θ (axe vertical) ou −θ (axe horizontal) et le sens s'inverse.
+      return axis === 'x'
+        ? { cx: mx(object.cx), start: norm360(180 - object.end), end: norm360(180 - object.start) }
+        : { cy: mx(object.cy), start: norm360(-object.end), end: norm360(-object.start) };
     case 'polyline':
       return { points: object.points.map((v, i) => (i % 2 === 0) === (axis === 'x') ? mx(v) : v) };
     case 'blockRef':
@@ -536,6 +576,7 @@ export function scaleObject(object: CadObject, cx: number, cy: number, factor: n
     case 'line': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy) };
     case 'rect': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor) };
     case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
+    case 'arc': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
     case 'blockRef': return { x: s(object.x, cx), y: s(object.y, cy), scale: round(object.scale * factor) };
     case 'dimension': return { offset: round(object.offset * factor) };
@@ -559,12 +600,13 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'rect': {
       const w = object.w + 2 * d;
       const h = object.h + 2 * d;
-      if (w < 1 || h < 1) return null;
+      if (!(w > 0) || !(h > 0)) return null;
       return { x: object.x - d, y: object.y - d, w, h };
     }
-    case 'circle': {
+    case 'circle':
+    case 'arc': {
       const r = object.r + d;
-      if (r < 1) return null;
+      if (!(r > 0)) return null;
       return { r };
     }
     case 'polyline':
@@ -588,11 +630,9 @@ export function selectionCenter(ids: string[], objects: CadObject[], blocks: Blo
     .filter((o): o is CadObject => !!o)
     .map(o => objectBounds(o, blocks, objects))
     .filter((b): b is Bounds => !!b);
-  if (bounds.length === 0) return null;
-  return {
-    x: (Math.min(...bounds.map(b => b.minX)) + Math.max(...bounds.map(b => b.maxX))) / 2,
-    y: (Math.min(...bounds.map(b => b.minY)) + Math.max(...bounds.map(b => b.maxY))) / 2,
-  };
+  const u = unionBounds(bounds);
+  if (!u) return null;
+  return { x: (u.minX + u.maxX) / 2, y: (u.minY + u.maxY) / 2 };
 }
 
 function round(n: number): number {

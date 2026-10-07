@@ -36,6 +36,8 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'line', label: 'Ligne', key: 'L', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Deux points accrochés à la grille' },
   { id: 'rect', label: 'Rectangle', short: 'Rect.', key: 'R', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Par deux coins opposés' },
   { id: 'circle', label: 'Cercle', key: 'C', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Centre puis rayon' },
+  { id: 'arc', label: 'Arc 3 points', short: 'Arc', key: 'A', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Début, point de passage, fin' },
+  { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'measure', label: 'Mesure', key: 'M', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Cliquez-glissez pour mesurer une distance' },
@@ -369,9 +371,11 @@ function Workbench() {
         select: ['selection', 'selectionner', 'fleche', 'move', 'deplacer'],
         line: ['ligne', 'trait', 'segment', 'line'],
         rect: ['rectangle', 'cadre', 'box', 'rect'],
-        circle: ['cercle', 'arc', 'circle', 'rond'],
+        circle: ['cercle', 'circle', 'rond'],
         polyline: ['polyligne', 'polyline', 'contour', 'profil'],
         text: ['texte', 'annotation', 'etiquette', 'text', 'label'],
+        arc: ['arc', 'courbe', 'trois points', 'cintre'],
+        arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         dimension: ['cote', 'cotation', 'dimension', 'mesure associative'],
         measure: ['mesure', 'distance', 'mesurer'],
         block: ['bloc', 'symbole', 'inserer', 'occurrence'],
@@ -620,6 +624,9 @@ function Workbench() {
                  tool === 'measure' ? 'Cliquez-glissez : distance, ΔX et ΔY en millimètres' :
                  tool === 'block' ? (activeBlockId ? `Cliquez pour insérer ${activeBlockId}` : 'Choisissez un bloc dans le navigateur') :
                  tool === 'pan' ? 'Glissez pour déplacer la vue' :
+                 tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
+                 tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
+                 tool === 'text' ? 'Cliquez le point d’insertion puis saisissez le texte ; double-clic sur un texte pour le modifier' :
                  'Cliquez-glissez : l’aperçu précède la validation (UX3)'}
               </span>
               <span className="ml-auto hidden shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground 2xl:inline">
