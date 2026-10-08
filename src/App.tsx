@@ -148,6 +148,9 @@ function Workbench() {
     try { return localStorage.getItem('drawall-couleurs') === 'metier' ? 'metier' : 'calque'; } catch { return 'calque'; }
   });
   useEffect(() => { try { localStorage.setItem('drawall-couleurs', colorMode); } catch { /* préférence non conservée */ } }, [colorMode]);
+  // Réticule décalé au doigt (lot 7.1) : préférence de ce navigateur, désactivé par défaut.
+  const [reticleOn, setReticleOn] = useState(() => { try { return localStorage.getItem('drawall-reticule') === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('drawall-reticule', reticleOn ? '1' : '0'); } catch { /* préférence non conservée */ } }, [reticleOn]);
   const showCoord = (mm: number) => `${fmt(fromMm(mm, displayUnit), unitDecimals(displayUnit))} ${displayUnit}`;
   // Paramètres du congé et du chanfrein (mm), saisis dans le panneau de l'outil.
   const [cornerParams, setCornerParams] = useState({ r: '10', d1: '10', d2: '10' });
@@ -985,7 +988,8 @@ function Workbench() {
 
           {/* Zone de travail + commandes — repères permanents 2 et 3 */}
           <main className="relative flex min-w-0 flex-1 flex-col border-l border-border">
-            <div className={`flex shrink-0 items-center gap-1 border-b border-border bg-[#0c1220]/60 px-2 py-1 ${compact ? '' : 'overflow-x-auto'}`}>
+            {/* Petit écran : barre d'outils en bas, à portée du pouce (lot 7.1). */}
+            <div data-testid="barre-outils" className={`flex shrink-0 items-center gap-1 border-border bg-[#0c1220]/60 px-2 py-1 ${compact ? 'order-last border-t' : 'overflow-x-auto border-b'}`}>
               {/* Petit écran : les outils fréquents défilent si besoin, « Plus » reste toujours accessible à droite. */}
               <div className={`flex items-center gap-1 ${compact ? 'min-w-0 flex-1 overflow-x-auto' : 'contents'}`}>
               {(compact ? primaryTools : visibleTools).map(t => (
@@ -1002,6 +1006,19 @@ function Workbench() {
                 </button>
               ))}
               </div>
+              {compact && (
+                <button
+                  onClick={() => setReticleOn(v => !v)}
+                  aria-pressed={reticleOn}
+                  aria-label="Réticule décalé"
+                  title="Réticule décalé au-dessus du doigt, avec loupe : le point est posé au lever du doigt"
+                  className={`shrink-0 whitespace-nowrap rounded-sm border px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] ${
+                    reticleOn ? 'border-pink-400/70 bg-pink-400/15 text-pink-300' : 'border-border text-muted-foreground'
+                  }`}
+                >
+                  ⌖
+                </button>
+              )}
               {compact && (
                 <button
                   onClick={() => setMoreOpen(o => !o)}
@@ -1062,7 +1079,7 @@ function Workbench() {
             </div>
 
             {compact && moreOpen && (
-              <div data-testid="more-tools" className="absolute right-2 top-11 z-30 flex w-56 flex-col gap-1 rounded-sm border border-border bg-[#0c1220] p-2 shadow-2xl shadow-black/60">
+              <div data-testid="more-tools" className="absolute bottom-24 right-2 z-30 max-h-[60vh] overflow-y-auto flex w-56 flex-col gap-1 rounded-sm border border-border bg-[#0c1220] p-2 shadow-2xl shadow-black/60">
                 {moreTools.map(t => (
                   <button
                     key={t.id}
@@ -1166,6 +1183,7 @@ function Workbench() {
                 gridSize={gridSize}
                 projectKey={projectKey}
                 levelKey={project.activeLevelId}
+                reticle={reticleOn}
                 snapTypes={snapTypes}
                 colorMode={colorMode}
                 displayUnit={displayUnit}
