@@ -1,0 +1,219 @@
+{
+  "moteur": "Node v22.22.0",
+  "date": "2026-10-08",
+  "mesures": [
+    {
+      "cas": "rectangle entièrement contraint (origine fixe, 100 × 60)",
+      "A": {
+        "solved": true,
+        "residual": 6.53e-14,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 3.1,
+        "verification": true
+      },
+      "B": {
+        "solved": true,
+        "residual": 0,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 17.2,
+        "verification": true
+      }
+    },
+    {
+      "cas": "rectangle sous-contraint (largeur seule) : 1 degré de liberté",
+      "A": {
+        "solved": true,
+        "residual": 8.3e-10,
+        "dof": 1,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 0.5
+      },
+      "B": {
+        "solved": true,
+        "residual": 0,
+        "dof": 1,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 0.5
+      }
+    },
+    {
+      "cas": "rectangle sur-contraint cohérent (largeur répétée par une égalité) : redondance",
+      "A": {
+        "solved": true,
+        "residual": 6.57e-14,
+        "dof": 0,
+        "redundant": [
+          "w2"
+        ],
+        "conflicting": [],
+        "ms": 0.4
+      },
+      "B": {
+        "solved": true,
+        "residual": 0,
+        "dof": 0,
+        "redundant": [
+          "w2"
+        ],
+        "conflicting": [],
+        "ms": 2.8
+      }
+    },
+    {
+      "cas": "rectangle en conflit (largeur 100 et longueur opposée 120)",
+      "A": {
+        "solved": false,
+        "residual": 5,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [
+          "v1",
+          "h2",
+          "v2",
+          "w",
+          "w2"
+        ],
+        "ms": 8.5
+      },
+      "B": {
+        "solved": false,
+        "residual": 6.67,
+        "dof": -1,
+        "redundant": [],
+        "conflicting": [
+          "h1",
+          "v1",
+          "h2",
+          "v2",
+          "w",
+          "w2"
+        ],
+        "ms": 1.1
+      }
+    },
+    {
+      "cas": "droite tangente à un cercle de rayon 25 (centre fixe), perpendiculaire à un axe fixe",
+      "A": {
+        "solved": true,
+        "residual": 2.84e-13,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 0.8,
+        "verification": true
+      },
+      "B": {
+        "solved": true,
+        "residual": 0,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 1.4,
+        "verification": true
+      }
+    },
+    {
+      "cas": "angle de 30° entre deux segments de longueur imposée",
+      "A": {
+        "solved": true,
+        "residual": 1.36e-10,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 0.3,
+        "verification": true
+      },
+      "B": {
+        "solved": true,
+        "residual": 7.11e-15,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 0.6,
+        "verification": true
+      }
+    },
+    {
+      "cas": "chaîne 20, à froid",
+      "A": {
+        "solved": true,
+        "residual": 4.96e-13,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 19.1
+      },
+      "B": {
+        "solved": true,
+        "residual": 1.07e-14,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 10
+      }
+    },
+    {
+      "cas": "chaîne 50, à chaud (une longueur +1 %)",
+      "A": {
+        "solved": true,
+        "residual": 5.27e-11,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 20.9
+      },
+      "B": {
+        "solved": true,
+        "residual": 9.41e-14,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 9.7
+      }
+    },
+    {
+      "cas": "chaîne 100, à chaud (une longueur +1 %)",
+      "A": {
+        "solved": true,
+        "residual": 2.97e-10,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 68.9
+      },
+      "B": {
+        "solved": true,
+        "residual": 3.43e-13,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 48.5
+      }
+    },
+    {
+      "cas": "chaîne 200, à chaud (une longueur +1 %)",
+      "A": {
+        "solved": true,
+        "residual": 7.9e-12,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 189.1
+      },
+      "B": {
+        "solved": true,
+        "residual": 3.97e-14,
+        "dof": 0,
+        "redundant": [],
+        "conflicting": [],
+        "ms": 259.4
+      }
+    }
+  ]
+}
