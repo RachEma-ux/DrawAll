@@ -39,7 +39,16 @@ describe('export SVG (lot 6.4)', () => {
     expect(svg).toContain('Plan du rez');
     const colors = [...svg.matchAll(/(?:stroke|fill)="(#[0-9a-fA-F]+)"/g)].map(m => m[1].toLowerCase());
     expect(colors.length).toBeGreaterThan(5);
-    expect(colors.every(c => c === '#000000' || c === '#ffffff')).toBe(true);
+    expect(colors.every(c => c === '#000000')).toBe(true);
     expect(svg).not.toMatch(/rgba\(/);
+    // Papier et fond du cartouche restent blancs.
+    expect((svg.match(/fill="white"/g) ?? []).length).toBe(2);
+  });
+
+  it('un trait blanc (couleur 7 d’un DXF) est rendu en noir, pas effacé par le papier', () => {
+    const white = sheetToSvg({ sheet, objects: [{ ...objects[0], color: '#ffffff' }], levels: [DEFAULT_LEVEL], layers: [{ ...layers[0], color: '#ffffff' }], blocks: [], profile: profileById(undefined), view: 'batiment', versions, pointer: 0 });
+    const line = white.match(/<line[^>]*>/)![0];
+    expect(line).toContain('stroke="#000000"');
+    expect(white).not.toMatch(/(?:stroke|fill)="#fff(?:fff)?"/i);
   });
 });

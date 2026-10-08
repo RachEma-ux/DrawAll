@@ -36,7 +36,7 @@ export function SheetSvg(p: SvgInput) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width={`${size.w}mm`} height={`${size.h}mm`} viewBox={`0 0 ${size.w} ${size.h}`}>
       <title>{`${sheet.id} — ${sheet.name}`}</title>
-      <rect x={0} y={0} width={size.w} height={size.h} fill="#ffffff" />
+      <rect x={0} y={0} width={size.w} height={size.h} fill="white" />
       <rect data-cadre="" x={area.x} y={area.y} width={area.w} height={area.h} fill="none" stroke="#000000" strokeWidth={0.5} />
       {sheet.viewports.map(v => {
         const objs = onLevel(p.objects, viewportLevelId(v, p.levels)).filter(o => o.kind !== 'underlay');
@@ -60,7 +60,7 @@ export function SheetSvg(p: SvgInput) {
       })}
       {tb && (
         <g data-cartouche="" fontFamily="Helvetica, Arial, sans-serif">
-          <rect x={tb.x} y={tb.y} width={tb.w} height={tb.h} fill="#ffffff" stroke="#000000" strokeWidth={0.5} />
+          <rect x={tb.x} y={tb.y} width={tb.w} height={tb.h} fill="white" stroke="#000000" strokeWidth={0.5} />
           {fields.map((f, i) => {
             const cw = tb.w / 4, rh = tb.h / 2;
             const cx = tb.x + (i % 4) * cw, cy = tb.y + Math.floor(i / 4) * rh;
@@ -82,12 +82,14 @@ export function SheetSvg(p: SvgInput) {
 
 /**
  * Couleurs ramenées au noir sur blanc (usage du dessin technique, comme le PDF) : traits, textes et
- * aplats en noir ; les teintes d'aide à l'écran (rgba) disparaissent ; le blanc reste blanc.
+ * aplats en noir, blancs compris (un trait blanc, couleur 7 d'un DXF, disparaîtrait sur le papier) ;
+ * les teintes d'aide à l'écran (rgba) disparaissent. Seuls le papier et le fond du cartouche, écrits
+ * avec le mot-clé « white », restent blancs.
  */
 export function monochrome(svg: string): string {
   return svg
     .replace(/(stroke|fill)="rgba\([^)]*\)"/g, '$1="none"')
-    .replace(/(stroke|fill)="(#[0-9a-fA-F]{3,8})"/g, (_, attr: string, c: string) => (/^#(fff|ffffff)$/i.test(c) ? `${attr}="${c}"` : `${attr}="#000000"`))
+    .replace(/(stroke|fill)="(#[0-9a-fA-F]{3,8})"/g, (_, attr: string) => `${attr}="#000000"`)
     .replace(/(stroke|fill)="(?!none|transparent|url\(|#)([a-z]+)"/g, (m, attr: string, name: string) => (name === 'white' ? m : `${attr}="#000000"`));
 }
 
