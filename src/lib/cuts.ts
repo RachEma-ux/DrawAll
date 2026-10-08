@@ -82,8 +82,13 @@ export function cutView(o: CutObj, source: CadObject | undefined, mark: CadObjec
   const material: Rect[] = [];
   let frame: Rect;
   let below: boolean;
+  // La trace est un segment : elle doit traverser toute la face le long de son plan (Conventions §6.2),
+  // sinon la coupe n'est pas évaluée (pas de coupe partielle implicite).
+  const traverses = (intervals: [number, number][], a: number, b: number) =>
+    intervals.every(([u, v]) => u >= Math.min(a, b) - EPS && v <= Math.max(a, b) + EPS);
   if (horizontal) {
     const c = mark.y1;
+    if (!traverses(materialIntervals(loops, 'y', c), mark.x1, mark.x2)) return { ok: false, error: 'La trace ne traverse pas toute la face : prolonger le repère de coupe.' };
     const towardsDown = look.y * forward > 0;
     const v0 = towardsDown ? box.maxY + g : box.minY - g - d;
     for (const [a, b] of materialIntervals(loops, 'y', c)) material.push({ x: a, y: v0, w: b - a, h: d });
@@ -91,6 +96,7 @@ export function cutView(o: CutObj, source: CadObject | undefined, mark: CadObjec
     below = towardsDown;
   } else {
     const c = mark.x1;
+    if (!traverses(materialIntervals(loops, 'x', c), mark.y1, mark.y2)) return { ok: false, error: 'La trace ne traverse pas toute la face : prolonger le repère de coupe.' };
     const towardsRight = look.x * forward > 0;
     const u0 = towardsRight ? box.maxX + g : box.minX - g - d;
     for (const [a, b] of materialIntervals(loops, 'x', c)) material.push({ x: u0, y: a, w: d, h: b - a });

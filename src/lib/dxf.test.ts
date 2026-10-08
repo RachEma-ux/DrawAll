@@ -532,5 +532,8 @@ describe('coupes (lot 5.3)', () => {
     expect((content.match(/\nHATCH\n/g) ?? []).length).toBe(3);
     expect(decodeDxfString(content)).toContain('A–A');
     expect(report.transformed.join(' ')).toMatch(/Vues en coupe : 1/);
+    // Contours coupés en continu 0,5 mm (12 traits : 3 surfaces), hachures 0,18 mm.
+    expect((content.match(/\n6\nCONTINUOUS\n370\n50\n100\nAcDbLine\n/g) ?? []).length).toBe(12);
+    expect((content.match(/\n6\nCONTINUOUS\n370\n18\n100\nAcDbHatch\n/g) ?? []).length).toBe(3);
   });
 });

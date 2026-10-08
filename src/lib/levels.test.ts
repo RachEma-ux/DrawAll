@@ -50,3 +50,17 @@ describe('niveau montré par une fenêtre', () => {
     expect(viewportLevelId({}, [])).toBe(DEFAULT_LEVEL.id);
   });
 });
+
+describe('copie de niveau : coupe rattachée à la face et au repère copiés', () => {
+  it('sourceId et markId pointent vers les copies du niveau cible', () => {
+    const b = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
+    const src: CadObject[] = [
+      { ...b, id: 'OBJ-0001', name: 'Face', kind: 'rect', x: 0, y: 0, w: 100, h: 60 },
+      { ...b, id: 'OBJ-0004', name: 'A', kind: 'section', x1: -10, y1: 30, x2: 110, y2: 30, label: 'A' },
+      { ...b, id: 'OBJ-0005', name: 'Coupe', kind: 'cut', sourceId: 'OBJ-0001', markId: 'OBJ-0004', depth: 10, gap: 20 },
+    ];
+    const { objects: copies } = copyLevelObjects(src, DEFAULT_LEVEL.id, 'NIV-0002', 20, 1);
+    const ids = new Map(src.map((o, i) => [o.id, copies[i].id]));
+    expect(copies.find(o => o.kind === 'cut')).toMatchObject({ sourceId: ids.get('OBJ-0001'), markId: ids.get('OBJ-0004'), levelId: 'NIV-0002' });
+  });
+});

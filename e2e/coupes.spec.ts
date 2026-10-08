@@ -10,7 +10,7 @@ test('lot 5.3 — recette platine percée : coupe A–A hachurée, suit la face'
     { id: 'OBJ-0003', kind: 'circle', cx: 75, cy: 30, r: 6.25, classification: 'mecanique' },
     { id: 'OBJ-0004', kind: 'views', sourceId: 'OBJ-0001', depth: 10, gap: 20, top: true, side: true, classification: 'mecanique' },
     // Repère A par l'axe des perçages, flèches vers le bas : coupe vue du dessus.
-    { id: 'OBJ-0005', kind: 'section', x1: -10, y1: 30, x2: 110, y2: 30, label: 'A', flip: true, classification: 'mecanique' },
+    { id: 'OBJ-0005', kind: 'section', x1: -10, y1: 30, x2: 150, y2: 30, label: 'A', flip: true, classification: 'mecanique' },
   ]);
   await page.getByRole('button', { name: /OBJ-0005/ }).first().click();
   await page.getByRole('button', { name: 'Créer la coupe de OBJ-0001' }).click();
@@ -25,7 +25,7 @@ test('lot 5.3 — recette platine percée : coupe A–A hachurée, suit la face'
   expect(await coupe.locator(':scope > line').count()).toBeGreaterThan(10);
   await expect(page.getByTestId('coupe-matiere')).toHaveText('3 surfaces coupées · A–A');
 
-  // La face s'élargit : la coupe suit.
+  // La face s'élargit (la trace la traverse toujours) : la coupe suit.
   await page.getByRole('button', { name: /OBJ-0001/ }).first().click();
   const width = page.getByText('Largeur (mm)', { exact: true }).locator('xpath=following-sibling::input');
   await width.fill('140');

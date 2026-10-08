@@ -250,7 +250,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 
 ### 6.2 Coupes (règle, lot 5.3)
 
-- Une vue en coupe est définie par une face (pièce prismatique : contour fermé + épaisseur, îlots = perçages) et un repère de coupe (§8.5) dont la trace traverse la face. Le plan de coupe est perpendiculaire à la face et passe par la trace ; seules les traces horizontales ou verticales sont prises en charge. Une trace oblique, ou qui ne traverse pas la matière, est signalée « non évaluée ».
+- Une vue en coupe est définie par une face (pièce prismatique : contour fermé + épaisseur, îlots = perçages) et un repère de coupe (§8.5) dont la trace traverse la face. Le plan de coupe est perpendiculaire à la face et passe par la trace ; seules les traces horizontales ou verticales sont prises en charge. Une trace oblique, qui ne traverse pas la matière, ou qui ne traverse pas toute la face (trace raccourcie ou déplacée après coup), est signalée « non évaluée » : il n'y a pas de coupe partielle implicite.
 - La vue montre :
   - les surfaces coupées (intervalles de matière le long de la trace, règle pair-impair avec les perçages, cercles calculés exactement) en contour fort (0,5 mm), hachurées à 45° en trait fin au pas papier de 3 mm ;
   - les perçages comme des vides ;
@@ -259,7 +259,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - Placement : comme la vue projetée dans le sens des flèches du repère (ISO 128-3), selon la méthode de projection. La coupe remplace la vue liée qui occuperait le même emplacement (une coupe vue du dessus remplace la vue de dessus).
 - La coupe suit la face et la trace. Elle part avec la face ; sans son repère, elle est signalée orpheline.
 - Échanges :
-  - DXF : contours (LINE), hachures (HATCH au pas converti à l'échelle) et désignation (TEXT) ;
+  - DXF : contours (LINE, continu 0,5 mm), hachures (HATCH 0,18 mm au pas converti à l’échelle) et désignation (TEXT) ;
   - PDF : hachures par découpe au pas papier.
 
 ## 7. Échanges DXF

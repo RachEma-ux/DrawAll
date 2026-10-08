@@ -252,15 +252,20 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       const c = cutView(object, objects.find(o => o.id === object.sourceId), objects.find(o => o.id === object.markId), objects, 0, 5 * hatchScale);
       if (!c.ok) continue;
       counts.cut++;
+      const own = style;
+      // Comme à l'écran et en PDF : contours coupés en trait continu fort 0,5 mm, hachures fines 0,18 mm.
+      style = { ...own, lineType: 'continu', lineWeight: 0.5 };
       for (const [x1, y1, x2, y2] of c.value.visible) {
         entityHeader('LINE', layer, 'AcDbLine');
         push(10, n(x1)); push(20, n(-y1)); push(30, 0);
         push(11, n(x2)); push(21, n(-y2)); push(31, 0);
       }
+      style = { ...own, lineType: 'continu', lineWeight: 0.18 };
       for (const r of c.value.material) {
         const pseudo = { ...object, kind: 'polyline', hatch: 'diagonal', hatchParams: undefined, points: [r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h, r.x, r.y] } as unknown as PrimitiveObject;
         if (writeHatch(entityHeader, push, pseudo, layer, [], hatchScale)) counts.hatch++;
       }
+      style = own;
       const t = c.value.label;
       entityHeader('TEXT', layer, 'AcDbText');
       push(10, n(t.x)); push(20, n(-t.y)); push(30, 0); push(40, n(5 * hatchScale));

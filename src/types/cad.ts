@@ -246,6 +246,24 @@ export function parentOf(o: CadObject): string | null {
   return o.kind === 'dimension' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' ? o.sourceId : null;
 }
 
+/**
+ * Tous les objets dont dépend un objet associatif : son parent et, pour une coupe, son repère de
+ * coupe (copiés et rattachés ensemble).
+ */
+export function parentsOf(o: CadObject): string[] {
+  const p = parentOf(o);
+  return [...(p ? [p] : []), ...(o.kind === 'cut' ? [o.markId] : [])];
+}
+
+/** Même objet rattaché aux copies de tous ses parents, ou null si l'un d'eux n'est pas copié. */
+export function withParents<T extends CadObject>(o: T, copyOf: (id: string) => string | undefined): T | null {
+  let out: T = o;
+  const p = parentOf(o);
+  if (p) { const c = copyOf(p); if (!c) return null; out = withParent(out, c); }
+  if (out.kind === 'cut') { const m = copyOf(out.markId); if (!m) return null; out = { ...out, markId: m }; }
+  return out;
+}
+
 /** Même objet, rattaché à un autre parent (copie). */
 export function withParent<T extends CadObject>(o: T, parent: string): T {
   if (o.kind === 'dimension') return { ...o, targetId: parent };

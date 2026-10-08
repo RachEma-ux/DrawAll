@@ -43,7 +43,8 @@ describe('coupes (lot 5.3) — platine percée', () => {
 
   it('modifier la face ou la trace met la coupe à jour', () => {
     const wide = { ...plate, w: 140 } as CadObject;
-    const r = cutView(cut, wide, mark(), [wide, h1, h2, mark()], 3, 5);
+    const long = mark({ x2: 150 });
+    const r = cutView(cut, wide, long, [wide, h1, h2, long], 3, 5);
     expect(r.ok && r.value.material[2].x + r.value.material[2].w).toBe(140);
     const off = mark({ y1: 10, y2: 10 });
     const r2 = cutView(cut, plate, off, all(off), 3, 5);
@@ -56,6 +57,17 @@ describe('coupes (lot 5.3) — platine percée', () => {
     const outside = mark({ y1: 100, y2: 100 });
     expect(cutView(cut, plate, outside, all(outside), 3, 5)).toMatchObject({ ok: false });
     expect(cutView(cut, plate, undefined, [plate], 3, 5)).toMatchObject({ ok: false });
+  });
+
+  it('trace raccourcie ou déplacée qui ne traverse plus toute la face : non évaluée', () => {
+    const short = mark({ x1: 40 });
+    expect(cutView(cut, plate, short, all(short), 3, 5)).toMatchObject({ ok: false, error: expect.stringMatching(/traverse pas toute la face/) });
+    const wide = { ...plate, w: 140 } as CadObject;
+    expect(cutView(cut, wide, mark(), [wide, h1, h2, mark()], 3, 5)).toMatchObject({ ok: false });
+    const vertical = mark({ x1: 50, y1: 10, x2: 50, y2: 70 });
+    expect(cutView(cut, plate, vertical, all(vertical), 3, 5)).toMatchObject({ ok: false });
+    const across = mark({ x1: 50, y1: -10, x2: 50, y2: 70 });
+    expect(cutView(cut, plate, across, all(across), 3, 5).ok).toBe(true);
   });
 
   it('intervalles pair-impair et désignation', () => {

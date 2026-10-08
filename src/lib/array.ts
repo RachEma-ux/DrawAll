@@ -1,7 +1,7 @@
 // Copies multiples : réseaux rectangulaire et polaire, collage. Fonctions pures.
 // Une « pose » transforme une copie d'un objet ; elle ne crée pas d'identifiant (c'est le
 // rôle du magasin de projet, qui garantit l'unicité).
-import { parentOf, withParent, type CadObject } from '@/types/cad';
+import { parentOf, parentsOf, withParents, type CadObject } from '@/types/cad';
 import { moveObject, rotateObject } from '@/lib/geometry';
 
 /** Transformation appliquée à une copie : renvoie la modification, ou null si impossible. */
@@ -16,18 +16,23 @@ const norm = (deg: number) => { const a = ((deg % 360) + 360) % 360; return a > 
  */
 export function withDependencies(objects: CadObject[], selected: Iterable<string>): CadObject[] {
   const ids = new Set(selected);
-  // Remonter aux parents (une cote sur une ouverture remonte jusqu'au mur).
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const o of objects) { const p = parentOf(o); if (p && ids.has(o.id) && !ids.has(p)) { ids.add(p); changed = true; } }
-  }
-  // Îlots de hachure : copiés avec le contour qui les désigne.
-  for (const o of objects) if (ids.has(o.id)) for (const h of o.holes ?? []) ids.add(h);
-  // Puis descendre aux objets associatifs des objets copiés.
-  for (let changed = true; changed;) {
-    changed = false;
+  // Remonter aux parents (une cote sur une ouverture remonte jusqu'au mur ; une coupe emporte sa face
+  // et son repère) et aux îlots, descendre aux objets associatifs des objets copiés, jusqu'à stabilité.
+  const up = () => {
+    let changed = false;
+    for (const o of objects) {
+      if (!ids.has(o.id)) continue;
+      // Îlots de hachure : copiés avec le contour qui les désigne.
+      for (const p of [...parentsOf(o), ...(o.holes ?? [])]) if (!ids.has(p)) { ids.add(p); changed = true; }
+    }
+    return changed;
+  };
+  const down = () => {
+    let changed = false;
     for (const o of objects) { const p = parentOf(o); if (p && ids.has(p) && !ids.has(o.id)) { ids.add(o.id); changed = true; } }
-  }
+    return changed;
+  };
+  for (let changed = true; changed;) changed = up() || down();
   return objects.filter(o => ids.has(o.id));
 }
 
@@ -109,8 +114,8 @@ export function polarArray(count: number, total: number, cx: number, cy: number,
 export function cloneAll(sources: CadObject[], placements: Placement[], counter: number, seq: number): { objects: CadObject[]; counter: number } {
   const out: CadObject[] = [];
   // Objets associatifs (cote, ouverture, vues) : copiés après leur parent, rattachés à sa copie.
-  const shapes = sources.filter(o => !parentOf(o));
-  const dependents = sources.filter(o => !!parentOf(o));
+  const shapes = sources.filter(o => parentsOf(o).length === 0);
+  const dependents = sources.filter(o => parentsOf(o).length > 0);
   for (const place of placements) {
     const ids = new Map<string, string>();
     const start = out.length;
@@ -135,12 +140,12 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
       progress = false;
       const next: CadObject[] = [];
       for (const d of pending) {
-        const parent = ids.get(parentOf(d)!);
-        if (!parent) { next.push(d); continue; }
+        const attached = withParents(d, p => ids.get(p));
+        if (!attached) { next.push(d); continue; }
         counter += 1;
         const id = `OBJ-${String(counter).padStart(4, '0')}`;
         ids.set(d.id, id);
-        out.push({ ...withParent(d, parent), id, createdSeq: seq } as CadObject);
+        out.push({ ...attached, id, createdSeq: seq } as CadObject);
         progress = true;
       }
       pending = next;
