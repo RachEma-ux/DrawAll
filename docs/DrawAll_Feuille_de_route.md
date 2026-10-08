@@ -257,7 +257,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 11.1 Solveur de contraintes (essai P0) | Fait (compte rendu `docs/p0/11.1-solveur.md` ; choix proposé : solveur DrawAll, planegcs gardé en oracle de test) | #54 |
 | 11.2 Noyau : chargement, mémoire, cas difficiles | Fait (compte rendu `docs/p0/11.2-noyau.md`) | #55 |
 | 11.3 Références topologiques | Fait (compte rendu `docs/p0/11.3-references.md`) | #56 |
-| 11.4 Import de référence | À faire | — |
+| 11.4 Import de référence | Fait (compte rendu `docs/p0/11.4-import-step.md`) | #57 |
 | 11.5 Note de décision P0 | À faire | — |
 | 12.1 Contraintes dans l'atelier | À faire | — |
 | 12.2 Paramètres nommés et cotes pilotantes | À faire | — |

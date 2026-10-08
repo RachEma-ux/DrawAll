@@ -1,0 +1,154 @@
+{
+  "moteur": "Node v22.22.0",
+  "date": "2026-10-08",
+  "noyau": "replicad-opencascadejs 1.1.0 (OCCT 8.0, STEPControl_Reader)",
+  "cas": [
+    {
+      "fichier": "piece-ap203.step",
+      "statut": "importé",
+      "erreur": null,
+      "schema": "CONFIG_CONTROL_DESIGN",
+      "unites": [
+        {
+          "name": "millimètre",
+          "mm": 1
+        }
+      ],
+      "produits": [
+        "socle"
+      ],
+      "occurrencesDePieces": 1,
+      "solides": 1,
+      "volumeTotal": 100000,
+      "pertes": [],
+      "ms": 144.6
+    },
+    {
+      "fichier": "piece-ap214.step",
+      "statut": "importé",
+      "erreur": null,
+      "schema": "AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }",
+      "unites": [
+        {
+          "name": "millimètre",
+          "mm": 1
+        }
+      ],
+      "produits": [
+        "socle"
+      ],
+      "occurrencesDePieces": 1,
+      "solides": 1,
+      "volumeTotal": 100000,
+      "pertes": [],
+      "ms": 11.8
+    },
+    {
+      "fichier": "piece-ap242.step",
+      "statut": "importé",
+      "erreur": null,
+      "schema": "AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF {1 0 10303 442 1 1 4 }",
+      "unites": [
+        {
+          "name": "millimètre",
+          "mm": 1
+        }
+      ],
+      "produits": [
+        "socle"
+      ],
+      "occurrencesDePieces": 1,
+      "solides": 1,
+      "volumeTotal": 100000,
+      "pertes": [],
+      "ms": 11.3
+    },
+    {
+      "fichier": "assemblage-mm.step",
+      "statut": "importé avec pertes",
+      "erreur": null,
+      "schema": "AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }",
+      "unites": [
+        {
+          "name": "millimètre",
+          "mm": 1
+        }
+      ],
+      "produits": [
+        "ensemble",
+        "socle",
+        "axe"
+      ],
+      "occurrencesDePieces": 3,
+      "solides": 3,
+      "volumeTotal": 104712.38898,
+      "pertes": [
+        "couleurs et styles : 2 entité(s) non importée(s)"
+      ],
+      "ms": 29.5
+    },
+    {
+      "fichier": "assemblage-pouce.step",
+      "statut": "importé avec pertes",
+      "erreur": null,
+      "schema": "AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }",
+      "unites": [
+        {
+          "name": "inch",
+          "mm": 25.4
+        }
+      ],
+      "produits": [
+        "ensemble",
+        "socle",
+        "axe"
+      ],
+      "occurrencesDePieces": 3,
+      "solides": 3,
+      "volumeTotal": 104712.38898,
+      "pertes": [
+        "couleurs et styles : 2 entité(s) non importée(s)"
+      ],
+      "ms": 17.8
+    },
+    {
+      "fichier": "entite-manquante.step",
+      "statut": "importé avec pertes",
+      "erreur": null,
+      "schema": "AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }",
+      "unites": [
+        {
+          "name": "millimètre",
+          "mm": 1
+        }
+      ],
+      "produits": [
+        "ensemble",
+        "socle",
+        "axe"
+      ],
+      "occurrencesDePieces": 3,
+      "solides": 1,
+      "volumeTotal": 100000,
+      "pertes": [
+        "couleurs et styles : 2 entité(s) non importée(s)",
+        "1 référence(s) vers des entités absentes du fichier (ex. #390, citée par #389)",
+        "2 occurrence(s) de pièce sur 3 sans solide transféré"
+      ],
+      "ms": 15.1
+    },
+    {
+      "fichier": "tronque.step",
+      "statut": "échec",
+      "erreur": "Fichier STEP incomplet : marque de fin END-ISO-10303-21 absente (fichier tronqué ?).",
+      "schema": null,
+      "unites": [],
+      "produits": [],
+      "occurrencesDePieces": null,
+      "solides": 0,
+      "volumeTotal": 0,
+      "pertes": [],
+      "ms": 1.6
+    }
+  ]
+}
