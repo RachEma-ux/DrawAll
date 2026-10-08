@@ -30,6 +30,7 @@ export function defaultIfcClass(o: CadObject): IfcClass {
     case 'opening': return o.type === 'porte' ? 'IfcDoor' : 'IfcWindow';
     case 'room': return 'IfcSpace';
     case 'slab': return 'IfcSlab';
+    case 'roof': return 'IfcRoof';
     case 'blockRef': return 'IfcBuildingElementProxy';
     // Géométrie de dessin (lignes, contours…) et annotations : représentations 2D sans élément porteur.
     default: return 'IfcAnnotation';

@@ -263,7 +263,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 12.2 Paramètres nommés et cotes pilotantes | Fait (conventions §1.14) | #60 |
 | 12.3 Propriétés et classification | Fait (conventions §1.15) | #61 |
 | 13.1 Dalles et planchers | Fait (conventions §8.6) | #62 |
-| 13.2 Toitures | À faire | — |
+| 13.2 Toitures | Fait (conventions §8.7) | #63 |
 | 13.3 Zones | À faire | — |
 | 13.4 Poteaux et poutres | À faire | — |
 | 13.5 Tableaux de quantités | À faire | — |

@@ -4,7 +4,7 @@ import type { Parameter } from '@/lib/params/expr';
 import type { PropertySet } from '@/lib/properties';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -211,6 +211,21 @@ export interface SlabObj extends Base {
   roomId?: string;
 }
 
+/**
+ * Toiture (lot 13.2) sur contour rectangulaire (nu extérieur des murs) : un, deux ou quatre pans de
+ * même pente (degrés), débord sur tout le pourtour (mm), axe du faîtage (deux pans) ou de la rive
+ * haute (un pan, côté `highSide`). Géométrie dérivée : src/lib/roof.ts.
+ */
+export interface RoofObj extends Base {
+  kind: 'roof';
+  x: number; y: number; w: number; h: number;
+  roofType: 'un-pan' | 'deux-pans' | 'quatre-pans';
+  pitch: number;
+  overhang: number;
+  axis: 'x' | 'y';
+  highSide?: 'min' | 'max';
+}
+
 /** Nord (lot 4.5) : centre du symbole et direction du nord, en degrés antihoraires depuis le haut de l'écran. */
 export interface NorthObj extends Base {
   kind: 'north';
@@ -328,7 +343,7 @@ export interface Asset {
   source: 'image' | 'pdf';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
@@ -504,6 +519,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   opening: 'Ouverture',
   room: 'Pièce',
   slab: 'Dalle',
+  roof: 'Toiture',
   north: 'Nord',
   section: 'Repère de coupe',
   levelMark: 'Cote de niveau',
@@ -600,6 +616,7 @@ export function dimensionOf(obj: CadObject): string {
       for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += obj.points[2 * i] * obj.points[2 * j + 1] - obj.points[2 * j] * obj.points[2 * i + 1]; }
       return `Dalle ép. ${fmt(obj.thickness)} mm · ${fmt(Math.abs(a) / 2e6, 2)} m²`;
     }
+    case 'roof': return `Toiture ${obj.roofType === 'un-pan' ? 'à un pan' : obj.roofType === 'deux-pans' ? 'à deux pans' : 'à quatre pans'} · pente ${fmt(obj.pitch)}° · ${fmt(obj.w)} × ${fmt(obj.h)} mm`;
     case 'north': return `Nord à ${fmt(obj.rotation)}°`;
     case 'section': return `Coupe ${obj.label} · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'levelMark': return `Niveau ${fmt(obj.elevation / 1000)} m`;

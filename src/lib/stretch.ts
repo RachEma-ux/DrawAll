@@ -45,6 +45,11 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
       const p = stretchPoints(o.points, w, dx, dy);
       return p && { points: p };
     }
+    case 'roof': {
+      // Toiture : son contour s'étire comme un rectangle (côtés et coins capturés).
+      const r = stretchObject({ ...o, kind: 'rect' } as CadObject, w, dx, dy) as { x: number; y: number; w: number; h: number } | null;
+      return r && { x: r.x, y: r.y, w: r.w, h: r.h };
+    }
     case 'rect': {
       const x0 = o.x, y0 = o.y, x1 = o.x + o.w, y1 = o.y + o.h;
       const c = { tl: inside(w, x0, y0), tr: inside(w, x1, y0), br: inside(w, x1, y1), bl: inside(w, x0, y1) };
@@ -103,7 +108,8 @@ function vertices(o: CadObject): { x: number; y: number }[] {
       for (let i = 0; i + 1 < o.points.length; i += 2) out.push({ x: o.points[i], y: o.points[i + 1] });
       return out;
     }
-    case 'rect': return [{ x: o.x, y: o.y }, { x: o.x + o.w, y: o.y }, { x: o.x + o.w, y: o.y + o.h }, { x: o.x, y: o.y + o.h }];
+    // Toiture : son contour s'étire comme un rectangle (ses quatre coins).
+    case 'rect': case 'roof': return [{ x: o.x, y: o.y }, { x: o.x + o.w, y: o.y }, { x: o.x + o.w, y: o.y + o.h }, { x: o.x, y: o.y + o.h }];
     case 'circle': case 'arc': case 'ellipse': return [{ x: o.cx, y: o.cy }];
     default: return 'x' in o && 'y' in o && typeof o.x === 'number' && typeof o.y === 'number' ? [{ x: o.x, y: o.y }] : [];
   }
@@ -130,7 +136,7 @@ export function stretchPreview(objects: CadObject[], w: Window, dx: number, dy: 
     // Rectangle retourné : ses coins sont réordonnés ; on associe chaque sommet capturé au plus proche déplacé.
     return before.flatMap((p, i) => {
       if (!caught[i]) return [];
-      if (o.kind !== 'rect') return [after[i] ?? p];
+      if (o.kind !== 'rect' && o.kind !== 'roof') return [after[i] ?? p];
       const target = { x: p.x + dx, y: p.y + dy };
       return [after.reduce((best, q) => (Math.hypot(q.x - target.x, q.y - target.y) < Math.hypot(best.x - target.x, best.y - target.y) ? q : best), after[0])];
     });
