@@ -5,6 +5,7 @@ import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExte
 import { normalizeAngle, textBounds } from '@/lib/text';
 import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } from '@/lib/arc';
 import { pdimGeometry, pdimPoints, transformPdim } from '@/lib/pdim';
+import { hatchParamsOf } from '@/lib/hatch';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -627,15 +628,32 @@ function rotatePoint(px: number, py: number, cx: number, cy: number, rad: number
 }
 
 /** Rotation autour d'un centre, angle en degrés (sens trigonométrique, Y descendant). */
-/** Les hachures paramétrées suivent l'objet : l'angle tourne avec lui, le pas modèle suit l'échelle. */
-function withHatch(object: CadObject, patch: Partial<CadObject> | null, change: (h: HatchParams) => HatchParams): Partial<CadObject> | null {
-  if (!patch || !object.hatchParams) return patch;
-  return { ...patch, hatchParams: change(object.hatchParams) };
+/**
+ * Les hachures suivent l'objet : l'angle tourne avec lui, le pas modèle suit l'échelle et l'origine
+ * (relative à l'emprise) suit la transformation. Un motif propre aux paramètres par défaut les reçoit
+ * explicitement ; le motif d'un objet à matériau reste celui du profil de dessin.
+ */
+function withHatch(object: CadObject, patch: Partial<CadObject> | null, change: (h: HatchParams) => HatchParams, mapPoint: (p: Point) => Point): Partial<CadObject> | null {
+  if (!patch) return patch;
+  const patterned = !object.materialId && (object.hatch === 'diagonal' || object.hatch === 'cross');
+  const current = object.hatchParams ?? (patterned ? hatchParamsOf(object) : null);
+  if (!current) return patch;
+  let next = change(current);
+  if (current.originX !== undefined || current.originY !== undefined) {
+    const before = objectBounds(object, [], []);
+    const after = objectBounds({ ...object, ...patch } as CadObject, [], []);
+    if (before && after) {
+      const origin = mapPoint({ x: before.minX + (current.originX ?? 0), y: before.minY + (current.originY ?? 0) });
+      next = { ...next, originX: origin.x - after.minX, originY: origin.y - after.minY };
+    }
+  }
+  return { ...patch, hatchParams: next };
 }
 
 export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg: number): Partial<CadObject> | null {
   // angleDeg > 0 : sens horaire à l'écran ; l'angle des hachures est antihoraire.
-  return withHatch(object, rotateObjectGeometry(object, cx, cy, angleDeg), h => ({ ...h, angle: norm360(h.angle - angleDeg) }));
+  const rad = (angleDeg * Math.PI) / 180;
+  return withHatch(object, rotateObjectGeometry(object, cx, cy, angleDeg), h => ({ ...h, angle: norm360(h.angle - angleDeg) }), p => rotatePoint(p.x, p.y, cx, cy, rad));
 }
 
 function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDeg: number): Partial<CadObject> | null {
@@ -687,7 +705,8 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
 
 /** Symétrie par rapport à un axe vertical ('x' = valeur X de l'axe) ou horizontal. */
 export function mirrorObject(object: CadObject, axis: 'x' | 'y', value: number): Partial<CadObject> {
-  return withHatch(object, mirrorObjectGeometry(object, axis, value), h => ({ ...h, angle: norm360(axis === 'x' ? 180 - h.angle : -h.angle) })) ?? {};
+  return withHatch(object, mirrorObjectGeometry(object, axis, value), h => ({ ...h, angle: norm360(axis === 'x' ? 180 - h.angle : -h.angle) }),
+    p => (axis === 'x' ? { x: 2 * value - p.x, y: p.y } : { x: p.x, y: 2 * value - p.y })) ?? {};
 }
 
 function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number): Partial<CadObject> {
@@ -724,7 +743,8 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
 
 /** Homothétie depuis un centre fixe. */
 export function scaleObject(object: CadObject, cx: number, cy: number, factor: number): Partial<CadObject> | null {
-  return withHatch(object, scaleObjectGeometry(object, cx, cy, factor), h => (h.unit === 'modele' ? { ...h, spacing: h.spacing * factor } : h));
+  return withHatch(object, scaleObjectGeometry(object, cx, cy, factor), h => (h.unit === 'modele' ? { ...h, spacing: h.spacing * factor } : h),
+    p => ({ x: cx + (p.x - cx) * factor, y: cy + (p.y - cy) * factor }));
 }
 
 function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: number): Partial<CadObject> | null {

@@ -16,6 +16,8 @@ const norm = (deg: number) => { const a = ((deg % 360) + 360) % 360; return a > 
 export function withDependencies(objects: CadObject[], selected: Iterable<string>): CadObject[] {
   const ids = new Set(selected);
   for (const o of objects) if (o.kind === 'dimension' && ids.has(o.id)) ids.add(o.targetId);
+  // Îlots de hachure : copiés avec le contour qui les désigne.
+  for (const o of objects) if (ids.has(o.id)) for (const h of o.holes ?? []) ids.add(h);
   return objects.filter(o => ids.has(o.id) || (o.kind === 'dimension' && ids.has(o.targetId)));
 }
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject } from '@/types/cad';
 import { containedContours, hatchSegments, islandsOf, loopOf } from './hatch';
+import { mirrorObject, rotateObject, scaleObject } from './geometry';
+import { cloneAll, translation, withDependencies } from './array';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', createdSeq: 0, name: 'o', hatch: 'diagonal' as const };
 const square = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
@@ -55,5 +57,39 @@ describe('hachures paramétrées', () => {
     // Polygone à 0,01 mm du cercle : le milieu d'une corde reste à moins de 0,01 mm.
     const [p, q] = circle;
     expect(10 - Math.hypot((p.x + q.x) / 2 - 50, (p.y + q.y) / 2 - 50)).toBeLessThanOrEqual(0.01);
+  });
+});
+
+describe('les hachures suivent l’objet (lot 3.2)', () => {
+  const b = { classification: 'non-classifie' as const, layerId: 'LAY-0001', createdSeq: 0, name: 'o' };
+  const rect: CadObject = { ...b, id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 100, h: 50, hatch: 'diagonal' };
+
+  it('paramètres par défaut : l’angle tourne et se réfléchit avec l’objet', () => {
+    expect(rotateObject(rect, 0, 0, 90)!.hatchParams).toMatchObject({ angle: 315, spacing: 3, unit: 'papier' });
+    expect(mirrorObject(rect, 'x', 50).hatchParams).toMatchObject({ angle: 135 });
+    // Un objet à matériau garde le motif de son profil (aucun paramètre figé).
+    expect(rotateObject({ ...rect, materialId: 'beton' } as CadObject, 0, 0, 90)!.hatchParams).toBeUndefined();
+  });
+
+  it('l’origine du motif suit l’homothétie, la symétrie et la rotation', () => {
+    const o = { ...rect, hatchParams: { angle: 45, spacing: 5, unit: 'modele' as const, originX: 10, originY: 5 } } as CadObject;
+    expect(scaleObject(o, 0, 0, 2)!.hatchParams).toMatchObject({ spacing: 10, originX: 20, originY: 10 });
+    expect(mirrorObject(o, 'x', 50).hatchParams).toMatchObject({ originX: 90, originY: 5 });
+    // Rotation de 90° (sens horaire à l'écran) autour du coin : (10, 5) → (−5, 10) ; nouvelle emprise x ∈ [−50, 0].
+    expect(rotateObject(o, 0, 0, 90)!.hatchParams).toMatchObject({ originX: 45, originY: 10 });
+  });
+});
+
+describe('îlots copiés avec leur contour (lot 3.2)', () => {
+  it('copier le contour copie ses îlots, rattachés à la copie', () => {
+    const b = { classification: 'non-classifie' as const, layerId: 'LAY-0001', createdSeq: 0, name: 'o', hatch: 'none' as const };
+    const objs: CadObject[] = [
+      { ...b, id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 100, h: 50, hatch: 'diagonal', holes: ['OBJ-0002'] },
+      { ...b, id: 'OBJ-0002', kind: 'circle', cx: 50, cy: 25, r: 10 },
+    ];
+    const sources = withDependencies(objs, ['OBJ-0001']);
+    expect(sources.map(o => o.id)).toEqual(['OBJ-0001', 'OBJ-0002']);
+    const { objects: copies } = cloneAll(sources, [translation(200, 0)], 10, 1);
+    expect(copies[0].holes).toEqual([copies[1].id]);
   });
 });
