@@ -63,6 +63,7 @@ const CASES: Case[] = [
   { name: 'même congé', change: 'segment visé coupé en deux : le coin appartient au nouveau morceau', recipe: fillet(extrude([[0, 0], [60, 0], [60, 10], [35, 10], [10, 10], [10, 40], [0, 40]], ['s0', 's1', 's2', 's2b', 's3', 's4', 's5']), 3, INNER), expect: 'à réparer', reason: 'les deux faces ne se touchent plus' },
   { series: 'coque', name: 'coque de 2 mm ouverte sur la face avant (Y min)', change: '—', recipe: { op: 'shell', of: B(), thickness: 2, open: face('B', 'ymin') }, expect: 'conservée', at: [50, 0, 10], volume: 100000 - 96 * 48 * 16 },
   { series: 'coque', name: 'même coque', change: 'pavé redimensionné en 120 × 60 × 30', recipe: { op: 'shell', of: B(120, 60, 30), thickness: 2, open: face('B', 'ymin') }, expect: 'conservée', at: [60, 0, 15], volume: 120 * 60 * 30 - 116 * 58 * 26 },
+  { name: 'coque ouverte sur la base du cylindre soustrait', change: 'cylindre écarté du pavé : sa base a disparu, la face coplanaire du pavé n’est pas reprise', recipe: { op: 'shell', of: cut({ op: 'box', name: 'B', x: 1, y: 1, z: 1, at: [8, 8, 0] }, { op: 'cylinder', name: 'C', r: 10, h: 5 }), thickness: 0.1, open: face('C', 'base') }, expect: 'à réparer', reason: 'face disparue' },
   { name: 'coque ouverte sur le dessus', change: 'rainure selon X : le dessus est coupé en deux', recipe: { op: 'shell', of: cut(B(), slab(120, 10, 20, [-10, 20, 10])), thickness: 2, open: face('B', 'zmax') }, expect: 'à réparer', reason: 'face partagée en 2 morceaux' },
 ];
 
@@ -80,6 +81,12 @@ describe('références topologiques — supports (sans noyau)', () => {
   it('nom de fonction en double : toute référence qui le vise est à réparer', () => {
     const s = featureSupports({ op: 'union', a: B(), b: { op: 'box', name: 'B', x: 1, y: 1, z: 1 } });
     expect(supportOf(s, face('B', 'zmax'))).toEqual({ reason: 'nom en double dans la recette (B.zmax)' });
+  });
+  it('base de cylindre : disque, pas carré englobant', () => {
+    const s = featureSupports({ op: 'cylinder', name: 'C', r: 10, h: 5 });
+    const b = supportOf(s, face('C', 'base'));
+    expect('support' in b && pointOnSupport(b.support, [7, 7, 0])).toBe(true);
+    expect('support' in b && pointOnSupport(b.support, [8, 8, 0])).toBe(false);
   });
   it('paroi de cylindre d’axe quelconque', () => {
     const s = featureSupports({ op: 'cylinder', name: 'H', r: 5, h: 10, at: [1, 2, 3], dir: [1, 0, 0] });

@@ -157,6 +157,15 @@
       "serie": "coque"
     },
     {
+      "cas": "coque ouverte sur la base du cylindre soustrait",
+      "modification": "cylindre écarté du pavé : sa base a disparu, la face coplanaire du pavé n’est pas reprise",
+      "statut": "à réparer",
+      "raison": "face disparue",
+      "candidats": 0,
+      "rangNoyau": null,
+      "serie": null
+    },
+    {
       "cas": "coque ouverte sur le dessus",
       "modification": "rainure selon X : le dessus est coupé en deux",
       "statut": "à réparer",
