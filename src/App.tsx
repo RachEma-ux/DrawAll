@@ -25,6 +25,7 @@ import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
+import { encodeHistory } from '@/lib/history';
 import { assetRoom, calibrate, fitEncoding, fitPixels, imageSizeMm, pdfPageSizeMm } from '@/lib/underlay';
 import { detectDwg, dwgRefusal } from '@/lib/dwg';
 import { measurePolygon, type Measure } from '@/lib/area';
@@ -666,7 +667,8 @@ function Workbench() {
       return;
     }
     const name = cloudName.trim() || 'Projet DrawAll';
-    const data = project.state as unknown as Record<string, unknown>;
+    // Historique par différences (lot 8.1) : le serveur reçoit l'état compact.
+    const data = encodeHistory(project.state) as unknown as Record<string, unknown>;
     setSyncStatus('saving');
     try {
       if (saveAsNew || cloudProjectId === null) {

@@ -23,6 +23,7 @@ import {
   polylineExtents,
   supportedDimensionStyles,
 } from '@/types/cad';
+import { decodeHistory, encodeHistory } from '@/lib/history';
 import { loadProject, quotaWarning, saveProject, shouldResume, storageUsage } from '@/lib/offline';
 import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
@@ -269,7 +270,7 @@ export function normalizeAssets(raw: unknown): Record<string, Asset> | undefined
 function load(): ProjectState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return normalizeProjectState(JSON.parse(raw));
+    if (raw) return normalizeProjectState(decodeHistory(JSON.parse(raw)));
   } catch { /* cache illisible : réinitialisation */ }
   return seedProject();
 }
@@ -355,7 +356,7 @@ export function useProject() {
     loadProject()
       .then(saved => {
         if (!alive || !shouldResume(saved, localHasProject, localSavedAt)) return;
-        try { setState(normalizeProjectState(JSON.parse(saved!.json))); } catch { /* copie illisible : état local gardé */ }
+        try { setState(normalizeProjectState(decodeHistory(JSON.parse(saved!.json)))); } catch { /* copie illisible : état local gardé */ }
       })
       .catch(() => { /* IndexedDB indisponible : stockage local seul */ })
       .finally(() => { if (alive) setHydrated(true); });
@@ -366,7 +367,8 @@ export function useProject() {
   // deux (stockage plein) est signalé au lieu d'être ignoré ; l'occupation du quota est suivie.
   useEffect(() => {
     if (!hydrated) return;
-    const json = JSON.stringify(state);
+    // Historique par différences (lot 8.1) : la version courante reste entière et lisible.
+    const json = JSON.stringify(encodeHistory(state));
     const savedAt = Date.now();
     let localOk = true;
     // La date accompagne l'état dans le stockage local : la reprise compare les deux copies.
@@ -892,7 +894,9 @@ export function useProject() {
   }, [setSelectedId]);
 
   const loadState = useCallback((next: unknown) => {
-    setState(normalizeProjectState(next));
+    // Historique entier ou par différences (lot 8.1).
+    const decoded = next && typeof next === 'object' && Array.isArray((next as { versions?: unknown }).versions) ? decodeHistory(next as { versions: unknown[] }) : next;
+    setState(normalizeProjectState(decoded));
     setSelectedId(null);
   }, [setSelectedId]);
 
