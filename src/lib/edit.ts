@@ -6,6 +6,7 @@ import { isClosedPolyline } from '@/types/cad';
 import { wallQuad } from '@/lib/wall';
 import { angleInArc, angleOf, arcPointAt, arcSweep, norm360 } from '@/lib/arc';
 import { ellipseSamples } from '@/lib/ellipse';
+import { splineSamples } from '@/lib/spline';
 
 export interface P { x: number; y: number }
 interface Seg { x1: number; y1: number; x2: number; y2: number }
@@ -37,9 +38,10 @@ export function edgesOf(o: CadObject): Edges {
       break;
     case 'circle': circs.push({ cx: o.cx, cy: o.cy, r: o.r }); break;
     case 'arc': circs.push({ cx: o.cx, cy: o.cy, r: o.r, arc: { start: o.start, end: o.end } }); break;
+    case 'spline':
     case 'ellipse': {
-      // Arête de coupe : polyligne à 0,01 mm de l'ellipse.
-      const pts = ellipseSamples(o);
+      // Arête de coupe : polyligne à 0,01 mm de la courbe.
+      const pts = o.kind === 'spline' ? splineSamples(o) : ellipseSamples(o);
       for (let i = 0; i + 1 < pts.length; i++) segs.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
       break;
     }

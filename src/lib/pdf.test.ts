@@ -150,3 +150,18 @@ describe('ellipse dans le PDF (lot 10.1)', () => {
     expect((Math.max(...xs) + Math.min(...xs)) / 2).toBeCloseTo(215, 3);
   });
 });
+
+describe('spline dans le PDF (lot 10.2)', () => {
+  it('polyligne à 0,005 mm papier de la courbe, extrémités à leur place', () => {
+    const sObj: CadObject[] = [{ ...base, id: 'OBJ-0022', kind: 'spline', degree: 3, points: [500, 500, 1500, -500, 2500, 1500, 3500, 500] }];
+    const out = sheetToPdf({ sheet, objects: sObj, layers, blocks: [], versions, pointer: 0, date: new Date(Date.UTC(2026, 9, 7, 12)) });
+    if (dir) writeFileSync(join(dir, 'spline.pdf'), pdfBytes(out));
+    const m = /(-?[\d.]+) (-?[\d.]+) m ((?:-?[\d.]+ -?[\d.]+ l ?)+) S/.exec(out)!;
+    const pts = [[+m[1], +m[2]], ...[...m[3].matchAll(/(-?[\d.]+) (-?[\d.]+) l/g)].map(q => [+q[1], +q[2]])].map(([x, y]) => [x / MM_TO_PT, y / MM_TO_PT]);
+    expect(pts.length).toBeGreaterThan(20);
+    // (500 ; 500) et (3 500 ; 500) au 1:50, fenêtre centrée sur (2 500 ; 500) : x = 215 − 40 et 215 + 20 mm.
+    expect(pts[0][0]).toBeCloseTo(175, 3);
+    expect(pts[pts.length - 1][0]).toBeCloseTo(235, 3);
+    expect(pts[0][1]).toBeCloseTo(pts[pts.length - 1][1], 6);
+  });
+});

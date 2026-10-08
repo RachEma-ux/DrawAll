@@ -3,9 +3,9 @@
 
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
-export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'polyline';
+export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
 
 /**
@@ -78,6 +78,12 @@ export interface ArcObj extends Base { kind: 'arc'; cx: number; cy: number; r: n
  * (degrés, sens trigonométrique du repère DXF) ; absents = ellipse entière.
  */
 export interface EllipseObj extends Base { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number; rotation: number; start?: number; end?: number }
+/**
+ * Spline (lot 10.2) : B-spline de degré `degree` par points de contrôle (x, y alternés). Nœuds
+ * absents = vecteur borné uniforme (la courbe passe par le premier et le dernier point) ; nœuds et
+ * poids explicites conservés tels quels à l'import DXF (B-spline rationnelle, spline fermée).
+ */
+export interface SplineObj extends Base { kind: 'spline'; points: number[]; degree: number; knots?: number[]; weights?: number[]; closed?: boolean }
 export interface PolylineObj extends Base { kind: 'polyline'; points: number[] }
 
 /** Cote associative : la géométrie affichée dérive de l'objet cible. */
@@ -146,7 +152,7 @@ export interface BlockRefObj extends Base {
   scale: number;
 }
 
-export type PrimitiveObject = LineObj | RectObj | CircleObj | ArcObj | EllipseObj | PolylineObj;
+export type PrimitiveObject = LineObj | RectObj | CircleObj | ArcObj | EllipseObj | SplineObj | PolylineObj;
 /**
  * Mur (lot 4.1) : trait de référence (x1, y1) → (x2, y2), épaisseur et justification : le trait est
  * l'axe du mur, ou sa face gauche / droite (côté vu à l'écran en parcourant le trait).
@@ -439,6 +445,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   rect: 'Rectangle',
   circle: 'Cercle',
   ellipse: 'Ellipse',
+  spline: 'Spline',
   arc: 'Arc',
   polyline: 'Polyligne',
   dimension: 'Cote',
@@ -524,6 +531,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'rect': return `${fmt(obj.w)} × ${fmt(obj.h)} mm`;
     case 'circle': return `Ø ${fmt(obj.r * 2)} mm`;
     case 'arc': return `R ${fmt(obj.r)} mm · ${fmt(((((obj.end - obj.start) % 360) + 360) % 360) || 360)}°`;
+    case 'spline': return `Spline de degré ${obj.degree} · ${obj.points.length / 2} points de contrôle`;
     case 'ellipse': return `Ellipse ${fmt(obj.rx * 2)} × ${fmt(obj.ry * 2)} mm${obj.start !== undefined && obj.end !== undefined ? ' · arc' : ''}`;
     case 'polyline': {
       let d = 0;

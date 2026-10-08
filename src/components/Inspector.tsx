@@ -80,7 +80,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
   const bat = readingFor(obj, 'batiment');
   const ind = readingFor(obj, 'industrie');
   const layer = layers.find(l => l.id === obj.layerId);
-  const isPrimitive = obj.kind === 'line' || obj.kind === 'rect' || obj.kind === 'circle' || obj.kind === 'arc' || obj.kind === 'ellipse' || obj.kind === 'polyline';
+  const isPrimitive = obj.kind === 'line' || obj.kind === 'rect' || obj.kind === 'circle' || obj.kind === 'arc' || obj.kind === 'ellipse' || obj.kind === 'spline' || obj.kind === 'polyline';
 
   const num = (v: number, apply: (n: number) => Partial<CadObject>) => (
     <input
@@ -120,6 +120,15 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
       { label: 'Centre Y (mm)', el: num(obj.cy, n => ({ cy: n })) },
       { label: 'Rayon (mm)', el: num(obj.r, n => ({ r: n > 0 ? n : obj.r })) },
     );
+  } else if (obj.kind === 'spline') {
+    // Édition des points de contrôle (lot 10.2) : la courbe suit.
+    const setPoint = (i: number, v: number) => ({ points: obj.points.map((p, j) => (j === i ? v : p)) });
+    for (let i = 0; i + 1 < obj.points.length; i += 2) {
+      fields.push(
+        { label: `P${i / 2 + 1} X (mm)`, el: num(obj.points[i], n => setPoint(i, n)) },
+        { label: `P${i / 2 + 1} Y (mm)`, el: num(obj.points[i + 1], n => setPoint(i + 1, n)) },
+      );
+    }
   } else if (obj.kind === 'ellipse') {
     fields.push(
       { label: 'Centre X (mm)', el: num(obj.cx, n => ({ cx: n })) },
@@ -816,10 +825,11 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             <p className="ui-label mb-1.5">Paramètres géométriques</p>
             <div className="grid grid-cols-2 gap-2">
               {fields.map(f => (
-                <div key={f.label}>
-                  <p className="mb-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">{f.label}</p>
+                // Libellé associé au champ : nom accessible (lecteurs d'écran, recettes).
+                <label key={f.label} className="block">
+                  <span className="mb-0.5 block font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">{f.label}</span>
                   {f.el}
-                </div>
+                </label>
               ))}
             </div>
           </div>
