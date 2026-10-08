@@ -43,7 +43,7 @@ import {
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 import { distanceToEllipse, ellipseFrom3Points, ellipsePath } from '@/lib/ellipse';
-import { distanceToSpline, splinePath } from '@/lib/spline';
+import { distanceToSpline, splinePath, withoutRepeatedPoints } from '@/lib/spline';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -356,8 +356,11 @@ export default function CanvasView({
     if (tool === 'wall') { setDraft(null); return; }
     if (tool === 'spline') {
       // Spline par points de contrôle : degré 3, ou moins s'il y a moins de quatre points.
-      if (draft?.kind === 'polyline' && draft.origin === 'spline' && draft.points.length >= 4 && pathLength(draft.points) > MIN_LENGTH && activeLayer && !activeLayer.locked) {
-        onAdd({ kind: 'spline', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', points: draft.points, degree: Math.min(3, draft.points.length / 2 - 1) });
+      // Un double-clic pose deux fois le dernier point : les points confondus consécutifs sont retirés
+      // (ils changeraient la courbe, contrairement à un segment nul de polyligne).
+      const pts = draft?.kind === 'polyline' && draft.origin === 'spline' ? withoutRepeatedPoints(draft.points) : [];
+      if (pts.length >= 4 && pathLength(pts) > MIN_LENGTH && activeLayer && !activeLayer.locked) {
+        onAdd({ kind: 'spline', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', points: pts, degree: Math.min(3, pts.length / 2 - 1) });
       }
       setDraft(null);
       return;

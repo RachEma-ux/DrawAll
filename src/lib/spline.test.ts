@@ -1,7 +1,7 @@
 // Spline native (lot 10.2) : De Boor, nœuds bornés, extrémités, transformations exactes, accrochages.
 import { describe, expect, it } from 'vitest';
 import type { SplineObj } from '@/types/cad';
-import { clampedKnots, isValidSpline, splineBounds, splineEndpoints, splineLength, splinePointAt, splineSamples, distanceToSpline } from './spline';
+import { clampedKnots, isValidSpline, withoutRepeatedPoints, splineBounds, splineEndpoints, splineLength, splinePointAt, splineSamples, distanceToSpline } from './spline';
 import { findSnap, mirrorObject, rotateObject, scaleObject, moveObject } from './geometry';
 
 const base = { id: 'OBJ-0001', name: 'S', classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
@@ -78,5 +78,10 @@ describe('spline native (lot 10.2)', () => {
     // Extrémums de la Bézier : y(t) = 60 t (1 − t)(2t − 1) → ± 5,773 50 à t = ½ ∓ √3/6.
     expect(b.maxY).toBeCloseTo(60 * (Math.sqrt(3) / 6) * (0.5 - Math.sqrt(3) / 6) * (0.5 + Math.sqrt(3) / 6) * 2, 3);
     expect(findSnap([s], [], [], 29.6, 0.4, 2)).toMatchObject({ type: 'endpoint', x: 30, y: 0 });
+  });
+
+  it('points confondus consécutifs retirés (double-clic de fin)', () => {
+    expect(withoutRepeatedPoints([0, 0, 10, 0, 10, 0, 20, 5, 20, 5])).toEqual([0, 0, 10, 0, 20, 5]);
+    expect(withoutRepeatedPoints([0, 0, 10, 0, 0, 0])).toEqual([0, 0, 10, 0, 0, 0]);
   });
 });

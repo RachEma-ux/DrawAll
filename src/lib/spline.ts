@@ -88,3 +88,14 @@ export function splinePath(s: SplineGeom, tol = 0.01): string {
   const pts = splineSamples(s, tol);
   return `M ${pts.map(p => `${p.x} ${p.y}`).join(' L ')}`;
 }
+
+/** Retire les points consécutifs confondus (à 10⁻⁶ mm près). */
+export function withoutRepeatedPoints(points: number[], eps = 1e-6): number[] {
+  const out: number[] = [];
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    const n = out.length;
+    if (n >= 2 && Math.hypot(points[i] - out[n - 2], points[i + 1] - out[n - 1]) <= eps) continue;
+    out.push(points[i], points[i + 1]);
+  }
+  return out;
+}

@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Layer, SplineObj } from '@/types/cad';
-import { exportToDxf, parseDxf } from './dxf';
+import { exportDxf, exportToDxf, parseDxf } from './dxf';
 import { splineDomain, splinePointAt } from './spline';
 
 const layers: Layer[] = [{ id: 'LAY-0001', name: 'Dessin', color: '#22d3ee', visible: true, locked: false }];
@@ -53,6 +53,13 @@ describe('spline DXF (lot 10.2)', () => {
       });
       writeFileSync(join(dir, 'splines.dxf.points.json'), JSON.stringify(expect_));
     }
+  });
+
+  it('rapport d’export : splines et ellipses annoncées conservées', () => {
+    const el = { ...base, id: 'OBJ-0009', name: 'E', kind: 'ellipse' as const, cx: 0, cy: 0, rx: 20, ry: 10, rotation: 0 };
+    const r = exportDxf([...shapes, el], layers, []);
+    expect(r.report.kept.join(' ')).toContain('Splines : 2 (SPLINE natif');
+    expect(r.report.kept.join(' ')).toContain('Ellipses : 1 (ELLIPSE natif)');
   });
 
   it('aller-retour : mêmes points de contrôle, nœuds et poids ; courbe identique (10⁻⁶ mm)', () => {

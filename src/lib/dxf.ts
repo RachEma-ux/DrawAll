@@ -406,6 +406,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.circle) report.kept.push(`Cercles : ${counts.circle} (CIRCLE).`);
   if (counts.arc) report.kept.push(`Arcs : ${counts.arc} (ARC natif).`);
   if (counts.polyline) report.kept.push(`Polylignes : ${counts.polyline} (LWPOLYLINE).`);
+  if (counts.ellipse) report.kept.push(`Ellipses : ${counts.ellipse} (ELLIPSE natif).`);
+  if (counts.spline) report.kept.push(`Splines : ${counts.spline} (SPLINE natif : degré, nœuds, poids, points de contrôle).`);
   if (counts.text) report.kept.push(`Textes sur une ligne : ${counts.text} (TEXT : contenu, hauteur, rotation, alignement).`);
   if (counts.mtext) report.kept.push(`Textes sur plusieurs lignes : ${counts.mtext} (MTEXT).`);
   if (counts.hatch) report.kept.push(`Hachures : ${counts.hatch} (HATCH : aplat SOLID ou motif défini par l'utilisateur à l'angle, au pas et à l'origine de l'objet ; îlots en boucles intérieures).`);
