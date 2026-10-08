@@ -15,6 +15,7 @@ import { openingFits } from '@/lib/opening';
 import { deviations, fit, formatDeviation, parseClass } from '@/lib/iso286';
 import { cutView, materialIntervals, shapeOf } from '@/lib/cuts';
 import { bomRows, itemOf } from '@/lib/bom';
+import { SCHEDULE_TITLE, scheduleTable } from '@/lib/schedules';
 import { SURFACE_RULES, areaM2, detectRoom, formatM2, type SurfaceRule } from '@/lib/rooms';
 import { MATERIALS, effectiveHatch, materialById, profileById, type DrawingProfile } from '@/lib/materials';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
@@ -316,7 +317,7 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
           const rows = bomRows(objects, blocks);
           const item = itemOf(rows, obj.id);
           const balloon = objects.find(o => o.kind === 'balloon' && o.targetId === obj.id);
-          const table = objects.find(o => o.kind === 'bom');
+          const table = objects.find(o => o.kind === 'bom' && !o.table);
           return (
             <div className="space-y-1.5">
               <p className="ui-label mb-1.5">Nomenclature</p>
@@ -334,7 +335,7 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
                 </button>
               )}
               {item !== null && !table && onAddBom && (
-                <button onClick={onAddBom} className="w-full rounded-sm border border-border px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground">
+                <button onClick={() => onAddBom()} className="w-full rounded-sm border border-border px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground">
                   Insérer la nomenclature
                 </button>
               )}
@@ -342,7 +343,17 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
           );
         })()}
 
-        {(obj.kind === 'bom' || obj.kind === 'balloon') && (() => {
+        {obj.kind === 'bom' && obj.table && (() => {
+          const t = scheduleTable(obj.table, objects);
+          return (
+            <div className="space-y-1">
+              <p className="ui-label mb-1.5">{SCHEDULE_TITLE[obj.table]}</p>
+              <p data-testid="tableau-lignes" className="font-mono text-[10px] text-foreground/80">{t.rows.length} ligne{t.rows.length > 1 ? 's' : ''}{t.total ? ` · ${t.total.filter(Boolean).join(' ')}` : ''} — calculé depuis le modèle du niveau, mis à jour à chaque modification.</p>
+            </div>
+          );
+        })()}
+
+        {((obj.kind === 'bom' && !obj.table) || obj.kind === 'balloon') && (() => {
           const rows = bomRows(objects, blocks);
           return (
             <div className="space-y-1">

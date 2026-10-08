@@ -28,6 +28,7 @@ import { offsetObject as offsetCurve } from '@/lib/offset';
 import { pointInPolygon, slabContour, slabQuantities } from '@/lib/slab';
 import { roofError, roofGeometry, roofInput } from '@/lib/roof';
 import { beamError, columnError } from '@/lib/structure';
+import { SCHEDULE_TITLE } from '@/lib/schedules';
 import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
 import { zoneColors as zoneColorsOf } from '@/lib/zones';
@@ -1067,6 +1068,10 @@ function Workbench() {
     { id: 'import-underlay', title: 'Importer un fond de plan', hint: 'Image ou PDF placé sous le dessin, calé par deux points et une distance connue, verrouillable', keywords: ['fond de plan', 'image', 'pdf', 'photo', 'scan', 'calque', 'underlay'], run: () => underlayInputRef.current?.click() },
     { id: 'import-dxf', title: 'Importer un fichier DXF ou DWG', hint: 'DXF : traits, cercles, arcs, polylignes, textes, blocs (INSERT), cotes, hachures, splines et ellipses — rapport d’échange. DWG : reconnu, la marche à suivre (enregistrer en DXF) est indiquée', keywords: ['dxf', 'dwg', 'import', 'autocad', 'interoperabilite'], run: () => dxfInputRef.current?.click() },
     { id: 'bom', title: 'Insérer la nomenclature', hint: 'Tableau repère / désignation / matériau / quantité, calculé depuis les pièces', keywords: ['nomenclature', 'bom', 'pieces', 'repere', 'quantite', 'tableau'], run: () => { setMode('atelier'); project.addBom(); } },
+    ...(['pieces', 'ouvertures', 'murs'] as const).map(t => ({
+      id: `schedule-${t}`, title: `Insérer le ${SCHEDULE_TITLE[t].toLowerCase()}`, hint: 'Tableau de quantités calculé depuis le modèle, mis à jour à chaque modification ; à poser sur une feuille par une fenêtre',
+      keywords: ['tableau', 'quantites', 'metre', 'quantitatif', t, t === 'pieces' ? 'surfaces' : t === 'murs' ? 'longueurs' : 'portes fenetres'], run: () => { setMode('atelier'); project.addBom(t); },
+    })),
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
     { id: 'export', title: 'Exporter le paquet du projet', hint: 'Projet entier : historique, niveaux, feuilles, styles, ressources (JSON, relu à l’identique)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json', 'sauvegarde'], run: exportPackage },
     { id: 'import-package', title: 'Restaurer un projet depuis son paquet', hint: 'Remplace le projet courant par celui du paquet DrawAll (historique compris)', keywords: ['restaurer', 'importer', 'paquet', 'json', 'sauvegarde', 'ouvrir'], run: () => packageInputRef.current?.click() },

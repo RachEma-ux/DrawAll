@@ -47,6 +47,7 @@ import { isValidName, resolveParameters, type Parameter } from '@/lib/params/exp
 import { bindConstraintValues, constraintExprError, usesOf } from '@/lib/params/bind';
 import { isIfcClass, normalizePsets } from '@/lib/properties';
 import { isHexColor } from '@/lib/zones';
+import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -168,6 +169,8 @@ function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
   // Propriétés et classe IFC (lot 12.3) : formes reconnues seulement.
   if ('psets' in base) { const ps = normalizePsets(base.psets); if (ps) base.psets = ps; else delete base.psets; }
   if ('ifcClass' in base && !isIfcClass(base.ifcClass)) delete base.ifcClass;
+  // Tableau de quantités (lot 13.5) : type inconnu = nomenclature.
+  if (base.kind === 'bom' && base.table !== undefined && !['pieces', 'ouvertures', 'murs'].includes(base.table)) delete base.table;
   return base;
 }
 
@@ -870,14 +873,17 @@ export function useProject() {
   }, [allObjects, blocks, state.counter, current.seq, commit, setSelectedId]);
 
   /** Tableau de nomenclature, posé à droite du dessin du niveau actif. */
-  const addBom = useCallback(() => {
+  /** Nomenclature (lot 5.4) ou tableau de quantités (lot 13.5), posé à droite du dessin. */
+  const addBom = useCallback((table?: ScheduleKind) => {
     const bounds = projectBounds(objects, blocks);
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const name = table ? SCHEDULE_TITLE[table] : 'Nomenclature';
     const bom = stampLevel({
-      id, name: 'Nomenclature', kind: 'bom', classification: 'mecanique', layerId: activeLayerId, hatch: 'none', createdSeq: current.seq,
+      id, name, kind: 'bom', classification: table ? 'architecture' : 'mecanique', layerId: activeLayerId, hatch: 'none', createdSeq: current.seq,
       x: bounds ? bounds.maxX + Math.max(20, (bounds.maxX - bounds.minX) * 0.1) : 0, y: bounds ? bounds.minY : 0,
+      ...(table ? { table } : {}),
     } as CadObject);
-    commit('Insérer la nomenclature', { objects: [...allObjects, bom], counter: state.counter + 1 });
+    commit(`Insérer : ${name.toLowerCase()}`, { objects: [...allObjects, bom], counter: state.counter + 1 });
     setSelectedId(id);
     return id;
   }, [objects, allObjects, blocks, activeLayerId, state.counter, current.seq, commit, setSelectedId, stampLevel]);

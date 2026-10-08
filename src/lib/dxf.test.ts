@@ -550,6 +550,6 @@ describe('nomenclature (lot 5.4)', () => {
     expect(decodeDxfString(content)).toContain('Désignation');
     expect(content).toMatch(/\n1\nPlatine\n/);
     expect(content).toContain('\nSOLID\n');
-    expect(report.transformed.join(' ')).toMatch(/Nomenclature et repères : 2/);
+    expect(report.transformed.join(' ')).toMatch(/Nomenclature, tableaux et repères : 2/);
   });
 });
