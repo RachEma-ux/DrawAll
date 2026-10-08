@@ -104,7 +104,7 @@ export function stretchAll(objects: CadObject[], w: Window, dx: number, dy: numb
 /** Sommets d'un objet dans un ordre stable (coins du rectangle : haut gauche, haut droit, bas droit, bas gauche). */
 function vertices(o: CadObject): { x: number; y: number }[] {
   switch (o.kind) {
-    case 'line': case 'wall': case 'section': return [{ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }];
+    case 'line': case 'wall': case 'beam': case 'section': return [{ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }];
     case 'polyline': case 'slab': case 'spline': case 'pdim': {
       const out: { x: number; y: number }[] = [];
       for (let i = 0; i + 1 < o.points.length; i += 2) out.push({ x: o.points[i], y: o.points[i + 1] });

@@ -1024,7 +1024,8 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'rect': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor) };
     case 'roof': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor), overhang: round(object.overhang * factor) };
     case 'column': return { x: s(object.x, cx), y: s(object.y, cy), ...(object.section === 'circle' ? { d: round(object.d! * factor) } : { b: round(object.b! * factor), h: round(object.h! * factor) }) };
-    case 'beam': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy), b: round(object.b * factor) };
+    // Poutre : homothétie en volume, largeur et hauteur de section comprises.
+    case 'beam': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy), b: round(object.b * factor), h: round(object.h * factor) };
     case 'underlay': return object.locked ? null : { x: s(object.x, cx), y: s(object.y, cy), w: object.w * factor, h: object.h * factor };
     case 'note': return object.targetId ? {} : { x: s(object.x, cx), y: s(object.y, cy) };
     case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };

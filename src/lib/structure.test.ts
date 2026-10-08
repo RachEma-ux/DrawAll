@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { BeamObj, ColumnObj } from '@/types/cad';
 import { createDefaultLayers } from '@/types/cad';
 import { exportToDxf } from './dxf';
-import { mirrorObject, moveObject, objectBounds, rotateObject } from './geometry';
+import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
+import { stretchPreview } from './stretch';
 import { defaultIfcClass } from './properties';
 import { beamEdges, beamError, beamLength, beamVolumeM3, columnError, columnSectionArea, columnVolumeM3, structurePrimitives } from './structure';
 
@@ -55,5 +56,13 @@ describe('poteaux et poutres (lot 13.4)', () => {
     expect(rotateObject(col({ section: 'circle', d: 400 }), 0, 0, 30)).not.toBeNull();
     expect(mirrorObject(beam(), 'x', 0)).toMatchObject({ x1: 0, x2: -6000 });
     expect(objectBounds(beam(), [], [])).toEqual({ minX: 0, minY: -100, maxX: 6000, maxY: 100 });
+  });
+
+  it('poutre : homothétie en volume (section comprise) ; aperçu d’étirement de ses extrémités', () => {
+    const b = beam({ x2: 4000 });
+    const doubled = { ...b, ...scaleObject(b, 0, 0, 2) } as BeamObj;
+    expect([doubled.b, doubled.h]).toEqual([400, 1000]);
+    expect(beamVolumeM3(doubled)).toBeCloseTo(8 * beamVolumeM3(b), 12);
+    expect(stretchPreview([b], { minX: 3900, minY: -100, maxX: 4100, maxY: 100 }, 1000, 0)).toEqual([{ x: 5000, y: 0 }]);
   });
 });
