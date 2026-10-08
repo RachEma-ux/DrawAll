@@ -7,6 +7,7 @@ import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } fro
 import { isMate } from './assembly';
 import { normalizePsets } from './properties';
 import { isRecipe } from './solids';
+import { faceOf } from './views';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
 export type TransformOp =
@@ -92,7 +93,16 @@ const SPECS: Record<string, Spec> = {
     extra: o => (o.section === 'rect' ? (positive(o.b) && positive(o.h) ? null : 'poteau rectangulaire : b et h positifs attendus') : positive(o.d) ? null : 'poteau circulaire : diamètre d positif attendu'),
   },
   beam: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['b', 'h'], extra: o => (Math.hypot((o.x2 as number) - (o.x1 as number), (o.y2 as number) - (o.y1 as number)) > 0 ? null : 'poutre : deux points distincts attendus') },
-  solid: { extra: o => (isRecipe(o.recipe) ? null : 'solide : recette attendue') },
+  solid: {
+    extra: o => {
+      if (!isRecipe(o.recipe)) return 'solide : recette attendue';
+      // Définition de pièce (facultative) : numéro, origine (x, y, z) et angle finis.
+      const d = o.partDef as { no?: unknown; origin?: unknown; angle?: unknown } | undefined;
+      if (d === undefined) return null;
+      const ok = !!d && typeof d === 'object' && finite(d.no) && Array.isArray(d.origin) && d.origin.length === 3 && d.origin.every(finite) && finite(d.angle);
+      return ok ? null : 'solide : définition de pièce mal formée (numéro, origine x y z, angle)';
+    },
+  },
   occurrence: { nums: ['x', 'y', 'z', 'angle'], strs: ['sourceId'] },
   projection: { nums: ['x', 'y'], strs: ['sourceId'], enums: { view: ['dessus', 'face', 'cote'] } },
   elevation: { nums: ['x', 'y'], enums: { view: ['nord', 'sud', 'est', 'ouest', 'coupe'] }, extra: o => (o.view === 'coupe' && !str(o.markId) ? 'façade : repère de coupe attendu' : null) },
@@ -100,7 +110,7 @@ const SPECS: Record<string, Spec> = {
   section: { nums: ['x1', 'y1', 'x2', 'y2'], strs: ['label'] },
   levelMark: { nums: ['x', 'y', 'elevation'] },
   roughness: { nums: ['x', 'y', 'rotation'], enums: { process: ['quelconque', 'enlevement', 'sans-enlevement'] } },
-  views: { nums: ['depth', 'gap'], strs: ['sourceId'] },
+  views: { nums: ['gap'], pos: ['depth'], strs: ['sourceId'], extra: o => (typeof o.top === 'boolean' && typeof o.side === 'boolean' && (o.top || o.side) ? null : 'vues : dessus et côté (booléens), l’un au moins demandé') },
   cut: { nums: ['depth', 'gap'], strs: ['sourceId', 'markId'] },
   bom: { nums: ['x', 'y'] },
   balloon: { nums: ['x', 'y'], strs: ['targetId'] },
@@ -154,6 +164,10 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
     const want = r === (o as { markId?: unknown }).markId ? 'section' : REF_KIND[kind];
     if (want && target.kind !== want) return `${kind} : ${r} n’est pas un objet de type ${want}`;
   }
+  // Occurrence : sa source est une pièce (solide défini comme pièce), sinon elle n'aurait aucune géométrie.
+  if (kind === 'occurrence') { const src = byId.get(o.sourceId as string); if (src?.kind === 'solid' && !src.partDef) return `occurrence : ${src.id} n’est pas une pièce (définir la pièce d’abord)`; }
+  // Vues liées : la source doit offrir une face fermée.
+  if (kind === 'views') { const src = byId.get(o.sourceId as string); if (src && !faceOf(src, objects)) return `vues : ${src.id} n’offre pas de face fermée`; }
   const mate = (o as { mate?: unknown }).mate as { to?: unknown } | undefined;
   if (kind === 'occurrence' && mate !== undefined) {
     // Liaison complète (type, faces, cible) avant de la résoudre.

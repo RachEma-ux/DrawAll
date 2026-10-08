@@ -8,6 +8,7 @@ import ExclusiveRun from '@/components/ExclusiveRun';
 import { useCommandRunner, type Project } from '@/hooks/useCommandRunner';
 import { controlledLoop, previewDiff, provisionalId, remapIds, type Generator, type LoopResult, type Proposal } from '@/lib/assistant/loop';
 import { localGenerator } from '@/lib/assistant/local-generator';
+import { versionDigest } from '@/lib/commands';
 import { objectBounds, unionBounds } from '@/lib/geometry';
 import type { CadObject } from '@/types/cad';
 
@@ -52,11 +53,15 @@ export default function AssistantPanel({ project, onClose, generator = localGene
   const cache = useRef(new Map<string, Proposal>());
   const panelRef = useRef<HTMLDivElement>(null);
   const { projectRef, exec } = useCommandRunner(project);
+  /** Contenu du projet sur lequel la proposition affichée a été validée et aperçue. */
+  const basisRef = useRef<string | null>(null);
+  const digest = () => { const st = projectRef.current.state; return versionDigest(st.versions[st.pointer]); };
 
   const propose = async () => {
     const p = projectRef.current;
     setBusy('proposer');
     setOutcome(null);
+    basisRef.current = digest();
     const r = await controlledLoop(generator, request, { objects: p.allObjects, layers: p.layers, activeLayerId: p.activeLayerId, activeLevelId: p.activeLevelId, levels: p.levels, blocks: p.blocks, zones: p.zones }, cache.current);
     setResult({ ...r, request });
     setBusy(null);
@@ -67,6 +72,12 @@ export default function AssistantPanel({ project, onClose, generator = localGene
 
   const accept = async () => {
     if (result?.status !== 'ready') return;
+    // Le projet a changé depuis l'aperçu : la proposition validée ne vaut plus, rien n'est exécuté.
+    if (digest() !== basisRef.current) {
+      setOutcome({ ok: false, text: 'Le projet a changé depuis l’aperçu : rien n’a été exécuté. Proposez à nouveau.' });
+      setResult(null);
+      return;
+    }
     const before = projectRef.current.state;
     setBusy('executer');
     try {

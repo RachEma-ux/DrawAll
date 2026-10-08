@@ -128,6 +128,19 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect(out.objects![0]).toMatchObject({ id: 'R1', name: 'Salon' });
   });
 
+  it('liaison vers une occurrence supprimée de l’autre côté : l’occurrence liée reste, sans liaison', () => {
+    const occ = (id: string, extra: Record<string, unknown> = {}) => ({ ...base0, id, name: id, kind: 'occurrence', sourceId: 'S', x: 0, y: 0, z: 0, angle: 0, ...extra }) as unknown as CadObject;
+    const base = v(0, [occ('A')]);
+    const ours = v(1, [occ('A'), occ('B', { mate: { type: 'fixe', to: 'A', rel: [0, 0, 0, 0] } })]);
+    const theirs = v(1, []);
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts).toEqual([]);
+    expect(r.merged.objects!.map(o => [o.id, 'mate' in o ? o.mate : undefined])).toEqual([['B', undefined]]);
+    const out = resolve(r, {});
+    if ('error' in out) throw new Error(out.error);
+    expect(out.objects!.map(o => o.id)).toEqual(['B']);
+  });
+
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
     const base = v(0, [line('A', 1)]);
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);

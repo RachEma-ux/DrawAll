@@ -20,7 +20,7 @@ export interface ViewGeometry {
 const EPS = 1e-6;
 
 /** Contours de la face : contour extérieur (polygone) et perçages ; un cercle n'a pas d'arêtes. */
-function faceOf(source: CadObject, objects: CadObject[]) {
+export function faceOf(source: CadObject, objects: CadObject[]) {
   const outer = loopOf(source);
   if (!outer) return null;
   const holes = (source.holes ?? []).map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);

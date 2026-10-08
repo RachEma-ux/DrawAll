@@ -2,7 +2,7 @@
 // supprimé, modifié) et fusion à trois voies par identifiant : une modification faite d'un seul côté
 // est reprise, des modifications différentes d'un même élément sont un conflit, listé puis tranché
 // (garder l'une ou l'autre). Rien n'est tranché en silence. Fonctions pures.
-import { parentsOf, type CadObject, type MicroVersion, type ProjectState } from '@/types/cad';
+import { parentsOf, withoutDanglingMates, type CadObject, type MicroVersion, type ProjectState } from '@/types/cad';
 import { constraintObjects } from './constraints/model';
 import { activeBranch } from './branches';
 
@@ -84,6 +84,7 @@ export function merge3(base: MicroVersion, ours: MicroVersion, theirs: MicroVers
     if (list.length || ours[c] !== undefined) merged[c] = list;
   }
   dependencyConflicts(base, ours, theirs, merged, conflicts);
+  if (merged.objects) merged.objects = withoutDanglingMates(merged.objects as CadObject[]);
   for (const k of MERGED_SETTINGS) {
     // Géoréférencement : l'absence est une valeur (null), pour qu'un retrait soit fusionné comme un changement.
     const val = (v: MicroVersion) => (k === 'georef' ? v[k] ?? null : v[k]);
@@ -129,10 +130,11 @@ function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: Mic
     }
   }
   // Objets qui en désignent d'autres (occurrence → pièce, ouverture → mur, vue → source, cote,
-  // note, liaison) : un objet désigné supprimé d'un côté mais encore désigné dans le résultat est
+  // note) : un objet désigné supprimé d'un côté mais encore désigné dans le résultat est
   // gardé provisoirement ; sa suppression devient un conflit. Répété jusqu'à stabilité (un objet
   // gardé peut lui-même en désigner un autre supprimé).
-  const refsOf = (o: CadObject) => [...parentsOf(o), ...(o.kind === 'occurrence' && o.mate ? [o.mate.to] : [])];
+  // Une liaison d'assemblage n'est pas une dépendance : sa cible disparue, l'occurrence garde sa place sans liaison.
+  const refsOf = (o: CadObject) => parentsOf(o);
   for (let pass = 0; pass < 100; pass++) {
     const objs = (merged.objects as CadObject[] | undefined) ?? [];
     const present = new Set(objs.map(o => o.id));
@@ -216,7 +218,7 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
     grew = false;
     for (const o of (out.objects as CadObject[] | undefined) ?? []) {
       if (gone.has(o.id)) continue;
-      const refs = [...parentsOf(o), ...(o.kind === 'occurrence' && o.mate ? [o.mate.to] : [])];
+      const refs = parentsOf(o);
       if (refs.some(r => gone.has(r))) { gone.add(o.id); grew = true; }
     }
   }
@@ -227,6 +229,8 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
       out.constraints = (out.constraints as Parameters<typeof constraintObjects>[0][]).filter(k => !gone.has(k.id) && !constraintObjects(k).some(r => gone.has(r)));
     }
   }
+  // Liaisons dont la cible n'est plus dans le résultat : retirées, l'occurrence garde sa place (comme une suppression).
+  if (out.objects) out.objects = withoutDanglingMates(out.objects as CadObject[]);
   // Rattachements de pièces revus après les choix : une pièce retenue (de l'une ou l'autre variante)
   // dont la zone n'existe plus dans le résultat reste sans zone, jamais rattachée à une zone absente.
   if (out.objects) {

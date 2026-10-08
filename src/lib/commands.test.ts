@@ -75,15 +75,28 @@ describe('API de commandes (lot 18.1)', () => {
     expect(add({ ...occ, sourceId: 'OBJ-0404' })).toBe('occurrence : objet désigné OBJ-0404 absent');
     expect(add({ ...occ, sourceId: 'OBJ-0001' })).toBe('occurrence : OBJ-0001 n’est pas un objet de type solid');
     expect(add({ kind: 'opening', position: 100, width: 900, type: 'porte', hostId: 'OBJ-0001' })).toBe('opening : OBJ-0001 n’est pas un objet de type wall');
-    const solid = { ...line, id: 'S', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } } as unknown as CadObject;
+    const solid = { ...line, id: 'S', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
     expect(add({ ...occ, sourceId: 'S' }, [solid])).toBeNull();
+    // Source d'occurrence : une pièce seulement (un solide simple n'aurait aucune géométrie d'occurrence).
+    const plain = { ...line, id: 'Q', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } } as unknown as CadObject;
+    expect(add({ ...occ, sourceId: 'Q' }, [plain])).toBe('occurrence : Q n’est pas une pièce (définir la pièce d’abord)');
+    // Définition de pièce mal formée : refusée.
+    expect(add({ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: {} })).toBe('solide : définition de pièce mal formée (numéro, origine x y z, angle)');
+    expect(add({ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 2, origin: [0, 0, 0], angle: 90 } })).toBeNull();
+    // Vues liées : profondeur positive, au moins une vue demandée, source à face fermée.
+    const rect = { ...line, id: 'RC', kind: 'rect', x: 0, y: 0, w: 100, h: 50 } as unknown as CadObject;
+    const views = { kind: 'views', sourceId: 'RC', depth: 20, gap: 10, top: true, side: false };
+    expect(add(views, [rect])).toBeNull();
+    expect(add({ ...views, depth: 0 }, [rect])).toBe('views : depth positif attendu');
+    expect(add({ ...views, top: false }, [rect])).toBe('vues : dessus et côté (booléens), l’un au moins demandé');
+    expect(add({ ...views, sourceId: 'OBJ-0001' })).toBe('vues : OBJ-0001 n’offre pas de face fermée');
     expect(add({ ...occ, sourceId: 'S', mate: { type: 'fixe', to: 'X', rel: [0, 0, 0, 0] } }, [solid])).toBe('occurrence : liaison vers X absente');
     // Liaison incomplète (faces manquantes) : refusée avant toute résolution.
     expect(add({ ...occ, sourceId: 'S', mate: { type: 'coaxiale', to: 'X' } }, [solid])).toBe('occurrence : liaison mal formée (type, faces et cible attendus)');
     // Liaison vers une pièce (solide défini comme pièce) : permise, comme dans l'atelier ; vers un solide simple : non.
     const part = { ...solid, id: 'P', partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
     expect(add({ ...occ, sourceId: 'P', mate: { type: 'fixe', to: 'P', rel: [0, 0, 0, 0] } }, [part])).toBeNull();
-    expect(add({ ...occ, sourceId: 'S', mate: { type: 'fixe', to: 'S', rel: [0, 0, 0, 0] } }, [solid])).toBe('occurrence : liaison vers S absente');
+    expect(add({ ...occ, sourceId: 'S', mate: { type: 'fixe', to: 'Q', rel: [0, 0, 0, 0] } }, [solid, plain])).toBe('occurrence : liaison vers Q absente');
     // Pièce rangée dans une zone : la zone doit exister.
     const PZ = { ...P, zones: [{ id: 'ZON-0001' }] };
     expect(validateCommand('addObject', [{ classification: 'architecture', layerId: 'LAY-0001', kind: 'room', x: 0, y: 0, zoneId: 'ZON-0009' }], [line], L, PZ)).toBe('room : zone ZON-0009 absente');

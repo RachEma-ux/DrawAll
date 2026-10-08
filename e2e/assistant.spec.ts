@@ -53,3 +53,23 @@ test('lot 18.3 — proposition validée, aperçue, exécutée après accord ; jo
   await expect(dlg.getByRole('list', { name: 'Journal des hypothèses' }).locator('[data-decision]')).toHaveCount(2);
   expect(errors).toEqual([]);
 });
+
+test('lot 18.3 — projet modifié entre l’aperçu et l’accord : rien n’est exécuté, nouvelle proposition demandée', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 4000, y2: 0 }]);
+  const dlg = await openAssistant(page);
+  await dlg.getByLabel('Demande').fill('grille de 2 x 2 poteaux 300 x 300 mm entraxe 5 m');
+  await dlg.getByRole('button', { name: 'Proposer' }).click();
+  await expect(dlg.getByRole('region', { name: 'Proposition' })).toHaveAttribute('data-statut', 'ready');
+  // L'atelier reste modifiable pendant l'aperçu : la ligne est déplacée au clavier.
+  await page.locator('body').focus();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => (await currentObjects(page))[0].x1).not.toBe(0);
+  const moved = await currentObjects(page);
+  await dlg.getByRole('button', { name: 'Accepter et exécuter' }).click();
+  await expect(dlg.getByRole('status')).toContainText('Le projet a changé depuis l’aperçu : rien n’a été exécuté.');
+  expect(await currentObjects(page)).toEqual(moved);
+  expect(errors).toEqual([]);
+});
