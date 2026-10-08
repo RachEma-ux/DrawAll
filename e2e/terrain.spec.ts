@@ -56,3 +56,46 @@ test('lot 7.1 — téléphone : barre d’outils en bas, réticule décalé et l
   expect(Math.abs(line.y2 - 500) * k).toBeLessThanOrEqual(1);
   expect(errors).toEqual([]);
 });
+
+test('lot 7.1 — téléphone en paysage : la loupe reste entière dans la zone quand le doigt en sort', async ({ page }, info) => {
+  test.skip(info.project.name !== 'telephone', 'recette téléphone');
+  await page.setViewportSize({ width: 820, height: 400 });
+  await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 1000, y2: 0 }]);
+  await page.getByRole('button', { name: 'Réticule décalé' }).click();
+  await chooseTool(page, /^Ligne/);
+  const canvas = (await page.getByTestId('canvas').boundingBox())!;
+  // Le doigt part dans la zone puis glisse loin sous elle : le point visé passe sous le bas
+  // de la zone, la loupe reste visible en entier.
+  const cdp = await page.context().newCDPSession(page);
+  const send = (type: string, p: { x: number; y: number }[]) => cdp.send('Input.dispatchTouchEvent', { type: type as 'touchStart', touchPoints: p.map(q => ({ ...q, id: 1 })) });
+  const x = canvas.x + canvas.width / 2;
+  await send('touchStart', [{ x, y: canvas.y + canvas.height - 20 }]);
+  await send('touchMove', [{ x, y: canvas.y + canvas.height + OFFSET + 60 }]);
+  const loupe = (await page.getByTestId('loupe').locator('circle').nth(1).boundingBox())!;
+  expect(loupe.y).toBeGreaterThanOrEqual(canvas.y - 1);
+  expect(loupe.y + loupe.height).toBeLessThanOrEqual(canvas.y + canvas.height + 1);
+  expect(loupe.x).toBeGreaterThanOrEqual(canvas.x - 1);
+  expect(loupe.x + loupe.width).toBeLessThanOrEqual(canvas.x + canvas.width + 1);
+  await send('touchEnd', []);
+});
+
+test('lot 7.1 — un stylet pointe directement, sans décalage, même réticule activé', async ({ page }, info) => {
+  test.skip(info.project.name !== 'telephone', 'recette téléphone');
+  await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 1000, y2: 0 }]);
+  await page.getByRole('button', { name: 'Réticule décalé' }).click();
+  await chooseTool(page, /^Ligne/);
+  const a = await toScreen(page, 0, 500), b = await toScreen(page, 1000, 500);
+  const cdp = await page.context().newCDPSession(page);
+  const pen = (type: 'mousePressed' | 'mouseMoved' | 'mouseReleased', p: { x: number; y: number }) =>
+    cdp.send('Input.dispatchMouseEvent', { type, x: p.x, y: p.y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, pointerType: 'pen' });
+  await pen('mousePressed', a);
+  for (let i = 1; i <= 8; i++) await pen('mouseMoved', { x: a.x + ((b.x - a.x) * i) / 8, y: a.y + ((b.y - a.y) * i) / 8 });
+  await pen('mouseReleased', b);
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(2);
+  await expect(page.getByTestId('loupe')).toHaveCount(0);
+  const line = (await currentObjects(page))[1] as { x1: number; y1: number; x2: number; y2: number };
+  const k = await scale(page);
+  for (const [v, t] of [[line.x1, 0], [line.y1, 500], [line.x2, 1000], [line.y2, 500]]) expect(Math.abs(v - t) * k).toBeLessThanOrEqual(1);
+});

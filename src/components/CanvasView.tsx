@@ -771,8 +771,9 @@ export default function CanvasView({
       return;
     }
     draftAtGestureStart.current = draft;
-    if (reticleTool) {
-      // Réticule : le doigt déplace le point visé ; rien n'est posé avant le lever.
+    if (reticleTool && e.pointerType === 'touch') {
+      // Réticule (doigt seulement ; un stylet pointe directement) : le doigt déplace le point visé ;
+      // rien n'est posé avant le lever.
       aiming.current = true;
       const p = aimFor(e);
       setAim(p);
@@ -1076,7 +1077,7 @@ export default function CanvasView({
           })()}
           {hoverSnap && <SnapMarker snap={hoverSnap} zoom={tf.k} />}
         </g>
-        {aim && <Loupe aim={aim} sceneId={sceneId} width={viewSize.w} />}
+        {aim && <Loupe aim={aim} sceneId={sceneId} width={viewSize.w} height={viewSize.h} />}
       </svg>
 
       <div className="pointer-events-none absolute left-3 top-3 hidden rounded-sm border sm:block border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] text-muted-foreground">
@@ -1759,13 +1760,14 @@ const LOUPE_ZOOM = 3;
  * Loupe : copie agrandie de la scène autour du point visé, placée au-dessus (ou à côté près du haut
  * de la zone), avec la croix du réticule au point visé.
  */
-function Loupe({ aim, sceneId, width }: { aim: { x: number; y: number }; sceneId: string; width: number }) {
+function Loupe({ aim, sceneId, width, height }: { aim: { x: number; y: number }; sceneId: string; width: number; height: number }) {
   const R = LOUPE_RADIUS;
   const above = aim.y - R - 30 >= R + 4;
-  const W = width || 400;
-  const raw = above ? { x: aim.x, y: aim.y - R - 30 } : { x: aim.x + (aim.x < W / 2 ? R + 40 : -(R + 40)), y: Math.max(R + 4, aim.y) };
-  // Toujours entière dans la zone de dessin.
-  const c = { x: Math.min(Math.max(raw.x, R + 4), Math.max(R + 4, W - R - 4)), y: raw.y };
+  const W = width || 400, H = height || 400;
+  const raw = above ? { x: aim.x, y: aim.y - R - 30 } : { x: aim.x + (aim.x < W / 2 ? R + 40 : -(R + 40)), y: aim.y };
+  // Toujours entière dans la zone de dessin (en largeur comme en hauteur).
+  const clamp = (v: number, size: number) => Math.min(Math.max(v, R + 4), Math.max(R + 4, size - R - 4));
+  const c = { x: clamp(raw.x, W), y: clamp(raw.y, H) };
   const clip = `${sceneId}-loupe`;
   return (
     <g data-testid="loupe" pointerEvents="none">
