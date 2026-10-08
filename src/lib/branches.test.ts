@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CadObject, MicroVersion, ProjectState } from '@/types/cad';
 import { createDefaultLayers } from '@/types/cad';
 import { normalizeProjectState } from '@/store/project';
-import { activeBranch, allVersions, branchList, createBranch, removeBranch, switchBranch } from './branches';
+import { activeBranch, allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from './branches';
 import { canonicalJson, fromPackage, toPackage } from './package';
 import { decodeHistory, encodeHistory } from './history';
 
@@ -74,5 +74,24 @@ describe('branches (lot 14.1)', () => {
     expect(canonicalJson(again.state)).toBe(canonicalJson(back.state));
     expect(back.state.branches![0].versions.map(x => x.label)).toEqual(['Initial', 'Ligne', 'Allonger']);
     expect(branchList(back.state).map(b => b.name)).toEqual(['Variante B', 'Principale']);
+  });
+
+  it('photo retirée : purgée de toutes les branches ; l’image reste si un fond de plan d’une autre branche s’en sert', () => {
+    const note = { ...base, id: 'OBJ-0002', name: 'n', kind: 'note', x: 0, y: 0, text: 'relevé', photoIds: ['IMG-1'] } as CadObject;
+    const withNote = normalizeProjectState({
+      versions: [v(0, 'Initial', []), v(1, 'Note', [note])], pointer: 1, counter: 2, layerCounter: 4, blockCounter: 0, activeLayerId: layers[0].id,
+      assets: { 'IMG-1': { id: 'IMG-1', name: 'p.jpg', dataUrl: 'data:image/png;base64,AA==', px: { w: 1, h: 1 }, source: 'image' } },
+    });
+    const forked = ok(createBranch(withNote, 'B'));
+    expect(forked.assets?.['IMG-1']).toBeDefined();
+    const purged = purgePhoto(forked, 'IMG-1');
+    // Aucune version d'aucune branche ne garde la référence ; l'image a quitté le projet.
+    expect(allVersions(purged).flatMap(x => x.objects).some(o => o.kind === 'note' && (o.photoIds ?? []).includes('IMG-1'))).toBe(false);
+    expect(purged.branches).toHaveLength(1);
+    expect(purged.assets?.['IMG-1']).toBeUndefined();
+    // Utilisée par un fond de plan d'une branche rangée : l'image est gardée.
+    const underlay = { ...base, id: 'OBJ-0003', name: 'u', kind: 'underlay', assetId: 'IMG-1', x: 0, y: 0, w: 1, h: 1, opacity: 1, locked: false } as unknown as CadObject;
+    const kept = purgePhoto({ ...forked, branches: forked.branches!.map(b => ({ ...b, versions: b.versions.map(x => ({ ...x, objects: [...x.objects, underlay] })) })) }, 'IMG-1');
+    expect(kept.assets?.['IMG-1']).toBeDefined();
   });
 });

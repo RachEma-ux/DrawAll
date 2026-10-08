@@ -3,7 +3,7 @@
 // historique et sa position. Basculer échange la branche active et une branche rangée. Les objets
 // des versions communes sont partagés (aucune copie) ; le compteur d'identifiants reste commun :
 // deux variantes ne créent jamais deux objets de même identifiant. Fonctions pures.
-import type { Branch, ProjectState } from '@/types/cad';
+import type { Branch, CadObject, ProjectState } from '@/types/cad';
 
 type ActiveBranch = NonNullable<ProjectState['branch']>;
 export const MAIN_BRANCH: ActiveBranch = { id: 'BR-0000', name: 'Principale' };
@@ -77,3 +77,20 @@ export function removeBranch(s: ProjectState, id: string): ProjectState | { erro
 
 /** Toutes les versions de toutes les branches (pour attribuer des identifiants jamais repris). */
 export const allVersions = (s: ProjectState) => [...s.versions, ...(s.branches ?? []).flatMap(b => b.versions)];
+
+/**
+ * Suppression définitive d'une photo de note : retirée des notes de toutes les versions de toutes
+ * les branches ; l'image quitte le projet si aucun fond de plan d'aucune branche ne s'en sert.
+ */
+export function purgePhoto(s: ProjectState, assetId: string): ProjectState {
+  const purge = (objects: CadObject[]) => objects.map(o => (o.kind === 'note' && o.photoIds?.includes(assetId) ? ({ ...o, photoIds: o.photoIds.filter(p => p !== assetId) } as CadObject) : o));
+  const stillUsed = allVersions(s).some(v => v.objects.some(o => o.kind === 'underlay' && o.assetId === assetId));
+  const assets = { ...(s.assets ?? {}) };
+  if (!stillUsed) delete assets[assetId];
+  return {
+    ...s,
+    versions: s.versions.map(v => ({ ...v, objects: purge(v.objects) })),
+    ...(s.branches ? { branches: s.branches.map(b => ({ ...b, versions: b.versions.map(v => ({ ...v, objects: purge(v.objects) })) })) } : {}),
+    assets,
+  };
+}

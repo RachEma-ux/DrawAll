@@ -49,7 +49,7 @@ import { bindConstraintValues, constraintExprError, usesOf } from '@/lib/params/
 import { isIfcClass, normalizePsets } from '@/lib/properties';
 import { isHexColor } from '@/lib/zones';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
-import { allVersions, branchList, createBranch, removeBranch, switchBranch } from '@/lib/branches';
+import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -864,13 +864,8 @@ export function useProject() {
     commit(`Photo supprimée de ${noteId}`, { objects: allObjects.map(o => (o.id === noteId ? ({ ...note, photoIds } as CadObject) : o)) });
     // Suppression définitive : la photo quitte le projet et tout son historique (la place est
     // libérée ; une annulation ne ferait pas réapparaître une référence vers une image absente).
-    setState(s => {
-      const purge = (objects: CadObject[]) => objects.map(o => (o.kind === 'note' && o.photoIds?.includes(assetId) ? ({ ...o, photoIds: o.photoIds.filter(p => p !== assetId) } as CadObject) : o));
-      const stillUsed = s.versions.some(v => v.objects.some(o => o.kind === 'underlay' && o.assetId === assetId));
-      const assets = { ...(s.assets ?? {}) };
-      if (!stillUsed) delete assets[assetId];
-      return { ...s, versions: s.versions.map(v => ({ ...v, objects: purge(v.objects) })), assets };
-    });
+    // Toutes les branches : une variante rangée ne doit pas garder une référence vers l'image retirée.
+    setState(s => purgePhoto(s, assetId));
   }, [allObjects, commit]);
 
   /** Repère (bulle) d'une pièce, posé en haut à droite de son emprise. */
