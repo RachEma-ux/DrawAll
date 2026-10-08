@@ -1,0 +1,98 @@
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { currentObjects, isPhone, loadObjects, openAtelier, tapModel } from './helpers';
+
+/** Volume affiché par le panneau (mm³, calculé par le noyau OCCT). */
+const shownVolume = async (page: Page) => {
+  const el = page.getByTestId('solide-volume');
+  await expect(el).toHaveAttribute('data-volume', /\d/, { timeout: 90_000 });
+  return Number(await el.getAttribute('data-volume'));
+};
+const rel = (a: number, b: number) => Math.abs(a - b) / b;
+
+async function extrudeAt(page: Page, info: TestInfo, x: number, y: number, height: string) {
+  await tapModel(page, info, x, y);
+  if (isPhone(info)) await page.getByRole('button', { name: /^Inspecteur/ }).click();
+  await page.getByRole('button', { name: /^Solides \(extrusion/ }).click();
+  if (isPhone(info)) await page.keyboard.press('Escape');
+  const panel = page.getByRole('dialog', { name: 'Solides' });
+  await panel.getByLabel('Hauteur d’extrusion (mm)').fill(height);
+  await panel.getByRole('button', { name: 'Extruder' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Extrusion créée', { timeout: 90_000 });
+  return panel;
+}
+
+test('lot 15.2 — extrusion d’un contour fermé, volume calculé par le noyau ; contour ouvert refusé', async ({ page }, info) => {
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [
+    { id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 },
+    { id: 'OBJ-0002', kind: 'polyline', points: [2000, 0, 3000, 0, 3000, 500] },
+  ]);
+  const panel = await extrudeAt(page, info, 500, 0, '300');
+  // 1 000 × 500 × 300 mm = 0,15 m³.
+  await expect(panel.getByTestId('solides-message')).toHaveText('Extrusion créée — volume 0,15 m³.');
+  expect(rel(await shownVolume(page), 1.5e8)).toBeLessThan(1e-9);
+  const solids = (await currentObjects(page)).filter(o => o.kind === 'solid');
+  expect(solids).toMatchObject([{ recipe: { op: 'extrude', height: 300, profile: [[0, 0], [1000, 0], [1000, 500], [0, 500]] } }]);
+  await expect(page.locator(`[data-solide="${solids[0].id}"]`)).toHaveCount(1);
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+
+  // Polyligne ouverte : pas de bouton Solides dans l'inspecteur, rien n'est créé.
+  await tapModel(page, info, 2500, 0);
+  if (isPhone(info)) await page.getByRole('button', { name: /^Inspecteur/ }).click();
+  await expect(page.getByRole('button', { name: /^Solides \(extrusion/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('lot 15.2 — différence de deux solides, perçage traversant : volumes de référence', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'désignation multiple à la souris (Maj + clic)');
+  test.setTimeout(180_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [
+    { id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 1000 },
+    { id: 'OBJ-0002', kind: 'rect', x: 500, y: 500, w: 1000, h: 1000 },
+  ]);
+  let panel = await extrudeAt(page, info, 500, 0, '300');
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+  panel = await extrudeAt(page, info, 1500, 1000, '300');
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+  const [a, b] = (await currentObjects(page)).filter(o => o.kind === 'solid');
+
+  // Le premier désigné reste ; le second est retiré de lui.
+  await tapModel(page, info, 0, 500);
+  await page.keyboard.down('Shift');
+  await tapModel(page, info, 1500, 1000);
+  await page.keyboard.up('Shift');
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('solides 3d');
+  await page.getByText('Solides 3D', { exact: true }).click();
+  panel = page.getByRole('dialog', { name: 'Solides' });
+  await panel.getByRole('button', { name: 'Différence (1er − 2e)' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText('Différence faite — volume 0,225 m³.', { timeout: 90_000 });
+  await expect.poll(async () => (await currentObjects(page)).filter(o => o.kind === 'solid').map(o => o.id)).toEqual([a.id]);
+  // La partie retirée est tracée en interrompu.
+  await expect(page.locator(`[data-solide="${a.id}"] [stroke-dasharray]`)).toHaveCount(1);
+  expect(b.id).not.toEqual(a.id);
+
+  // Perçage Ø 100 traversant au point (250 ; 250).
+  await panel.getByLabel('X du perçage (mm)').fill('250');
+  await panel.getByLabel('Y du perçage (mm)').fill('250');
+  await panel.getByLabel('Diamètre du perçage (mm)').fill('100');
+  await panel.getByRole('button', { name: 'Percer' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Perçage fait', { timeout: 90_000 });
+  await expect(panel.getByTestId('solide-volume')).toContainText('extrusion → extrusion → différence → perçage');
+  expect(rel(await shownVolume(page), 750000 * 300 - Math.PI * 50 * 50 * 300)).toBeLessThan(1e-9);
+
+  // Point hors du solide : refus en clair, rien ne change.
+  await panel.getByLabel('X du perçage (mm)').fill('5000');
+  await panel.getByRole('button', { name: 'Percer' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText('Perçage : le point est hors de l’emprise du solide.');
+
+  // Le solide apparaît dans la vue 3D, maillé par le noyau.
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+  await page.getByRole('button', { name: 'Vue 3D', exact: true }).click();
+  const view = page.getByRole('dialog', { name: 'Vue 3D' });
+  await expect(view.getByTestId('vue3d-contenu')).toHaveText('1 solide', { timeout: 90_000 });
+  await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/);
+  expect(errors).toEqual([]);
+});

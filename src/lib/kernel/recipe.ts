@@ -22,11 +22,23 @@ export type SolidRecipe =
   /**
    * Contour fermé du plan XY (sommets) extrudé de `height` selon Z. `segmentIds[i]` nomme le
    * segment du sommet i au suivant (par défaut `s<i>`) : il suit le segment si l'on insère,
-   * retire ou fait tourner des sommets ailleurs dans le contour.
+   * retire ou fait tourner des sommets ailleurs dans le contour. `z` : cote de la base (0 par défaut).
    */
-  | { op: 'extrude'; profile: [number, number][]; height: number; name?: string; segmentIds?: string[] }
-  /** Contour fermé du plan XZ (x ≥ 0 : rayon, z : hauteur) tourné autour de l'axe Z. */
-  | { op: 'revolve'; profile: [number, number][]; angle: number }
+  | { op: 'extrude'; profile: [number, number][]; height: number; name?: string; segmentIds?: string[]; z?: number }
+  /**
+   * Contour fermé tourné de `angle` degrés. Sans `axis` : contour du plan XZ (x ≥ 0 : rayon, z :
+   * hauteur) autour de l'axe Z. Avec `axis` (lot 15.2) : contour du plan XY tourné autour de la droite
+   * du plan XY passant par `origin`, de direction `dir`.
+   */
+  | { op: 'revolve'; profile: [number, number][]; angle: number; axis?: { origin: [number, number]; dir: [number, number] } }
+  /** Déplacement (lot 15.2). */
+  | { op: 'translate'; of: SolidRecipe; by: Vec3 }
+  /** Rotation de `angle` degrés autour de la verticale passant par `about` (lot 15.2). */
+  | { op: 'rotate'; of: SolidRecipe; angle: number; about: [number, number] }
+  /** Symétrie par le plan vertical x = value (axe 'x') ou y = value (axe 'y') (lot 15.2). */
+  | { op: 'mirror'; of: SolidRecipe; axis: 'x' | 'y'; value: number }
+  /** Homothétie de rapport `factor` (> 0) et de centre `about` (lot 15.2). */
+  | { op: 'scale'; of: SolidRecipe; factor: number; about: Vec3 }
   | { op: 'union' | 'cut' | 'intersect'; a: SolidRecipe; b: SolidRecipe }
   /** Congé de rayon r sur les arêtes désignées (`edges`), sinon sur toutes. */
   | { op: 'fillet'; of: SolidRecipe; r: number; edges?: EdgeRef[] }

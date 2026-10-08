@@ -31,6 +31,7 @@ import { beamError, columnError } from '@/lib/structure';
 import { SCHEDULE_TITLE } from '@/lib/schedules';
 import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
+import SolidsPanel from '@/components/SolidsPanel';
 import MergePanel from '@/components/MergePanel';
 import PublicationsPanel from '@/components/PublicationsPanel';
 import type { Change } from '@/lib/merge';
@@ -778,6 +779,7 @@ function Workbench() {
   const [paramsOpen, setParamsOpen] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
   const [view3dOpen, setView3dOpen] = useState(false);
+  const [solidsOpen, setSolidsOpen] = useState(false);
   // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
   const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
   const deleteWithImpact = useCallback((ids: string[]) => {
@@ -1079,6 +1081,7 @@ function Workbench() {
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
     { id: 'publish', title: 'Publier le dossier / dossiers publiés', hint: 'Version nommée + PDF des feuilles, figés ; état publié ou modifié depuis', keywords: ['publier', 'publication', 'dossier', 'diffusion', 'emission', 'pdf', 'fige'], run: () => setPublishOpen(true) },
     { id: 'merge', title: 'Comparer et fusionner des variantes', hint: 'Changements d’une autre variante en surimpression, fusion à trois voies, conflits tranchés', keywords: ['fusion', 'fusionner', 'merge', 'comparer', 'variante', 'branche', 'differences', 'conflit'], run: () => setMergeOpen(true) },
+    { id: 'solids', title: 'Solides 3D', hint: 'Extrusion, révolution, union, différence, intersection, perçage (noyau OCCT)', keywords: ['solide', 'extrusion', 'extruder', 'revolution', 'booleen', 'union', 'difference', 'intersection', 'percage', 'percer', 'trou', '3d', 'volume'], run: () => setSolidsOpen(true) },
     { id: 'view3d', title: 'Vue 3D', hint: 'Maquette en volume dérivée du plan : murs, dalles, poteaux, poutres, toitures ; orbite et cadrage', keywords: ['3d', 'volume', 'maquette', 'perspective', 'orbite', 'webgl'], run: () => setView3dOpen(true) },
     { id: 'zones', title: 'Zones', hint: 'Regrouper des pièces : nom, couleur, surface cumulée', keywords: ['zone', 'zones', 'regrouper', 'pieces', 'surface cumulee', 'logement', 'lot', 'secteur'], run: () => setZonesOpen(true) },
     { id: 'parameters', title: 'Paramètres du projet', hint: 'Table des paramètres nommés (nom, expression, unité) ; les cotes de contrainte peuvent les citer', keywords: ['parametre', 'parametres', 'variable', 'expression', 'formule', 'cote pilotante'], run: () => setParamsOpen(true) },
@@ -1193,6 +1196,7 @@ function Workbench() {
       impact={selected ? { modification: impactOf([selected.id], 'modification', impactContext), suppression: impactOf([selected.id], 'suppression', impactContext) } : undefined}
       zones={project.zones}
       onOpenZones={() => setZonesOpen(true)}
+      onOpenSolids={() => setSolidsOpen(true)}
       obj={selected}
       issues={selected ? project.diagnostics.filter(d => d.level === 'avertissement' && new RegExp(`\\b${selected.id}\\b`).test(d.text)).map(d => d.text) : []}
       objects={project.objects}
@@ -2070,6 +2074,12 @@ function Workbench() {
       )}
       {mergeOpen && (
         <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />
+      )}
+      {solidsOpen && (
+        <SolidsPanel objects={project.allObjects} selectedIds={project.selectedIds}
+          onCreate={(from, recipe, label) => project.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe }, undefined, label)}
+          onUpdate={(id, recipe, label) => project.updateObject(id, { recipe }, label)}
+          onCombine={project.combineSolids} onClose={() => setSolidsOpen(false)} />
       )}
       {view3dOpen && (
         <Suspense fallback={null}>

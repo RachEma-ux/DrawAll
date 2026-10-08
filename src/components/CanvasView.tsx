@@ -52,6 +52,7 @@ import { pickElement, type Pick } from '@/lib/constraints/model';
 import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
 import { structurePrimitives } from '@/lib/structure';
+import { solidPrimitives } from '@/lib/solids';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -1492,6 +1493,10 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
     // Poteau coupé (section pleine), poutre au-dessus du plan de coupe (traits interrompus) (lot 13.4).
     return <g data-structure={obj.id}>{structurePrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
   }
+  if (obj.kind === 'solid') {
+    // Solide (lot 15.2) : trace des fonctions, parties retirées en traits interrompus.
+    return <g data-solide={obj.id}>{solidPrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
+  }
   if (obj.kind === 'roof') {
     // Toiture (lot 13.2) : rive, faîtage, arêtiers et flèches de pente.
     return <g data-toiture={obj.id}>{roofPrimitives(obj, roofInput(obj)).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
@@ -2006,6 +2011,13 @@ function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[
     if (o.kind === 'column' && (o.section === 'circle' ? Math.hypot(x - o.x, y - o.y) <= o.d! / 2 + tol : Math.abs(x - o.x) <= o.b! / 2 + tol && Math.abs(y - o.y) <= o.h! / 2 + tol)) return o;
     if (o.kind === 'beam') {
       for (const p of structurePrimitives(o)) if (p.kind === 'line' && distanceSegment(x, y, p.x1, p.y1, p.x2, p.y2) <= tol) return o;
+    }
+    if (o.kind === 'solid') {
+      for (const p of solidPrimitives(o)) {
+        if (p.kind === 'circle' && Math.abs(Math.hypot(x - p.cx, y - p.cy) - p.r) <= tol) return o;
+        const pts = p.kind === 'polyline' ? p.points : [];
+        for (let j = 0; j + 3 < pts.length; j += 2) if (distanceSegment(x, y, pts[j], pts[j + 1], pts[j + 2], pts[j + 3]) <= tol) return o;
+      }
     }
     if (o.kind === 'roof') {
       for (const p of roofPrimitives(o, roofInput(o))) {

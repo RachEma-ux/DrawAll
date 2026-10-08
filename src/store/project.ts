@@ -52,6 +52,7 @@ import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications } from '@/lib/publication';
+import { BOOLEAN_LABEL, isRecipe, type BooleanOp } from '@/lib/solids';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -173,6 +174,8 @@ function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
   // Propriétés et classe IFC (lot 12.3) : formes reconnues seulement.
   if ('psets' in base) { const ps = normalizePsets(base.psets); if (ps) base.psets = ps; else delete base.psets; }
   if ('ifcClass' in base && !isIfcClass(base.ifcClass)) delete base.ifcClass;
+  // Solide (lot 15.2) : recette mal formée = objet écarté (le noyau ne l'évaluerait pas).
+  if (base.kind === 'solid' && !isRecipe(base.recipe)) return null;
   // Tableau de quantités (lot 13.5) : type inconnu = nomenclature.
   if (base.kind === 'bom' && base.table !== undefined && !['pieces', 'ouvertures', 'murs'].includes(base.table)) delete base.table;
   return base;
@@ -559,10 +562,10 @@ export function useProject() {
     });
   }, []);
 
-  const addObject = useCallback((partial: NewCadObject, name?: string) => {
+  const addObject = useCallback((partial: NewCadObject, name?: string, label?: string) => {
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
     const obj = stampLevel({ ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject);
-    commit(`Créer ${KIND_LABEL[obj.kind].toLowerCase()} ${id}`, {
+    commit(label ? `${label} ${id}` : `Créer ${KIND_LABEL[obj.kind].toLowerCase()} ${id}`, {
       objects: [...allObjects, obj],
       counter: state.counter + 1,
     });
@@ -704,6 +707,21 @@ export function useProject() {
     setSelectedIds(created.map(o => o.id));
     return true;
   }, [allObjects, state.counter, current.seq, commit, setSelectedIds]);
+
+  /**
+   * Booléen de deux solides (lot 15.2) : le premier reçoit la recette combinée, le second est retiré,
+   * en une seule version.
+   */
+  const combineSolids = useCallback((aId: string, bId: string, op: BooleanOp) => {
+    const a = allObjects.find(o => o.id === aId), b = allObjects.find(o => o.id === bId);
+    if (a?.kind !== 'solid' || b?.kind !== 'solid' || aId === bId) return false;
+    const removed = withDependents(allObjects, [bId]);
+    commit(`${BOOLEAN_LABEL[op]} ${aId} ${op === 'cut' ? '−' : op === 'union' ? '+' : '∩'} ${bId}`, {
+      objects: allObjects.filter(o => !removed.has(o.id)).map(o => (o.id === aId ? ({ ...o, recipe: { op, a: a.recipe, b: b.recipe } } as CadObject) : o)),
+    });
+    setSelectedIds([aId]);
+    return true;
+  }, [allObjects, commit, setSelectedIds]);
 
   const removeObject = useCallback((id: string) => {
     removeObjects([id]);
@@ -1416,7 +1434,7 @@ export function useProject() {
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects,
+    addObject, updateObject, removeObject, removeObjects, combineSolids,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,

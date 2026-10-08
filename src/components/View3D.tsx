@@ -3,7 +3,9 @@
 // temps de trame mesuré (rendu seul, synchronisé avec le GPU) et affiché.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CadObject, Layer, Level } from '@/types/cad';
-import { building3d, p95, type Mesh3D } from '@/lib/building3d';
+import { building3d, p95, type Building3D, type Mesh3D } from '@/lib/building3d';
+import { kernelMesh } from '@/lib/kernel/client';
+import { levelIdOf, levelsOf } from '@/lib/levels';
 
 interface Props {
   objects: CadObject[];
@@ -12,8 +14,8 @@ interface Props {
   onClose: () => void;
 }
 
-const COLORS: Partial<Record<CadObject['kind'], number>> = { wall: 0xd6d3cb, slab: 0x9aa4b2, column: 0xb8c4d6, beam: 0xa3b8d0, roof: 0xb4553f };
-const KIND_LABEL: Partial<Record<CadObject['kind'], [string, string]>> = { wall: ['mur', 'murs'], slab: ['dalle', 'dalles'], column: ['poteau', 'poteaux'], beam: ['poutre', 'poutres'], roof: ['toiture', 'toitures'] };
+const COLORS: Partial<Record<CadObject['kind'], number>> = { solid: 0x7dd3fc, wall: 0xd6d3cb, slab: 0x9aa4b2, column: 0xb8c4d6, beam: 0xa3b8d0, roof: 0xb4553f };
+const KIND_LABEL: Partial<Record<CadObject['kind'], [string, string]>> = { wall: ['mur', 'murs'], slab: ['dalle', 'dalles'], column: ['poteau', 'poteaux'], beam: ['poutre', 'poutres'], roof: ['toiture', 'toitures'], solid: ['solide', 'solides'] };
 
 type Status = { state: 'chargement' } | { state: 'pret'; p95: number | null } | { state: 'erreur'; message: string };
 
@@ -27,7 +29,32 @@ export default function View3D({ objects, layers, levels, onClose }: Props) {
     const shown = new Set(layers.filter(l => l.visible).map(l => l.id));
     return objects.filter(o => shown.has(o.layerId));
   }, [objects, layers]);
-  const model = useMemo(() => building3d(visible, levels), [visible, levels]);
+  const plan = useMemo(() => building3d(visible, levels), [visible, levels]);
+  // Solides du noyau (lot 15.2) : maillés par OCCT dans le Worker, posés à l'altitude de leur niveau.
+  const solids = useMemo(() => visible.filter(o => o.kind === 'solid'), [visible]);
+  const [kernelPart, setKernelPart] = useState<{ for: CadObject[]; part: Building3D } | null>(null);
+  useEffect(() => {
+    if (!solids.length) return;
+    let live = true;
+    const lv = levelsOf(levels);
+    Promise.allSettled(solids.map(s => (s.kind === 'solid' ? kernelMesh(s.recipe, 1) : Promise.reject(new Error('non solide'))))).then(results => {
+      if (!live) return;
+      const part: Building3D = { meshes: [], skipped: [] };
+      results.forEach((r, i) => {
+        const s = solids[i], z = lv.find(l => l.id === levelIdOf(s))?.elevation ?? 0;
+        if (r.status === 'rejected') { part.skipped.push({ id: s.id, reason: `noyau 3D : ${r.reason instanceof Error ? r.reason.message : String(r.reason)}` }); return; }
+        const v = r.value.mesh.vertices, positions: number[] = [];
+        for (let k = 0; k + 2 < v.length; k += 3) positions.push(v[k], v[k + 2] + z, v[k + 1]);
+        part.meshes.push({ id: s.id, kind: 'solid', positions, indices: r.value.mesh.triangles });
+      });
+      setKernelPart({ for: solids, part });
+    });
+    return () => { live = false; };
+  }, [solids, levels]);
+  const pending = solids.length > 0 && kernelPart?.for !== solids;
+  const model = useMemo<Building3D>(() => (solids.length && kernelPart?.for === solids
+    ? { meshes: [...plan.meshes, ...kernelPart.part.meshes], skipped: [...plan.skipped, ...kernelPart.part.skipped] }
+    : plan), [plan, solids, kernelPart]);
   const counts = useMemo(() => {
     const c = new Map<string, number>();
     for (const m of model.meshes) c.set(m.kind, (c.get(m.kind) ?? 0) + 1);
@@ -36,7 +63,7 @@ export default function View3D({ objects, layers, levels, onClose }: Props) {
 
   useEffect(() => {
     const el = host.current;
-    if (!el) return;
+    if (!el || pending) return;
     let disposed = false;
     let cleanup = () => {};
     (async () => {
@@ -138,14 +165,14 @@ export default function View3D({ objects, layers, levels, onClose }: Props) {
       };
     })().catch(e => { if (!disposed) setStatus({ state: 'erreur', message: `Vue 3D impossible : ${e instanceof Error ? e.message : String(e)}` }); });
     return () => { disposed = true; cleanup(); };
-  }, [model]);
+  }, [model, pending]);
 
   return (
     <div role="dialog" aria-label="Vue 3D" data-solides={model.meshes.length} data-trame-p95={status.state === 'pret' && status.p95 !== null ? status.p95.toFixed(2) : undefined}
       className="fixed inset-0 z-50 flex flex-col bg-[#0b1120] font-mono text-[11px] text-muted-foreground">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <h2 className="text-sm text-foreground">Vue 3D</h2>
-        <span data-testid="vue3d-contenu">{model.meshes.length ? counts.join(', ') : 'Aucun solide : dessinez des murs, dalles, poteaux, poutres ou toitures.'}</span>
+        <span data-testid="vue3d-contenu">{model.meshes.length ? counts.join(', ') : (pending ? 'Maillage des solides par le noyau 3D…' : 'Aucun solide : dessinez des murs, dalles, poteaux, poutres, toitures ou des solides.')}</span>
         <span className="ml-auto" data-testid="vue3d-trame">
           {status.state === 'chargement' ? 'Chargement…' : status.state === 'pret' ? `Temps de trame (p95, 60 trames) : ${status.p95 === null ? 'non mesuré' : `${status.p95.toFixed(1).replace('.', ',')} ms`}` : ''}
         </span>

@@ -15,6 +15,7 @@ import { openingGeometry } from '@/lib/opening';
 import { detectRoom } from '@/lib/rooms';
 import { roofGeometry, roofInput, roofPrimitives } from '@/lib/roof';
 import { beamEdges, columnCorners, structurePrimitives } from '@/lib/structure';
+import { mirrorSolid, moveSolid, recipeBounds, rotateSolid, scaleSolid, solidPrimitives } from '@/lib/solids';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -345,6 +346,9 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
     case 'beam':
       for (const prim of structurePrimitives(object)) collectGeometry(prim, blocks, segments, circles);
       return;
+    case 'solid':
+      for (const prim of solidPrimitives(object)) collectGeometry(prim, blocks, segments, circles);
+      return;
     case 'slab': {
       const p = object.points, n = p.length / 2;
       for (let i = 0; i < n; i++) { const j = (i + 1) % n; segments.push({ x1: p[2 * i], y1: p[2 * i + 1], x2: p[2 * j], y2: p[2 * j + 1], objectId: object.id }); }
@@ -540,6 +544,7 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
       ? { minX: object.x - object.d! / 2, minY: object.y - object.d! / 2, maxX: object.x + object.d! / 2, maxY: object.y + object.d! / 2 }
       : boundsOfPoints(columnCorners(object));
     case 'beam': return boundsOfPoints(beamEdges(object).flat());
+    case 'solid': { const b = recipeBounds(object.recipe); return { minX: b.min[0], minY: b.min[1], maxX: b.max[0], maxY: b.max[1] }; }
     case 'line': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'wall': { const q = wallQuad(object); return q ? boundsOfPoints(q) : boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]); }
     case 'cut': {
@@ -748,6 +753,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'roof':
     case 'column': return { x: object.x + dx, y: object.y + dy };
     case 'beam': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
+    case 'solid': return { recipe: moveSolid(object.recipe, dx, dy) };
     case 'north':
     case 'roughness':
     case 'levelMark':
@@ -817,6 +823,7 @@ export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg
 function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDeg: number): Partial<CadObject> | null {
   const rad = (angleDeg * Math.PI) / 180;
   switch (object.kind) {
+    case 'solid': return { recipe: rotateSolid(object.recipe, cx, cy, angleDeg) };
     case 'line':
     case 'section':
     case 'wall': {
@@ -935,6 +942,7 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
   switch (object.kind) {
     case 'column': return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
     case 'beam': return axis === 'x' ? { x1: mx(object.x1), x2: mx(object.x2) } : { y1: mx(object.y1), y2: mx(object.y2) };
+    case 'solid': return { recipe: mirrorSolid(object.recipe, axis, value) };
     case 'roof': {
       // La rive haute d'un pan unique change de côté si la symétrie la traverse.
       const flips = object.roofType === 'un-pan' && (axis === 'x') === (object.axis === 'y');
@@ -1026,6 +1034,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'column': return { x: s(object.x, cx), y: s(object.y, cy), ...(object.section === 'circle' ? { d: round(object.d! * factor) } : { b: round(object.b! * factor), h: round(object.h! * factor) }) };
     // Poutre : homothétie en volume, largeur et hauteur de section comprises.
     case 'beam': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy), b: round(object.b * factor), h: round(object.h * factor) };
+    case 'solid': return { recipe: scaleSolid(object.recipe, cx, cy, factor) };
     case 'underlay': return object.locked ? null : { x: s(object.x, cx), y: s(object.y, cy), w: object.w * factor, h: object.h * factor };
     case 'note': return object.targetId ? {} : { x: s(object.x, cx), y: s(object.y, cy) };
     case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
@@ -1089,6 +1098,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'opening':
     case 'beam':
     case 'column':
+    case 'solid':
     case 'roof':
     case 'room':
     case 'north':

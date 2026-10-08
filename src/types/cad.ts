@@ -3,9 +3,11 @@
 import type { Parameter } from '@/lib/params/expr';
 import type { PropertySet } from '@/lib/properties';
 import type { Publication } from '@/lib/publication';
+import type { SolidRecipe } from '@/lib/kernel/recipe';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
+import { recipeBounds } from '@/lib/solids';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'column' | 'beam' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'column' | 'beam' | 'solid' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -223,6 +225,15 @@ export interface BeamObj extends Base {
   b: number; h: number;
 }
 
+/**
+ * Solide (lot 15.2) : recette du noyau 3D (extrusion, révolution, booléens, perçage, transformations),
+ * évaluée par OCCT ; en plan, sa trace (contours des fonctions, parties retirées en interrompu).
+ */
+export interface SolidObj extends Base {
+  kind: 'solid';
+  recipe: SolidRecipe;
+}
+
 /** Zone (lot 13.3) : regroupement nommé de pièces, couleur de remplissage (#rrggbb). */
 export interface Zone { id: string; name: string; color: string }
 
@@ -372,7 +383,7 @@ export interface Asset {
   source: 'image' | 'pdf';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | ColumnObj | BeamObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | ColumnObj | BeamObj | SolidObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
@@ -571,6 +582,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   roof: 'Toiture',
   column: 'Poteau',
   beam: 'Poutre',
+  solid: 'Solide',
   north: 'Nord',
   section: 'Repère de coupe',
   levelMark: 'Cote de niveau',
@@ -669,6 +681,7 @@ export function dimensionOf(obj: CadObject): string {
     }
     case 'roof': return `Toiture ${obj.roofType === 'un-pan' ? 'à un pan' : obj.roofType === 'deux-pans' ? 'à deux pans' : 'à quatre pans'} · pente ${fmt(obj.pitch)}° · ${fmt(obj.w)} × ${fmt(obj.h)} mm`;
     case 'column': return obj.section === 'circle' ? `Poteau Ø ${fmt(obj.d ?? 0)} mm` : `Poteau ${fmt(obj.b ?? 0)} × ${fmt(obj.h ?? 0)} mm`;
+    case 'solid': { const b = recipeBounds(obj.recipe); return `Encombrement ${fmt(b.max[0] - b.min[0])} × ${fmt(b.max[1] - b.min[1])} × ${fmt(b.max[2] - b.min[2])} mm`; }
     case 'beam': return `Poutre ${fmt(obj.b)} × ${fmt(obj.h)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'north': return `Nord à ${fmt(obj.rotation)}°`;
     case 'section': return `Coupe ${obj.label} · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;

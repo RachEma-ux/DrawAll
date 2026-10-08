@@ -77,8 +77,14 @@ function build(r: SolidRecipe, report?: RefReport[]): Shape3D {
       return makeBaseBox(r.x, r.y, r.z).translate([at[0] + r.x / 2, at[1] + r.y / 2, at[2]]);
     }
     case 'cylinder': return makeCylinder(r.r, r.h, r.at ?? [0, 0, 0], r.dir ?? [0, 0, 1]);
-    case 'extrude': return polygon(r.profile).sketchOnPlane('XY').extrude(r.height) as Shape3D;
-    case 'revolve': return polygon(r.profile).sketchOnPlane('XZ').revolve([0, 0, 1], { angle: r.angle }) as Shape3D;
+    case 'extrude': return polygon(r.profile).sketchOnPlane('XY', r.z ?? 0).extrude(r.height) as Shape3D;
+    case 'revolve': return r.axis
+      ? polygon(r.profile).sketchOnPlane('XY').revolve([r.axis.dir[0], r.axis.dir[1], 0], { origin: [r.axis.origin[0], r.axis.origin[1], 0], angle: r.angle }) as Shape3D
+      : polygon(r.profile).sketchOnPlane('XZ').revolve([0, 0, 1], { angle: r.angle }) as Shape3D;
+    case 'translate': return derive(r.of, report, s => s.translate(r.by));
+    case 'rotate': return derive(r.of, report, s => s.rotate(r.angle, [r.about[0], r.about[1], 0], [0, 0, 1]));
+    case 'mirror': return derive(r.of, report, s => s.mirror(r.axis === 'x' ? 'YZ' : 'XZ', r.axis === 'x' ? [r.value, 0, 0] : [0, r.value, 0]));
+    case 'scale': return derive(r.of, report, s => s.scale(r.factor, r.about));
     case 'union': return combine(r.a, r.b, report, (a, b) => a.fuse(b));
     case 'cut': return combine(r.a, r.b, report, (a, b) => a.cut(b));
     case 'intersect': return combine(r.a, r.b, report, (a, b) => a.intersect(b));

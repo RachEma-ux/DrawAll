@@ -2,6 +2,7 @@
 // les autres restent. Fonctions pures ; repère modèle (Y vers le bas).
 import type { CadObject } from '@/types/cad';
 import { moveObject } from '@/lib/geometry';
+import { recipeBounds } from '@/lib/solids';
 
 export interface Window { minX: number; minY: number; maxX: number; maxY: number }
 
@@ -87,6 +88,8 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
       return !o.targetId && inside(w, o.x, o.y) ? moveObject(o, dx, dy) : null;
     case 'underlay':
       return !o.locked && inside(w, o.x, o.y) && inside(w, o.x + o.w, o.y + o.h) ? moveObject(o, dx, dy) : null;
+    case 'solid': // un solide se déplace entier (son encombrement capturé en entier), il ne s'étire pas
+      return (() => { const b = recipeBounds(o.recipe); return inside(w, b.min[0], b.min[1]) && inside(w, b.max[0], b.max[1]) ? moveObject(o, dx, dy) : null; })();
     case 'dimension':
     case 'opening':
     case 'views':

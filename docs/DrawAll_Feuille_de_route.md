@@ -272,7 +272,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 14.3 Analyse d'impact | Fait (conventions §10.7) | #69 |
 | 14.4 Publication | Fait (conventions §10.8) | #70 |
 | 15.1 Vue 3D | Fait (conventions §8.11) | #71 |
-| 15.2 Extrusion, révolution, booléens, perçage | À faire | — |
+| 15.2 Extrusion, révolution, booléens, perçage | Fait (conventions §8.12) | #72 |
 | 15.3 Balayage et Follow Me | À faire | — |
 | 15.4 Lissage | À faire | — |
 | 15.5 Coque | À faire | — |

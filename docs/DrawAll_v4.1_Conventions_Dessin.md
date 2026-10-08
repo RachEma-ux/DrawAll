@@ -552,6 +552,20 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Navigation** : orbite (glisser), zoom (molette ou pincement), déplacement (clic droit ou deux doigts) ; « Cadrer la maquette » remet tout le bâtiment dans le champ.
 - **Temps de trame** : à l'ouverture, et sur « Mesurer », 60 trames sont rendues autour du bâtiment, chacune attendue jusqu'à la fin du travail du processeur graphique. Le 95e centile est affiché.
 
+### 8.12 Solides (règle, lot 15.2)
+
+- **Panneau « Solides »** : depuis l'inspecteur (contour fermé ou solide), ou commande « Solides 3D » de la palette. Il agit sur la sélection, dans l'ordre où elle a été faite.
+- **Extrusion** : un contour fermé (rectangle, cercle, polyligne fermée dont le dernier sommet est sur le premier) monte verticalement de sa hauteur, depuis la cote de base. Le cercle donne un cylindre exact. Une polyligne ouverte, d'aire nulle ou qui se recoupe est refusée en clair.
+- **Révolution** : un contour polygonal tourne autour d'une ligne du plan (sélection : le contour puis la ligne), de 0 à 360°. Le contour doit rester d'un seul côté de l'axe.
+- **Booléens** de deux solides : union, différence (le premier désigné moins le second), intersection. Le premier solide reçoit le résultat, le second est retiré, en une seule version.
+- **Perçage** : trou cylindrique vertical (X, Y, Ø), depuis le dessus du solide, sur une profondeur ou de part en part (profondeur vide).
+- **Contrôle par le noyau** : chaque résultat est évalué par OCCT avant d'entrer au projet. Un résultat vide ou une erreur du noyau n'est pas appliqué, et la raison est donnée. Le volume affiché est celui du noyau.
+- **En plan**, la trace du solide : contours de ses fonctions, parties retirées (différence, perçage) en traits interrompus. Une révolution montre son emprise. Même dessin en DXF et en PDF.
+- **Transformations du plan** : déplacer, tourner, symétrie et échelle s'appliquent à la recette entière. Étirer déplace le solide seulement s'il est entièrement capturé.
+- **Vue 3D** : chaque solide est maillé par le noyau et posé à l'altitude de son niveau.
+- **Relecture** : une recette mal formée est écartée.
+- **Classe IFC** par défaut : `IfcBuildingElementProxy`.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

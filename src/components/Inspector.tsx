@@ -1,5 +1,6 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
+import { contourOf, recipeSteps } from '@/lib/solids';
 import type { ReactNode } from 'react';
 import { beamLength, beamVolumeM3, columnSectionArea, columnVolumeM3 } from '@/lib/structure';
 import { roofGeometry, roofInput } from '@/lib/roof';
@@ -46,6 +47,8 @@ interface Props {
   /** Zones du projet (lot 13.3), pour rattacher une pièce. */
   zones?: Zone[];
   onOpenZones?: () => void;
+  /** Ouvre le panneau des solides (lot 15.2). */
+  onOpenSolids?: () => void;
   /** Analyse d'impact de l'objet (lot 14.3). */
   impact?: { modification: Impact; suppression: Impact };
   onRemove: (id: string) => void;
@@ -75,7 +78,7 @@ interface Props {
   comments?: ReactNode;
 }
 
-export default function Inspector({ impact, zones, onOpenZones, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
+export default function Inspector({ impact, zones, onOpenZones, onOpenSolids, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -695,6 +698,16 @@ export default function Inspector({ impact, zones, onOpenZones, obj, objects, la
               ))}
             </div>
           </div>
+        )}
+
+        {obj.kind === 'solid' && (
+          <div data-testid="inspecteur-solide">
+            <p className="ui-label mb-1.5">Solide</p>
+            <p className="text-[11px] text-muted-foreground">{recipeSteps(obj.recipe).join(' → ')}</p>
+          </div>
+        )}
+        {onOpenSolids && (obj.kind === 'solid' || !('error' in contourOf(obj))) && (
+          <button type="button" onClick={onOpenSolids} className="w-full rounded-sm border border-border px-2 py-1 text-left text-[11px] text-muted-foreground hover:text-foreground">Solides (extrusion, révolution, booléens, perçage)…</button>
         )}
 
         {(obj.kind === 'column' || obj.kind === 'beam') && (() => {

@@ -12,6 +12,7 @@ import { textLines } from '@/lib/text';
 import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
 import { structurePrimitives } from '@/lib/structure';
+import { solidPrimitives } from '@/lib/solids';
 import { norm360 } from '@/lib/arc';
 import { affineEllipse } from '@/lib/ellipse';
 import { isValidSpline, knotsOf } from '@/lib/spline';
@@ -405,6 +406,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       for (const p of structurePrimitives(object)) { style = { color: p.color, lineType: p.lineType, lineWeight: p.lineWeight }; writeOne(p, layer); }
       continue;
     }
+    // Solide (lot 15.2) : sa trace en plan (LWPOLYLINE, CIRCLE ; parties retirées en interrompu).
+    if (object.kind === 'solid') { for (const p of solidPrimitives(object)) writeOne(p, layer); continue; }
     if (object.kind === 'slab') counts.slab++;
     // Dalle (lot 13.1) : contour fermé en LWPOLYLINE.
     writeOne(object.kind === 'slab' ? slabAsPolyline(object) as PrimitiveObject : object, layer);
