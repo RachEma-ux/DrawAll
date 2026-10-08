@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CadObject, Layer } from '@/types/cad';
 import { ARC_TOLERANCE_MM, bulgeArc, decodeDxfString, encodeDxfString, exportDxf, exportToDxf, parseDxf } from './dxf';
+import { BUILDING_LIBRARY, libraryBlock } from './library';
 
 const layers: Layer[] = [
   { id: 'LAY-0001', name: 'Dessin', color: '#22d3ee', visible: true, locked: false },
@@ -457,5 +458,31 @@ describe('pièces (lot 4.3)', () => {
     expect(decodeDxfString(content)).toContain('Séjour');
     expect(content).toMatch(/\n1\n20,00 m\\U\+00B2\n/);
     expect(report.transformed.join(' ')).toMatch(/Pièces : 1/);
+  });
+});
+
+describe('symboles et bibliothèque (lot 4.5)', () => {
+  it('nord, repère de coupe, cote de niveau et bloc de la bibliothèque exportés, lisibles par ezdxf', () => {
+    const block = libraryBlock(BUILDING_LIBRARY.find(i => i.key === 'lit-140')!, 'BLQ-0002', 'LAY-0001');
+    const objs: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'Nord', kind: 'north', x: 0, y: 0, rotation: 30 },
+      { ...base, id: 'OBJ-0002', name: 'Coupe A', kind: 'section', x1: -2000, y1: 1000, x2: 4000, y2: 1000, label: 'A' },
+      { ...base, id: 'OBJ-0003', name: 'Niveau', kind: 'levelMark', x: 1000, y: 2000, elevation: 2800 },
+      { ...base, id: 'OBJ-0004', name: 'Lit', kind: 'blockRef', blockId: 'BLQ-0002', x: 500, y: 3000, scale: 1 },
+    ];
+    const { content, report } = exportDxf(objs, layers, [block], { hatchPaperScale: 50 });
+    keepFixture('symboles.dxf', content);
+    expect(content).toContain('\nSOLID\n');
+    expect(content).toContain('\nCIRCLE\n');
+    expect(content).toMatch(/\n1\nN\n/);
+    expect(content).toMatch(/\n1\nA\n/);
+    expect(content).toMatch(/\n1\n\+2,80\n/);
+    // Cercle du nord : 6 mm papier au 1:50 = 300 mm.
+    expect(content).toMatch(/\n40\n300\n/);
+    // Repère de coupe : trace en trait mixte, traits forts 0,7 mm, traits fins 0,25 mm.
+    expect(content).toMatch(/\nLINE\n(?:[^\n]*\n){6}6\nACAD_ISO04W100\n370\n25\n/);
+    expect(content).toMatch(/\nLINE\n(?:[^\n]*\n){6}6\nCONTINUOUS\n370\n70\n/);
+    expect(report.transformed.join(' ')).toMatch(/Symboles .* : 3/);
+    expect(report.transformed.join(' ')).toMatch(/Occurrences de blocs : 1/);
   });
 });

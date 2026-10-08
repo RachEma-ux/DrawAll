@@ -275,6 +275,16 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - Copier un niveau crée un niveau neuf avec des copies de tous ses objets (identifiants neufs, ouvertures, cotes et îlots rattachés aux copies) ; les deux niveaux s'éditent ensuite séparément. Supprimer un niveau supprime ses objets ; le dernier niveau ne se supprime pas.
 - Feuilles : chaque fenêtre désigne le niveau qu'elle montre (PDF compris). DXF : un fichier par niveau — l'export porte sur le niveau actif et le rapport d'échange nomme les niveaux non exportés.
 
+### 8.5 Symboles et bibliothèque bâtiment (règle, lot 4.5)
+
+- Les symboles ont une taille fixe sur le papier, quelle que soit l'échelle de la fenêtre ; à l'écran, une taille constante en pixels :
+  - nord : cercle de 6 mm de rayon, flèche pleine et lettre N (3,5 mm), orienté par un angle antihoraire depuis le haut de la feuille ;
+  - repère de coupe : trace du plan en trait mixte fin, traits forts (0,7 mm) de 6 mm aux extrémités, flèches pleines vers le sens de la vue (à gauche du trait parcouru, inversable) et repère (A, B… proposé dans l'ordre) de 5 mm à chaque extrémité ;
+  - cote de niveau en plan : triangle plein pointe sur le point, trait d'appui et altitude saisie en mètres signés (« +0,15 ») ; la valeur proposée est l'altitude du niveau actif. Elle est saisie, jamais calculée.
+- Rotation et symétrie : le nord tourne avec le dessin ; une symétrie inverse le sens de vue d'une coupe. Une homothétie déplace les symboles sans changer leur taille.
+- DXF : traits (LINE), cercle (CIRCLE), surfaces pleines (SOLID) et textes (TEXT) à la taille papier de l'échelle de la première fenêtre (1:1 sans feuille) ; le rapport d'échange l'indique.
+- Bibliothèque bâtiment : lits, table, WC, lavabo, évier, douche, baignoire, en blocs ordinaires du projet. Leurs dimensions sont des gabarits courants indicatifs, non normatifs, à remplacer par celles du fabricant ; la définition le rappelle.
+
 ## 9. Références
 
 | Sujet | Référence |

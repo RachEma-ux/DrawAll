@@ -44,11 +44,12 @@ import { hatchParamsOf, pointInLoop } from '@/lib/hatch';
 import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/lib/wall';
 import { openingGeometry, swingPath } from '@/lib/opening';
 import { areaM2, centroid, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
+import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol, isSymbol, symbolGeometry, type SymbolObject } from '@/lib/symbols';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -99,6 +100,11 @@ interface Props {
   onAddOpening?: (wallId: string, x: number, y: number) => void;
   /** Outil Pièce : point intérieur désigné. */
   onAddRoom?: (x: number, y: number) => void;
+  /** Outil Symbole : points désignés (un pour le nord et la cote de niveau, deux pour un repère de coupe). */
+  onAddSymbol?: (points: number[]) => void;
+  symbolPoints?: number;
+  /** Type de symbole choisi : en changer abandonne le symbole commencé. */
+  symbolKind?: string;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -157,6 +163,9 @@ export default function CanvasView({
   onAddWall,
   onAddOpening,
   onAddRoom,
+  onAddSymbol,
+  symbolPoints = 1,
+  symbolKind,
   pdimAutoFinish = null,
   onMoveMany,
   gridSize,
@@ -176,9 +185,11 @@ export default function CanvasView({
   useEffect(() => { cornerPick.current = null; }, [tool, objects]);
   const [tf, setTf] = useState({ x: 60, y: 40, k: 1 });
   const [draft, setDraft] = useState<Draft | null>(null);
-  // Un tracé commencé sur un niveau ne se termine pas sur un autre (état réinitialisé au rendu).
-  const [draftLevel, setDraftLevel] = useState(levelKey);
-  if (draftLevel !== levelKey) { setDraftLevel(levelKey); setDraft(null); }
+  // Un tracé commencé sur un niveau ne se termine pas sur un autre, ni un symbole commencé sous un
+  // autre type (état réinitialisé au rendu).
+  const draftScope = `${levelKey ?? ''}|${symbolKind ?? ''}`;
+  const [draftScopeSeen, setDraftScopeSeen] = useState(draftScope);
+  if (draftScopeSeen !== draftScope) { setDraftScopeSeen(draftScope); setDraft(null); }
   const activeDraft = draft && (
     (draft.kind === 'polyline' && (draft.origin ?? 'polyline') === tool) ||
     (draft.kind === 'measure' && tool === 'measure') ||
@@ -346,6 +357,18 @@ export default function CanvasView({
       setDraft({ kind: 'polyline', sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts, origin: 'pdim' });
       return;
     }
+    if (tool === 'symbol') {
+      // Symbole : nord et cote de niveau en un point, repère de coupe en deux.
+      const previous = activeDraft?.kind === 'polyline' && activeDraft.origin === 'symbol' ? activeDraft.points : [];
+      const pts = [...previous, point.x, point.y];
+      if (pts.length / 2 >= symbolPoints) {
+        onAddSymbol?.(pts);
+        setDraft(null);
+        return;
+      }
+      setDraft({ kind: 'polyline', sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts, origin: 'symbol' });
+      return;
+    }
     if (tool === 'polyline' || tool === 'area') {
       setDraft(d => {
         if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === tool) return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
@@ -376,7 +399,7 @@ export default function CanvasView({
     if (tool === 'line' || tool === 'rect' || tool === 'circle') {
       setDraft({ kind: tool, sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [] });
     }
-  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension, onAddWall]);
+  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension, onAddWall, onAddSymbol, symbolPoints]);
 
   const handleDown = (e: React.PointerEvent) => {
     discardIncompatibleDraft();
@@ -636,7 +659,7 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'arc' || tool === 'arcCenter') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter') {
       startOrContinueDraft(point);
       return;
     }
@@ -980,7 +1003,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
@@ -1074,6 +1097,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
+  if (isSymbol(obj)) return <SymbolShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'room') return <RoomShape obj={obj} poly={rooms?.get(obj.id) ?? null} selected={selected} zoom={zoom} paperScale={paperScale} />;
   if (obj.kind === 'opening') {
     const host = objects.find(o => o.id === obj.hostId);
@@ -1127,6 +1151,29 @@ function RoomShape({ obj, poly, selected, zoom, paperScale }: { obj: RoomObj; po
       <text x={c.x} y={c.y + size(13, 3.5) * 1.2} fontSize={size(11, 2.5)} fill={color} textAnchor="middle" fontFamily="JetBrains Mono, monospace" data-surface="">
         {formatM2(areaM2(poly))}
       </text>
+    </g>
+  );
+}
+
+/** Symbole (nord, repère de coupe, cote de niveau) : taille papier sur une feuille, constante à l'écran. */
+function SymbolShape({ obj, selected, zoom, layer, colorMode, paperScale }: {
+  obj: SymbolObject; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale;
+}) {
+  const u = paperScale ? paperToModelSize(1, paperScale) : SCREEN_PX_PER_PAPER_MM / zoom;
+  const g = symbolGeometry(obj, u);
+  if (!g) return null;
+  const st = effectiveStyle(obj, layer);
+  const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
+  const w = (weight: 'fin' | 'fort') => paperScale ? Math.max(strokeInModel(weight === 'fort' ? 0.7 : 0.25, paperScale), 0.5 / zoom) : (weight === 'fort' ? 2.2 : 1) / zoom;
+  const dash = paperScale ? `${paperToModelSize(12, paperScale)} ${paperToModelSize(2, paperScale)} ${paperToModelSize(1, paperScale)} ${paperToModelSize(2, paperScale)}` : `${12 / zoom} ${3 / zoom} ${2 / zoom} ${3 / zoom}`;
+  return (
+    <g data-symbole={obj.kind}>
+      {g.circles.map((c, i) => <circle key={`c${i}`} cx={c.c.x} cy={c.c.y} r={c.r} fill="none" stroke={color} strokeWidth={w('fin')} />)}
+      {g.lines.map((l, i) => <line key={`l${i}`} x1={l.a.x} y1={l.a.y} x2={l.b.x} y2={l.b.y} stroke={color} strokeWidth={w(l.weight)} strokeDasharray={l.dash ? dash : undefined} />)}
+      {g.fills.map((f, i) => <polygon key={`f${i}`} points={f.map(q => `${q.x},${q.y}`).join(' ')} fill={color} />)}
+      {g.texts.map((t, i) => (
+        <text key={`t${i}`} x={t.at.x} y={t.at.y} fontSize={t.height * TEXT_FONT_SCALE} fill={color} textAnchor={t.anchor} fontFamily="Inter, Arial, Helvetica, sans-serif">{t.text}</text>
+      ))}
     </g>
   );
 }
@@ -1453,6 +1500,11 @@ function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], 
       if (geom && distanceSegment(x, y, geom.x1, geom.y1, geom.x2, geom.y2) <= tol) return o;
     }
     if (o.kind === 'text' && pointInText(o, x, y, tol)) return o;
+    if (isSymbol(o)) {
+      // Géométrie à la taille écran (tol ≈ 6 px) : le symbole se désigne par ses traits ou sa lettre.
+      const g = symbolGeometry(o, (tol / 6) * SCREEN_PX_PER_PAPER_MM);
+      if (g && distanceToSymbol(g, { x, y }) <= tol) return o;
+    }
     if (o.kind === 'room') {
       // Une pièce se désigne par son étiquette (son point intérieur ou le centre de son contour).
       const walls = allObjects.filter((w): w is WallObj => w.kind === 'wall');

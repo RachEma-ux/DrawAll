@@ -4,6 +4,7 @@ import { CLASSIFICATION_META, KIND_LABEL } from '@/types/cad';
 import { useState } from 'react';
 import LineStyleFields from '@/components/LineStyleFields';
 import { formatElevation } from '@/lib/levels';
+import { BUILDING_LIBRARY, LIBRARY_SOURCE } from '@/lib/library';
 
 interface Props {
   objects: CadObject[];
@@ -19,6 +20,8 @@ interface Props {
   onInsertBlock: (blockId: string) => void;
   onCreateBlock: (objectId: string) => void;
   onRemoveBlock: (blockId: string) => void;
+  /** Bibliothèque bâtiment : ajoute le gabarit au projet et prépare son insertion. */
+  onAddLibraryBlock: (key: string) => void;
   /** Calque utilisé par un objet, tous niveaux confondus. */
   layerUsed: (id: string) => boolean;
   levels: Level[];
@@ -249,6 +252,13 @@ export default function Navigator(p: Props) {
           >
             + depuis sélection
           </button>
+        </div>
+        <div className="flex items-center gap-1.5 border-t border-border/40 px-3 py-1.5" title={LIBRARY_SOURCE}>
+          <select aria-label="Bibliothèque bâtiment" defaultValue="" onChange={e => { if (e.target.value) { p.onAddLibraryBlock(e.target.value); e.target.value = ''; } }}
+            className="min-w-0 flex-1 rounded-sm border border-border bg-background px-1 py-0.5 text-[11px] text-foreground">
+            <option value="">Bibliothèque bâtiment…</option>
+            {BUILDING_LIBRARY.map(it => <option key={it.key} value={it.key}>{it.name} {it.size}</option>)}
+          </select>
         </div>
         {p.blocks.map(block => (
           <div key={block.id} className="flex items-center gap-2 border-t border-border/40 px-3 py-1.5">

@@ -105,3 +105,28 @@ describe('niveau d’une fenêtre (lot 4.4)', () => {
     expect(out).toContain(pdfString('Séjour 24,5 m²'));
   });
 });
+
+describe('symboles sur la feuille (lot 4.5)', () => {
+  it('nord à sa taille papier (cercle de 6 mm de rayon au 1:50), coupe et cote de niveau', () => {
+    const sym: CadObject[] = [
+      { ...base, id: 'OBJ-0011', kind: 'north', x: 2500, y: 500, rotation: 0 },
+      { ...base, id: 'OBJ-0012', kind: 'section', x1: 0, y1: 1500, x2: 5000, y2: 1500, label: 'A' },
+      { ...base, id: 'OBJ-0013', kind: 'levelMark', x: 1000, y: 200, elevation: 2800 },
+    ];
+    const out = sheetToPdf({ sheet, objects: sym, layers, blocks: [], versions, pointer: 0, date: new Date(Date.UTC(2026, 9, 7, 12)) });
+    if (dir) writeFileSync(join(dir, 'symboles.pdf'), pdfBytes(out));
+    expect(out).toContain('(N) Tj');
+    expect(out).toContain('(A) Tj');
+    expect(out).toContain('(+2,80) Tj');
+    expect((out.match(/ h f/g) ?? []).length).toBeGreaterThanOrEqual(4); // flèche du nord, deux flèches de coupe, triangle
+    // Cercle du nord : centre de la fenêtre (x = 20 + 390 / 2 = 215 mm papier), rayon 6 mm papier ;
+    // l'arc commence à centre + rayon = 221 mm.
+    expect(out).toContain(`${((215 + 6) * MM_TO_PT).toFixed(3)} 466.299 m`);
+  });
+
+  it('altitude négative : le signe moins est encodé (pas de « ? »)', () => {
+    const out = sheetToPdf({ sheet, objects: [{ ...base, id: 'OBJ-0013', kind: 'levelMark', x: 1000, y: 200, elevation: -450 }], layers, blocks: [], versions, pointer: 0, date: new Date(Date.UTC(2026, 9, 7, 12)) });
+    expect(out).toContain(pdfString('−0,45'));
+    expect(pdfString('−0,45')).not.toContain('?');
+  });
+});

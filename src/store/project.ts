@@ -24,6 +24,7 @@ import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
 import { LINE_TYPES } from '@/lib/linestyle';
 import { profileById } from '@/lib/materials';
+import { libraryBlock, libraryItem } from '@/lib/library';
 import { DEFAULT_LEVEL, copyLevelObjects, levelIdOf, levelsOf, onLevel } from '@/lib/levels';
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
 import { nextIndexLetter } from '@/lib/titleblock';
@@ -153,6 +154,7 @@ function normalizeBlocks(raw: unknown, layers: Layer[]): BlockDef[] {
       id: typeof b.id === 'string' ? b.id : `BLQ-${String(i + 1).padStart(4, '0')}`,
       name: typeof b.name === 'string' ? b.name : `Bloc ${i + 1}`,
       description: typeof b.description === 'string' ? b.description : undefined,
+      ...(typeof b.libraryKey === 'string' ? { libraryKey: b.libraryKey } : {}),
       primitives: Array.isArray(b.primitives)
         ? b.primitives.map(p => normalizeObject(p, layers)).filter((p): p is PrimitiveObject =>
             !!p && (p.kind === 'line' || p.kind === 'rect' || p.kind === 'circle' || p.kind === 'arc' || p.kind === 'polyline'),
@@ -614,6 +616,20 @@ export function useProject() {
     return stamped.length;
   }, [layers, allObjects, state.counter, state.layerCounter, current.seq, commit, setSelectedId, stampLevel]);
 
+  /** Bloc de la bibliothèque bâtiment : ajouté au projet s'il n'y est pas encore ; son identifiant. */
+  const addLibraryBlock = useCallback((key: string) => {
+    const it = libraryItem(key);
+    if (!it) return null;
+    const existing = blocks.find(b => b.libraryKey === key);
+    if (existing) return existing.id;
+    const blockId = `BLQ-${String(state.blockCounter + 1).padStart(4, '0')}`;
+    commit(`Ajouter ${it.name} (bibliothèque) ${blockId}`, {
+      blocks: [...blocks, libraryBlock(it, blockId, activeLayerId)],
+      blockCounter: state.blockCounter + 1,
+    });
+    return blockId;
+  }, [blocks, state.blockCounter, activeLayerId, commit]);
+
   const removeBlock = useCallback((blockId: string) => {
     commit(`Supprimer bloc ${blockId}`, {
       blocks: blocks.filter(b => b.id !== blockId),
@@ -832,7 +848,7 @@ export function useProject() {
     addObject, updateObject, removeObject, removeObjects,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock,
+    addDimension, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };
