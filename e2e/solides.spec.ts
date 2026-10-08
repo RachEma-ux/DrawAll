@@ -124,3 +124,32 @@ test('lot 15.3 — balayage (Follow Me) : profil le long d’une polyligne à an
   await expect(page.locator(`[data-solide="${solid.id}"]`)).toHaveCount(1);
   expect(errors).toEqual([]);
 });
+
+test('lot 15.4 — lissage par deux sections : tronc de pyramide, sections retrouvées à 10⁻⁶ mm', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'désignation multiple à la souris (Maj + clic)');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [
+    { id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 1000 },
+    { id: 'OBJ-0002', kind: 'rect', x: 250, y: 250, w: 500, h: 500 },
+  ]);
+  await tapModel(page, info, 500, 0);
+  await page.keyboard.down('Shift');
+  await tapModel(page, info, 500, 250);
+  await page.keyboard.up('Shift');
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('solides 3d');
+  await page.getByText('Solides 3D', { exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Solides' });
+  // Une cote par section : sinon, refus en clair.
+  await panel.getByLabel('Cotes des sections (mm, séparées par ;)').fill('0');
+  await panel.getByRole('button', { name: 'Lisser' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText('Lissage : 2 cotes attendues (une par section), 1 données.');
+  await panel.getByLabel('Cotes des sections (mm, séparées par ;)').fill('0 ; 1000');
+  await panel.getByRole('button', { name: 'Lisser' }).click();
+  // h/3 (A1 + A2 + √(A1·A2)) = 1 000/3 × (1 + 0,25 + 0,5) m² ≈ 0,583333 m³.
+  await expect(panel.getByTestId('solides-message')).toHaveText('Lissage créé par 2 sections — sections retrouvées à 10⁻⁶ mm — volume 0,583333 m³.', { timeout: 90_000 });
+  expect(rel(await shownVolume(page), (1000 / 3) * 1.75e6)).toBeLessThan(1e-9);
+  expect((await currentObjects(page)).find(o => o.kind === 'solid')!.recipe).toMatchObject({ op: 'loft', ruled: true, sections: [{ z: 0 }, { z: 1000 }] });
+  expect(errors).toEqual([]);
+});

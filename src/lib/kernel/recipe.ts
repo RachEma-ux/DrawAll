@@ -26,6 +26,9 @@ export type PathSeg =
 /** Profil d'un balayage, dans son repère (u, v) : polygone fermé, ou cercle de rayon r centré en c. */
 export type SweepProfile = [number, number][] | { r: number; c: [number, number] };
 
+/** Section d'un lissage : polygone fermé du plan ou cercle, à la cote z. */
+export type LoftSection = { z: number } & ({ points: [number, number][] } | { circle: { cx: number; cy: number; r: number } });
+
 export type SolidRecipe =
   /** Pavé de dimensions x, y, z, coin minimal en `at` (origine par défaut). */
   | { op: 'box'; x: number; y: number; z: number; at?: Vec3; name?: string }
@@ -49,6 +52,11 @@ export type SolidRecipe =
    * (−t_y, t_x) (t : tangente de départ), v vers le haut. Angles vifs aux sommets du trajet.
    */
   | { op: 'sweep'; profile: SweepProfile; path: PathSeg[]; z?: number; name?: string }
+  /**
+   * Lissage (lot 15.4) : solide passant par des sections horizontales (contour du plan à la cote z),
+   * dans l'ordre ; surfaces réglées (droites d'une section à la suivante) ou lisses.
+   */
+  | { op: 'loft'; sections: LoftSection[]; ruled: boolean }
   /** Déplacement (lot 15.2). */
   | { op: 'translate'; of: SolidRecipe; by: Vec3 }
   /** Rotation de `angle` degrés autour de la verticale passant par `about` (lot 15.2). */

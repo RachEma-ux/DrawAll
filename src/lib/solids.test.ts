@@ -4,7 +4,7 @@ import { createDefaultLayers, dimensionOf } from '@/types/cad';
 import { exportDxf, exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
 import { defaultIfcClass } from './properties';
-import { contourOf, extrudeRecipe, holeRecipe, isRecipe, moveSolid, pathLength, pathOf, pathPoints, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace, sweepProfileOf, sweepRecipe } from './solids';
+import { contourOf, extrudeRecipe, loftCheckPoints, loftRecipe, parseLevels, holeRecipe, isRecipe, moveSolid, pathLength, pathOf, pathPoints, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace, sweepProfileOf, sweepRecipe } from './solids';
 import { stretchObject, stretchPreview } from './stretch';
 import type { PathSeg, SolidRecipe } from './kernel/recipe';
 
@@ -162,5 +162,31 @@ describe('solides : recettes (lot 15.2)', () => {
     expect(isRecipe({ op: 'sweep', profile: [[0, 0], [1, 0], [0, 1]], path: [] })).toBe(false);
     expect(isRecipe({ op: 'sweep', profile: [[0, 0], [1, 0], [0, 1]], path: [{ kind: 'arc', from: [0, 0], to: [1, 1] }] })).toBe(false);
     expect(sweepRecipe(c, [{ kind: 'line', from: [0, 0], to: [0, 0] }])).toEqual({ error: 'Balayage : trajet de longueur nulle.' });
+  });
+
+  it('lissage : sections dans l’ordre, cotes strictement monotones, une par section', () => {
+    const a = contourOf(rect(0, 0, 1000, 1000)), b = contourOf(rect(250, 250, 500, 500));
+    if ('error' in a || 'error' in b || a.kind !== 'polygon' || b.kind !== 'polygon') throw new Error();
+    const c = { kind: 'circle' as const, cx: 500, cy: 500, r: 300 };
+    const r = loftRecipe([a, b, c], [0, 1000, 2500], true);
+    if ('error' in r) throw new Error(r.error);
+    expect(r.recipe).toEqual({ op: 'loft', ruled: true, sections: [{ z: 0, points: a.points }, { z: 1000, points: b.points }, { z: 2500, circle: { cx: 500, cy: 500, r: 300 } }] });
+    expect(recipeBounds(r.recipe)).toEqual({ min: [0, 0, 0], max: [1000, 1000, 2500] });
+    expect(solidTrace(r.recipe)).toHaveLength(3);
+    expect(recipeSteps(r.recipe)).toEqual(['lissage']);
+    expect(isRecipe(r.recipe)).toBe(true);
+    expect(isRecipe({ op: 'loft', ruled: true, sections: [{ z: 0, points: a.points }] })).toBe(false);
+    expect(isRecipe({ op: 'loft', sections: [{ z: 0, points: a.points }, { z: 1, points: a.points }] })).toBe(false);
+    // Points de contrôle : sommets et milieux des côtés, 8 points par cercle.
+    if (r.recipe.op !== 'loft') throw new Error();
+    expect(loftCheckPoints(r.recipe.sections)).toHaveLength(8 + 8 + 8);
+    expect(loftCheckPoints(r.recipe.sections).slice(0, 2)).toEqual([[0, 0, 0], [500, 0, 0]]);
+    expect(loftRecipe([a, b], [1000, 0], false)).toMatchObject({ recipe: { op: 'loft' } });
+    expect(loftRecipe([a], [0], true)).toEqual({ error: 'Lissage : deux sections au moins.' });
+    expect(loftRecipe([a, b], [0], true)).toEqual({ error: 'Lissage : 2 cotes attendues (une par section), 1 données.' });
+    expect(loftRecipe([a, b, c], [0, 1000, 500], true)).toEqual({ error: 'Lissage : les cotes doivent croître (ou décroître) strictement d’une section à la suivante.' });
+    expect(loftRecipe([a, b], [0, Number.NaN], true)).toEqual({ error: 'Lissage : cote invalide.' });
+    expect(parseLevels('0 ; 1000,5;2500 ')).toEqual([0, 1000.5, 2500]);
+    expect(parseLevels('')).toEqual([]);
   });
 });

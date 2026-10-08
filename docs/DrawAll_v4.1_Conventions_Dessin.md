@@ -574,6 +574,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Longueur du trajet** affichée à la création ; en plan, la trace du balayage est son trajet.
 - **Contrôle** par le noyau (volume non nul), comme au §8.12. Le volume d'un profil centré vaut l'aire du profil × la longueur du trajet ; c'est la preuve du lot.
 
+### 8.14 Lissage (règle, lot 15.4)
+
+- **Sections** : contours fermés (rectangle, cercle, polyligne fermée) désignés dans l'ordre, une cote par section (« 0 ; 1000 ; 2500 »). Les cotes croissent ou décroissent strictement. Un nombre de cotes différent du nombre de sections est refusé, sans valeur inventée.
+- **Surfaces** : réglées (droites d'une section à la suivante, par défaut) ou lisses.
+- **Contrôle** : en plus du volume non nul (§8.12), le noyau vérifie que le solide passe par chaque section : sommets, milieux des côtés, huit points par cercle, à 10⁻⁶ mm du bord. Sinon le lissage est refusé et l'écart est donné.
+- **En plan**, la trace du lissage montre le contour de chaque section.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

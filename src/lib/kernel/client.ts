@@ -1,9 +1,10 @@
 // Accès au noyau 3D depuis l'interface (lot 11.2) : le Worker n'est créé qu'au premier appel.
-import type { MeshResult, SolidRecipe } from './recipe';
+import type { MeshResult, SolidRecipe, Vec3 } from './recipe';
 
 export type KernelRequest =
   | { id: number; type: 'volume'; recipe: SolidRecipe }
-  | { id: number; type: 'mesh'; recipe: SolidRecipe; tolerance?: number };
+  | { id: number; type: 'mesh'; recipe: SolidRecipe; tolerance?: number }
+  | { id: number; type: 'deviation'; recipe: SolidRecipe; points: Vec3[] };
 export type KernelResponse =
   | { id: number; ok: true; result: number | MeshResult; loadMs: number }
   | { id: number; ok: false; error: string };
@@ -44,4 +45,11 @@ export async function kernelMesh(recipe: SolidRecipe, tolerance?: number): Promi
   const r = await call({ type: 'mesh', recipe, tolerance });
   if (!r.ok) throw new Error(r.error);
   return { mesh: r.result as MeshResult, loadMs: r.loadMs };
+}
+
+/** Plus grand écart (mm) entre des points et le bord du solide (lot 15.4). */
+export async function kernelDeviation(recipe: SolidRecipe, points: Vec3[]): Promise<number> {
+  const r = await call({ type: 'deviation', recipe, points });
+  if (!r.ok) throw new Error(r.error);
+  return r.result as number;
 }

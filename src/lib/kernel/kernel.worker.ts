@@ -8,7 +8,8 @@ self.onmessage = async (e: MessageEvent<KernelRequest>) => {
   const { id } = e.data;
   try {
     const kernel = await loadKernel(() => wasmUrl);
-    const result = e.data.type === 'volume' ? kernel.volume(e.data.recipe) : kernel.mesh(e.data.recipe, e.data.tolerance);
+    const d = e.data;
+    const result = d.type === 'volume' ? kernel.volume(d.recipe) : d.type === 'mesh' ? kernel.mesh(d.recipe, d.tolerance) : kernel.boundaryDeviation(d.recipe, d.points);
     (self as unknown as Worker).postMessage({ id, ok: true, result, loadMs: kernel.loadMs } satisfies KernelResponse);
   } catch (err) {
     (self as unknown as Worker).postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) } satisfies KernelResponse);

@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import type { CadObject, SolidObj } from '@/types/cad';
 import type { SolidRecipe } from '@/lib/kernel/recipe';
-import { kernelVolume } from '@/lib/kernel/client';
-import { BOOLEAN_LABEL, contourOf, extrudeRecipe, holeRecipe, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type SolidResult } from '@/lib/solids';
+import { kernelDeviation, kernelVolume } from '@/lib/kernel/client';
+import { BOOLEAN_LABEL, contourOf, extrudeRecipe, holeRecipe, loftCheckPoints, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
 
 interface Props {
   objects: CadObject[];
@@ -32,6 +32,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const [extr, setExtr] = useState({ height: '', z: '0' });
   const [angle, setAngle] = useState('360');
   const [sweepZ, setSweepZ] = useState('0');
+  const [loft, setLoft] = useState({ levels: '', ruled: true });
   const [hole, setHole] = useState({ x: '', y: '', d: '', depth: '' });
 
   // Volume du solide sélectionné, calculé par le noyau.
@@ -46,15 +47,17 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   }, [one]);
   const shownVolume = one && volume && volume.id === one.id && volume.recipe === one.recipe ? volume : null;
 
-  /** Contrôle par le noyau, puis application. */
-  const run = async (res: SolidResult, apply: (r: SolidRecipe) => void, done: string) => {
+  /** Contrôle par le noyau, puis application. `check` : contrôle supplémentaire (texte, ou erreur). */
+  const run = async (res: SolidResult, apply: (r: SolidRecipe) => void, done: string, check?: (r: SolidRecipe) => Promise<{ ok: boolean; text: string }>) => {
     if ('error' in res) { setMessage({ error: true, text: res.error }); return; }
     setBusy(true);
     try {
       const { volume: v } = await kernelVolume(res.recipe);
       if (!(v > 1e-9)) { setMessage({ error: true, text: 'Résultat vide : le solide n’a aucun volume (rien n’est créé).' }); return; }
+      const extra = check ? await check(res.recipe) : null;
+      if (extra && !extra.ok) { setMessage({ error: true, text: extra.text }); return; }
       apply(res.recipe);
-      setMessage({ error: false, text: `${done} — volume ${m3(v)}.` });
+      setMessage({ error: false, text: `${done}${extra ? ` — ${extra.text}` : ''} — volume ${m3(v)}.` });
     } catch (e) {
       setMessage({ error: true, text: e instanceof Error ? e.message : String(e) });
     } finally { setBusy(false); }
@@ -79,6 +82,18 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
     if (!sweepProfile || 'error' in sweepProfile || !sweepPath || 'error' in sweepPath) return;
     const len = sweepPath.length.toLocaleString('fr-FR', { maximumFractionDigits: 3 });
     void run(sweepRecipe(sweepProfile, sweepPath.path, parse(sweepZ || '0')), r => onCreate(first, r, 'Balayer'), `Balayage créé (trajet de ${len} mm)`);
+  };
+  // Lissage : toutes les sections sélectionnées sont des contours fermés, dans l'ordre de désignation.
+  const loftContours = selected.map(o => (o.kind === 'solid' ? null : contourOf(o)));
+  const canLoft = selected.length >= 2 && loftContours.every(c => c && !('error' in c));
+  const doLoft = () => {
+    const cs = loftContours.filter((c): c is Contour => !!c && !('error' in c));
+    void run(loftRecipe(cs, parseLevels(loft.levels), loft.ruled), r => onCreate(selected[0], r, 'Lisser'), `Lissage créé par ${cs.length} sections`, async r => {
+      if (r.op !== 'loft') return { ok: true, text: '' };
+      // Les sections doivent être retrouvées sur le bord du solide (10⁻⁶ mm).
+      const dev = await kernelDeviation(r, loftCheckPoints(r.sections));
+      return dev <= 1e-6 ? { ok: true, text: 'sections retrouvées à 10⁻⁶ mm' } : { ok: false, text: `Lissage refusé : une section s’écarte du solide de ${dev.toLocaleString('fr-FR', { maximumSignificantDigits: 3 })} mm.` };
+    });
   };
   const combine = (op: BooleanOp) => {
     const [a, b] = solids;
@@ -120,6 +135,13 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
         <span className="w-full text-foreground">Balayage (Follow Me) : un profil fermé, puis son trajet (ligne, arc, polyligne, spline)</span>
         <label className="flex items-center gap-1">Cote du trajet <input aria-label="Cote du trajet (mm)" inputMode="decimal" value={sweepZ} onChange={e => setSweepZ(e.target.value)} className={field} /> mm</label>
         <button type="button" className={button} disabled={!canSweep || busy} onClick={sweep}>Balayer</button>
+      </section>
+
+      <section aria-label="Lissage" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">
+        <span className="w-full text-foreground">Lissage par sections (contours fermés, dans l’ordre de désignation)</span>
+        <label className="flex items-center gap-1">Cotes <input aria-label="Cotes des sections (mm, séparées par ;)" placeholder="0 ; 1000 ; 2500" value={loft.levels} onChange={e => setLoft(l => ({ ...l, levels: e.target.value }))} className={`${field} w-32 text-left`} /> mm</label>
+        <label className="flex items-center gap-1"><input type="checkbox" aria-label="Surfaces réglées" checked={loft.ruled} onChange={e => setLoft(l => ({ ...l, ruled: e.target.checked }))} /> réglées (sinon lisses)</label>
+        <button type="button" className={button} disabled={!canLoft || busy} onClick={doLoft}>Lisser</button>
       </section>
 
       <section aria-label="Booléens" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadKernel } from './occt';
 import { meshVolume, type PathSeg, type SolidRecipe, type SweepProfile } from './recipe';
-import { extrudeRecipe, holeRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
+import { extrudeRecipe, holeRecipe, loftCheckPoints, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
 
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.abs(b);
 const take = (r: { recipe: SolidRecipe } | { error: string }) => { if ('error' in r) throw new Error(r.error); return r.recipe; };
@@ -118,5 +118,34 @@ describe('balayage et Follow Me (lot 15.3) : volume = aire du profil × longueur
     if ('error' in p) throw new Error(p.error);
     expect(rel(pathLength(p.path), p.length)).toBeLessThan(1e-6);
     expect(rel(v(sweepOf(p.path, { r: 20, c: [0, 20] })), Math.PI * 400 * p.length)).toBeLessThan(1e-5);
+  });
+});
+
+describe('lissage (lot 15.4) : sections retrouvées à 10⁻⁶ mm, volumes de référence', async () => {
+  const k = await loadKernel();
+  const square = (c: number, half: number) => ({ kind: 'polygon' as const, points: [[c - half, c - half], [c + half, c - half], [c + half, c + half], [c - half, c + half]] as [number, number][] });
+
+  it('tronc de pyramide réglé : volume h/3 (A1 + A2 + √(A1·A2)) ; sections retrouvées', () => {
+    const r = take(loftRecipe([square(0, 500), square(0, 250)], [0, 1000], true));
+    expect(rel(k.volume(r), (1000 / 3) * (1e6 + 0.25e6 + 0.5e6))).toBeLessThan(1e-6);
+    if (r.op !== 'loft') throw new Error();
+    expect(k.boundaryDeviation(r, loftCheckPoints(r.sections))).toBeLessThan(1e-6);
+  });
+
+  it('trois sections réglées (carré, carré décalé, cercle) : chaque section retrouvée, volume = somme des troncs', () => {
+    const r = take(loftRecipe([square(0, 500), square(0, 250), { kind: 'circle', cx: 0, cy: 0, r: 300 }], [0, 1000, 2500], true));
+    if (r.op !== 'loft') throw new Error();
+    expect(k.boundaryDeviation(r, loftCheckPoints(r.sections))).toBeLessThan(1e-6);
+    // Contrôle négatif : un point hors des sections est loin du bord.
+    expect(k.boundaryDeviation(r, [[0, 0, 500]])).toBeGreaterThan(100);
+    expect(k.volume(r)).toBeGreaterThan((1000 / 3) * (1e6 + 0.25e6 + 0.5e6));
+  });
+
+  it('lissage lisse entre deux cercles parallèles égaux : cylindre exact', () => {
+    const c = { kind: 'circle' as const, cx: 100, cy: 200, r: 50 };
+    const r = take(loftRecipe([c, c], [10, 410], false));
+    expect(rel(k.volume(r), Math.PI * 2500 * 400)).toBeLessThan(1e-6);
+    if (r.op !== 'loft') throw new Error();
+    expect(k.boundaryDeviation(r, loftCheckPoints(r.sections))).toBeLessThan(1e-6);
   });
 });

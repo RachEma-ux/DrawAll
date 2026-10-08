@@ -3,7 +3,7 @@
 // évaluée par OCCT dans le Worker ; ce module, pur, construit et contrôle les recettes, calcule leur
 // encombrement et leur trace en plan. Millimètres, degrés ; X, Y du plan, Z vers le haut.
 import type { CadObject, PrimitiveObject, SolidObj } from '@/types/cad';
-import type { PathSeg, SolidRecipe, SweepProfile, Vec3 } from './kernel/recipe';
+import type { LoftSection, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './kernel/recipe';
 import { arcEndpoints, arcLength, arcMidpoint } from './arc';
 import { splineLength, splineSamples } from './spline';
 
@@ -98,6 +98,9 @@ export function recipeBounds(r: SolidRecipe): { min: Vec3; max: Vec3 } {
       for (const tt of [Math.min(...t), Math.max(...t)]) for (const s of [-dmax, dmax]) for (const z of [-dmax, dmax]) pts.push([o[0] + u[0] * tt + n[0] * s, o[1] + u[1] * tt + n[1] * s, z]);
       return box(pts);
     }
+    case 'loft': return box(r.sections.flatMap(s => ('circle' in s
+      ? [[s.circle.cx - s.circle.r, s.circle.cy - s.circle.r, s.z], [s.circle.cx + s.circle.r, s.circle.cy + s.circle.r, s.z]]
+      : s.points.map(p => [p[0], p[1], s.z])) as Vec3[]));
     case 'sweep': {
       // Trajet échantillonné, élargi de la plus grande distance latérale du profil (encombrement sûr).
       const pr = profileRange(r.profile), z = r.z ?? 0, w = Math.max(Math.abs(pr.u[0]), Math.abs(pr.u[1]));
@@ -169,6 +172,8 @@ export function solidTrace(r: SolidRecipe, hidden = false): Trace[] {
     case 'union': case 'intersect': return [...solidTrace(r.a, hidden), ...solidTrace(r.b, hidden)];
     case 'cut': return [...solidTrace(r.a, hidden), ...solidTrace(r.b, true)];
     case 'fillet': case 'shell': return solidTrace(r.of, hidden);
+    // Lissage : le contour de chaque section.
+    case 'loft': return r.sections.map(s => ('circle' in s ? { circle: s.circle, hidden } : { pts: s.points, hidden }));
     // Balayage : son trajet, ouvert (pas de fermeture ajoutée).
     case 'sweep': return [{ pts: pathPoints(r.path), hidden, open: true }];
     case 'translate': case 'rotate': case 'mirror': case 'scale': {
@@ -205,7 +210,7 @@ export const scaleSolid = (r: SolidRecipe, cx: number, cy: number, factor: numbe
 export function recipeSteps(r: SolidRecipe): string[] {
   const label: Record<SolidRecipe['op'], string> = {
     box: 'pavé', cylinder: 'cylindre', extrude: 'extrusion', revolve: 'révolution', union: 'union', cut: 'différence', intersect: 'intersection',
-    fillet: 'congé', shell: 'coque', sweep: 'balayage', translate: 'déplacement', rotate: 'rotation', mirror: 'symétrie', scale: 'échelle',
+    fillet: 'congé', shell: 'coque', sweep: 'balayage', loft: 'lissage', translate: 'déplacement', rotate: 'rotation', mirror: 'symétrie', scale: 'échelle',
   };
   const out: string[] = [];
   const walk = (x: SolidRecipe) => {
@@ -244,6 +249,15 @@ export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
         return q.kind === 'curve' && Array.isArray(q.points) && q.points.length >= 2 && q.points.every(p2);
       };
       return prof && Array.isArray(x.path) && x.path.length > 0 && x.path.every(seg) && opt(x.z, num);
+    }
+    case 'loft': {
+      const sec = (q: unknown) => {
+        const o = q as Record<string, unknown> | null;
+        if (!o || typeof o !== 'object' || !num(o.z)) return false;
+        const c = o.circle as Record<string, unknown> | undefined;
+        return profile(o.points) || (!!c && typeof c === 'object' && num(c.cx) && num(c.cy) && num(c.r, true));
+      };
+      return Array.isArray(x.sections) && x.sections.length >= 2 && x.sections.every(sec) && typeof x.ruled === 'boolean';
     }
     case 'union': case 'cut': case 'intersect': return isRecipe(x.a, depth + 1) && isRecipe(x.b, depth + 1);
     case 'fillet': return num(x.r, true) && isRecipe(x.of, depth + 1);
@@ -358,4 +372,36 @@ export function sweepRecipe(c: Contour, path: PathSeg[], z = 0): SolidResult {
   if (!path.length || !(pathLength(path) > 0)) return { error: 'Balayage : trajet de longueur nulle.' };
   if (!Number.isFinite(z)) return { error: 'Balayage : cote invalide.' };
   return { recipe: { op: 'sweep', profile: sweepProfileOf(c), path, ...(z ? { z } : {}) } };
+}
+
+// ——— Lissage (lot 15.4) ———
+
+/**
+ * Lissage par des sections : contours fermés du plan, chacun à sa cote, dans l'ordre (cotes
+ * strictement croissantes ou strictement décroissantes).
+ */
+export function loftRecipe(contours: Contour[], zs: number[], ruled: boolean): SolidResult {
+  if (contours.length < 2) return { error: 'Lissage : deux sections au moins.' };
+  if (zs.length !== contours.length) return { error: `Lissage : ${contours.length} cotes attendues (une par section), ${zs.length} données.` };
+  if (!zs.every(Number.isFinite)) return { error: 'Lissage : cote invalide.' };
+  const up = zs.every((z, i) => i === 0 || z > zs[i - 1]), down = zs.every((z, i) => i === 0 || z < zs[i - 1]);
+  if (!up && !down) return { error: 'Lissage : les cotes doivent croître (ou décroître) strictement d’une section à la suivante.' };
+  const sections: LoftSection[] = contours.map((c, i) => (c.kind === 'circle' ? { z: zs[i], circle: { cx: c.cx, cy: c.cy, r: c.r } } : { z: zs[i], points: c.points }));
+  return { recipe: { op: 'loft', sections, ruled } };
+}
+
+/** Points de contrôle des sections (sommets, milieux des côtés, 8 points par cercle). */
+export function loftCheckPoints(sections: LoftSection[]): Vec3[] {
+  return sections.flatMap(s => {
+    if ('circle' in s) return Array.from({ length: 8 }, (_, i) => [s.circle.cx + s.circle.r * Math.cos((i * Math.PI) / 4), s.circle.cy + s.circle.r * Math.sin((i * Math.PI) / 4), s.z] as Vec3);
+    return s.points.flatMap((p, i) => {
+      const q = s.points[(i + 1) % s.points.length];
+      return [[p[0], p[1], s.z], [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, s.z]] as Vec3[];
+    });
+  });
+}
+
+/** Liste de cotes saisie (« 0 ; 1000 ; 2500 », virgule décimale admise). */
+export function parseLevels(text: string): number[] {
+  return text.split(';').map(t => t.trim()).filter(Boolean).map(t => Number(t.replace(',', '.')));
 }

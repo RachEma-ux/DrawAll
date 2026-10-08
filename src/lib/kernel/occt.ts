@@ -3,8 +3,8 @@
 // séparé, chargé à la demande et remplaçable (décision de licence du maître d'ouvrage, feuille de
 // route §7). Ce fichier n'est importé que par le Worker du noyau et par les tests.
 import opencascade from 'replicad-opencascadejs';
-import { FaceFinder, assembleWire, cast, draw, genericSweep, getOC, iterTopo, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
-import type { EdgeRef, FaceRef, MeshResult, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './recipe';
+import { FaceFinder, assembleWire, cast, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
+import type { EdgeRef, FaceRef, LoftSection, MeshResult, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './recipe';
 import { inventory, parseStepFile, type StepInventory } from './step-file';
 import { edgeLabel, faceLabel, featureSupports, pointOnSupport, supportOf, surfaceTypeOf, type RefReport, type Support, type Supports } from './references';
 
@@ -28,6 +28,11 @@ export interface Kernel {
   references(recipe: SolidRecipe): RefReport[];
   /** Import d'un fichier STEP : solides transférés (en mm) et compte rendu des pertes (lot 11.4). */
   importStep(text: string): StepImportReport;
+  /**
+   * Plus grand écart (mm) entre les points donnés et le bord du solide (sa face la plus proche) :
+   * contrôle qu'un lissage passe bien par ses sections (lot 15.4).
+   */
+  boundaryDeviation(recipe: SolidRecipe, points: Vec3[]): number;
   /** Durée du chargement du module (ms). */
   loadMs: number;
 }
@@ -82,6 +87,7 @@ function build(r: SolidRecipe, report?: RefReport[]): Shape3D {
       ? polygon(r.profile).sketchOnPlane('XY').revolve([r.axis.dir[0], r.axis.dir[1], 0], { origin: [r.axis.origin[0], r.axis.origin[1], 0], angle: r.angle }) as Shape3D
       : polygon(r.profile).sketchOnPlane('XZ').revolve([0, 0, 1], { angle: r.angle }) as Shape3D;
     case 'sweep': return sweep(r.profile, r.path, r.z ?? 0);
+    case 'loft': return lofted(r.sections, r.ruled);
     case 'translate': return derive(r.of, report, s => s.translate(r.by));
     case 'rotate': return derive(r.of, report, s => s.rotate(r.angle, [r.about[0], r.about[1], 0], [0, 0, 1]));
     case 'mirror': return derive(r.of, report, s => s.mirror(r.axis === 'x' ? 'YZ' : 'XZ', r.axis === 'x' ? [r.value, 0, 0] : [0, r.value, 0]));
@@ -137,6 +143,21 @@ function sweep(profile: SweepProfile, path: PathSeg[], z: number): Shape3D {
     for (const e of [...edges, ...sides]) e.delete();
     spine.delete(); wire.delete();
   }
+}
+
+function sectionWire(s: LoftSection) {
+  if ('circle' in s) {
+    const e = makeCircle(s.circle.r, [s.circle.cx, s.circle.cy, s.z], [0, 0, 1]);
+    try { return assembleWire([e]); } finally { e.delete(); }
+  }
+  const pts = s.points.map((p): Vec3 => [p[0], p[1], s.z]);
+  const sides = pts.map((p, i) => makeLine(p, pts[(i + 1) % pts.length]));
+  try { return assembleWire(sides); } finally { for (const e of sides) e.delete(); }
+}
+
+function lofted(sections: LoftSection[], ruled: boolean): Shape3D {
+  const wires = sections.map(sectionWire);
+  try { return loft(wires, { ruled }); } finally { for (const w of wires) w.delete(); }
 }
 
 /** Les formes intermédiaires sont libérées (la mémoire WebAssembly n'est pas ramassée). */
@@ -258,6 +279,21 @@ function makeKernel(loadMs: number): Kernel {
       } finally { s.delete(); }
     },
     importStep: text => importStep(text),
+    boundaryDeviation: (r, points) => {
+      const s = build(r);
+      const faces = s.faces;
+      try {
+        let worst = 0;
+        for (const p of points) {
+          const v = makeVertex(p);
+          let best = Infinity;
+          for (const f of faces) best = Math.min(best, measureDistanceBetween(f, v));
+          v.delete();
+          worst = Math.max(worst, best);
+        }
+        return worst;
+      } finally { for (const f of faces) f.delete(); s.delete(); }
+    },
     references: r => {
       const report: RefReport[] = [];
       build(r, report).delete();

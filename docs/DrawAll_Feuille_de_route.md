@@ -274,7 +274,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 15.1 Vue 3D | Fait (conventions §8.11) | #71 |
 | 15.2 Extrusion, révolution, booléens, perçage | Fait (conventions §8.12) | #72 |
 | 15.3 Balayage et Follow Me | Fait (conventions §8.13) | #73 |
-| 15.4 Lissage | À faire | — |
+| 15.4 Lissage | Fait (conventions §8.14) | #74 |
 | 15.5 Coque | À faire | — |
 | 15.6 Pousser / tirer | À faire | — |
 | 16.1 Vues projetées | À faire | — |
