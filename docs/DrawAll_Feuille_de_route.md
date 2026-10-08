@@ -158,10 +158,23 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 8.2 Paquet natif | Fait | #43 |
 | 8.3 Sécurité de la connexion | Fait | #44 |
 | 8.4 Partage et commentaires | Fait (recette à deux comptes au niveau de l'API, base simulée ; essai avec deux vrais comptes dépendant de l'hébergement, §7 « Tunnel de démonstration ») | #45 |
+| Parcours de preuve final (§6) | Fait (partage et commentaires prouvés au niveau de l'API) | #46 |
 
 ## 6. Parcours de preuve final
 
 Sur un même projet : dessiner un logement de 2 pièces (murs, portes, surfaces, niveau) et la platine d'un équipement (Ø 12,5 mm, tolérance H7) ; produire une A3 au 1:50 et un détail 1:1 avec cartouche et indice ; exporter PDF et DXF, les relire ; réimporter un DXF client ; reprendre le relevé sur téléphone hors ligne ; partager et commenter ; restaurer depuis le paquet natif. Chaque étape est un scénario de recette automatisé.
+
+**État : fait** (#46). Le parcours tourne d'un seul tenant dans `e2e/parcours.spec.ts`, sur un même projet :
+- logement de deux pièces (5 murs, 2 portes, 2 pièces de 18,24 m² en SIA 416, étage copié à +2,80 m) ;
+- platine avec alésage Ø 12,5 H7 (écarts +0,018 / 0 mm, IT7) ;
+- A3 au 1:50 et détail au 1:1 avec cartouche et indice A ;
+- PDF relu : A3 exacte, façade de 8,20 m = 164 mm au 1:50, cote Ø 12,5 = 12,5 mm au 1:1 ;
+- DXF relu : alésage R 6,25, étiquettes des pièces ;
+- DXF client réimporté sans rien perdre du dessin ;
+- passage au téléphone par le paquet natif, note de relevé posée hors ligne et retrouvée après rechargement ;
+- retour au bureau par restauration du paquet du terrain, puis réexport identique octet pour octet.
+
+Une étape échappe à la recette navigateur : le partage et les commentaires, faute de serveur et de compte. Ils sont prouvés au niveau de l'API par la recette à deux comptes (`api/projects-router.test.ts`, lot 8.4). L'essai avec de vrais comptes dépend de la décision d'hébergement (§7).
 
 ## 7. Décisions réservées au maître d'ouvrage
 
