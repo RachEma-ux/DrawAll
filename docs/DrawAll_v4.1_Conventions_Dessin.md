@@ -97,6 +97,12 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
 - Les copies d'un groupe (dupliquer, coller, réseaux) forment un groupe neuf par copie : elles ne rejoignent jamais le groupe d'origine. Un morceau issu d'« Ajuster » reste dans le groupe de l'objet coupé ; une copie parallèle (« Décaler ») est isolée.
 - L'appartenance est enregistrée avec l'objet : historique, paquet natif, annulation. Elle n'est pas exportée en DXF.
 
+### 1.12 Main levée (règle, lot 10.6)
+
+- Outil « Main levée » (niveaux essentiel à complet, palette) : le tracé suit la souris, le stylet ou le doigt tant qu'il est appuyé, sans accrochage ni réticule décalé ; un point est retenu dès que le pointeur a bougé d'un demi-pixel.
+- Au relâcher, le tracé est simplifié par l'algorithme de Douglas–Peucker : aucun point du geste ne s'écarte de plus de 1,5 pixel d'écran de la polyligne gardée (tolérance en millimètres = 1,5 px ÷ zoom). Le résultat est une polyligne ordinaire (modifiable, étirable, décalable, exportée en LWPOLYLINE).
+- Un geste plus court que 3 pixels ne crée rien ; un calque verrouillé ne reçoit rien.
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)
