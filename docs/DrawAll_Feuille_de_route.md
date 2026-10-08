@@ -150,7 +150,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 6.1 DXF complet à l'import | Fait | #35 |
 | 6.2 Fond de plan | Fait | #36 |
 | 6.3 DWG | Partiel : valeur par défaut §7 appliquée (DWG reconnu et refusé avec la marche à suivre) ; lecture en attente du choix du convertisseur | #37 |
-| 6.4 → 8.4 | À faire | — |
+| 6.4 Export SVG | Fait | #38 |
+| 7.1 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

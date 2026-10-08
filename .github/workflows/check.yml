@@ -1,7 +1,7 @@
 name: Contrôle
 
 # Contrôle de qualité à chaque poussée et demande de fusion : types, lint, tests,
-# build, lisibilité des DXF (ezdxf) et des PDF (pypdf) exportés par des lecteurs stricts, et recette
+# build, lisibilité des DXF (ezdxf), des PDF (pypdf) et des SVG (XML strict) exportés, et recette
 # navigateur Playwright (ordinateur et téléphone).
 # Indépendant du workflow de déploiement (main.yml).
 
@@ -44,6 +44,7 @@ jobs:
         env:
           DXF_FIXTURES_DIR: ${{ runner.temp }}/dxf
           PDF_FIXTURES_DIR: ${{ runner.temp }}/pdf
+          SVG_FIXTURES_DIR: ${{ runner.temp }}/svg
 
       - name: Lire les DXF exportés avec ezdxf
         run: |
@@ -54,6 +55,9 @@ jobs:
         run: |
           python3 -m pip install --quiet pypdf
           python3 scripts/check-pdf.py "${{ runner.temp }}/pdf"
+
+      - name: Lire les SVG exportés (XML strict, dimensions de la feuille)
+        run: python3 scripts/check-svg.py "${{ runner.temp }}/svg"
 
       - name: Build
         run: npm run build

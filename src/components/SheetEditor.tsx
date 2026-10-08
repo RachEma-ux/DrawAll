@@ -128,6 +128,19 @@ export default function SheetEditor(p: Props) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  /** SVG aux dimensions exactes de la feuille (lot 6.4), chargé à la demande (rendu React en chaîne). */
+  const exportSvg = async () => {
+    if (!sheet) return;
+    const { sheetToSvg } = await import('@/components/SheetSvg');
+    const svg = sheetToSvg({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, profile: p.profile, view: p.view, versions: p.versions, pointer: p.pointer });
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${sheet.id}.svg`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const createSheet = () => {
     const id = p.onAddSheet('A3', 'paysage');
     setSheetId(id);
@@ -226,6 +239,7 @@ export default function SheetEditor(p: Props) {
           <div className="flex flex-wrap gap-1.5">
             <button onClick={() => exportPdf(false)} className={`${btn} border-cyan-400/50 text-cyan-300`}>Exporter en PDF</button>
             <button onClick={() => exportPdf(true)} className={btn} title="Ouvre le PDF : imprimer à 100 % (taille réelle)">Imprimer</button>
+            <button onClick={() => void exportSvg()} className={btn} title="SVG vectoriel aux dimensions de la feuille (mm)">Exporter en SVG</button>
           </div>
           <button onClick={() => { if (confirm(`Supprimer ${sheet.id} ?`)) { p.onRemoveSheet(sheet.id); setSheetId(null); setVpId(null); } }} className={`${btn} border-red-400/30 text-red-400`}>Supprimer la feuille</button>
         </section>
