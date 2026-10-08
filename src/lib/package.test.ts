@@ -48,6 +48,9 @@ describe('paquet natif (lot 8.2)', () => {
     expect(fromPackage('pas du json')).toMatchObject({ ok: false });
     expect(fromPackage('{"manifest":{"format":"autre"}}')).toMatchObject({ ok: false, error: expect.stringMatching(/pas un paquet DrawAll/) });
     expect(fromPackage('{"manifest":{"format":"drawall-package","version":"2.0.0"},"projet":{}}')).toMatchObject({ ok: false, error: expect.stringMatching(/non prise en charge/) });
+    // Historique abîmé (différence mal formée) : refus motivé, pas d'exception.
+    const broken = JSON.stringify({ manifest: { format: 'drawall-package', version: '1.0.0' }, projet: { pointer: 1, versions: [v0, { seq: 1, label: 'x', time: 2, delta: { objects: { set: 'pas une liste' } } }] } });
+    expect(fromPackage(broken)).toMatchObject({ ok: false, error: expect.stringMatching(/abîmé/) });
     const proto = fromPackage(JSON.stringify({ manifest: { format: 'drawall-package', version: '0.1.0-prototype' }, calques: layers, blocs: [], objets: objects.slice(0, 3) }));
     expect(proto.ok && proto.state.versions).toHaveLength(1);
     expect(proto.ok && proto.state.versions[0].objects).toHaveLength(3);

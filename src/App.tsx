@@ -295,7 +295,9 @@ function Workbench() {
   }, [project]);
   const packageInputRef = useRef<HTMLInputElement>(null);
   const importPackage = useCallback(async (file: File) => {
-    const result = fromPackage(await file.text());
+    let text: string;
+    try { text = await file.text(); } catch { window.alert('Paquet non restauré : fichier illisible.'); return; }
+    const result = fromPackage(text);
     if (!result.ok) { window.alert(`Paquet non restauré : ${result.error}`); return; }
     if (!window.confirm(`Restaurer « ${file.name} » (${result.summary}) ? Le projet courant sera remplacé.`)) return;
     project.loadState(result.state);
@@ -754,6 +756,7 @@ function Workbench() {
   useEffect(() => {
     if (!auth.isAuthenticated || cloudProjectId === null) return;
     if (skipDirtyTracking.current) {
+      skipDirtyTracking.current = false;
       return;
     }
     setSyncStatus(s => (s === 'saving' || s === 'conflict' ? s : 'dirty'));

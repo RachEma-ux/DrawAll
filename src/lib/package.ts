@@ -51,17 +51,22 @@ export function fromPackage(text: string): PackageResult {
   if (major === 1) {
     const projet = raw.projet as { versions?: unknown } | undefined;
     if (!projet || !Array.isArray(projet.versions) || projet.versions.length === 0) return { ok: false, error: 'Paquet incomplet : historique absent.' };
-    const state = normalizeProjectState(decodeHistory(projet as { versions: unknown[] }));
+    // Paquet abîmé (différence mal formée…) : refus motivé plutôt qu'une exception.
+    let state: ProjectState;
+    try { state = normalizeProjectState(decodeHistory(projet as { versions: unknown[] })); } catch { return { ok: false, error: 'Paquet abîmé : l’historique ne peut pas être relu.' }; }
     return { ok: true, state, summary: `${state.versions.length} version${state.versions.length > 1 ? 's' : ''}, ${state.versions[state.pointer].objects.length} objet(s)` };
   }
   if (major === 0) {
     // Prototype : instantané de la version courante, sans historique.
-    const objects = (raw.objets as CadObject[] | undefined) ?? [];
-    const state = normalizeProjectState({
-      versions: [{ seq: 0, label: 'Import du paquet (prototype)', time: 0, objects, layers: (raw.calques as Layer[] | undefined) ?? [], blocks: (raw.blocs as BlockDef[] | undefined) ?? [], sheets: raw.feuilles as Sheet[] | undefined, levels: raw.niveaux as Level[] | undefined }],
-      pointer: 0,
-      assets: raw.ressources as Record<string, Asset> | undefined,
-    });
+    const objects = Array.isArray(raw.objets) ? (raw.objets as CadObject[]) : [];
+    let state: ProjectState;
+    try {
+      state = normalizeProjectState({
+        versions: [{ seq: 0, label: 'Import du paquet (prototype)', time: 0, objects, layers: (raw.calques as Layer[] | undefined) ?? [], blocks: (raw.blocs as BlockDef[] | undefined) ?? [], sheets: raw.feuilles as Sheet[] | undefined, levels: raw.niveaux as Level[] | undefined }],
+        pointer: 0,
+        assets: raw.ressources as Record<string, Asset> | undefined,
+      });
+    } catch { return { ok: false, error: 'Paquet prototype abîmé : il ne peut pas être relu.' }; }
     return { ok: true, state, summary: `paquet prototype : ${objects.length} objet(s), sans historique` };
   }
   return { ok: false, error: `Version de paquet non prise en charge : ${manifest.version ?? '?'} (attendu 1.x).` };
