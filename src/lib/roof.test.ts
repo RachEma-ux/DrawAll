@@ -5,7 +5,7 @@ import { exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject } from './geometry';
 import { defaultIfcClass } from './properties';
 import { roofError, roofGeometry, roofInput, roofPrimitives, type RoofInput } from './roof';
-import { stretchObject } from './stretch';
+import { stretchObject, stretchPreview } from './stretch';
 
 const tan = (d: number) => Math.tan((d * Math.PI) / 180);
 const R = (p: Partial<RoofInput>): RoofInput => ({ x: 0, y: 0, w: 10000, h: 8000, type: 'deux-pans', pitch: 35, overhang: 0, axis: 'x', ...p });
@@ -95,5 +95,9 @@ describe('toitures (lot 13.2)', () => {
     expect(dxf.match(/\nLINE\n/g)?.length).toBe(17);
     expect(dxf).toContain('LWPOLYLINE');
     expect(defaultIfcClass(o)).toBe('IfcRoof');
+  });
+
+  it('aperçu d’étirement : les coins capturés de la toiture à leur place finale', () => {
+    expect(stretchPreview([obj({})], { minX: 9900, minY: -100, maxX: 10100, maxY: 8100 }, 1000, 0)).toEqual([{ x: 11000, y: 0 }, { x: 11000, y: 8000 }]);
   });
 });
