@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject, RoofObj } from '@/types/cad';
 import { createDefaultLayers } from '@/types/cad';
-import { exportToDxf } from './dxf';
+import { exportDxf, exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject } from './geometry';
 import { defaultIfcClass } from './properties';
 import { roofError, roofGeometry, roofInput, roofPrimitives, type RoofInput } from './roof';
@@ -95,6 +95,9 @@ describe('toitures (lot 13.2)', () => {
     expect(dxf.match(/\nLINE\n/g)?.length).toBe(17);
     expect(dxf).toContain('LWPOLYLINE');
     expect(defaultIfcClass(o)).toBe('IfcRoof');
+    // Rapport d'échange : la toiture devient des traits, ses paramètres sont perdus.
+    const { report } = exportDxf([o as CadObject], createDefaultLayers(), []);
+    expect(report.transformed).toContain('Toitures : 1 → rive (LWPOLYLINE), faîtage, arêtiers et flèches (LINE) ; type, pente, débord et axe ne sont plus éditables comme toiture.');
   });
 
   it('aperçu d’étirement : les coins capturés de la toiture à leur place finale', () => {

@@ -676,6 +676,14 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
                   <option value="y">{obj.roofType === 'un-pan' ? 'Rive haute' : 'Faîtage'} vertical</option>
                 </select>
               )}
+              {obj.roofType === 'un-pan' && (
+                // Un pan : côté de la rive haute (en haut ou en bas du contour, à gauche ou à droite).
+                <select aria-label="Côté de la rive haute" value={obj.highSide ?? 'min'} onChange={e => onUpdate(obj.id, { highSide: e.target.value as 'min' | 'max' }, 'Côté de la rive haute')}
+                  className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs">
+                  <option value="min">Rive haute {obj.axis === 'x' ? 'en haut' : 'à gauche'}</option>
+                  <option value="max">Rive haute {obj.axis === 'x' ? 'en bas' : 'à droite'}</option>
+                </select>
+              )}
               <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
                 <dt className="text-muted-foreground">{obj.roofType === 'un-pan' ? 'Rive haute' : 'Faîtage'} / égout</dt><dd data-testid="toiture-faitage" className="text-right">{mm(g.ridgeHeight)}</dd>
                 <dt className="text-muted-foreground">au droit du contour</dt><dd data-testid="toiture-faitage-contour" className="text-right">{mm(g.ridgeAboveContour)}</dd>

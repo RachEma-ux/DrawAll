@@ -780,6 +780,12 @@ export default function CanvasView({
     const ey = Math.round((oy + Math.sin(angle) * L) * 1000) / 1000;
     setLengthInput('');
     lastPlaced.current = { x: ex, y: ey };
+    if (activeDraft.kind === 'polyline' && activeDraft.origin === 'roof') {
+      // Toiture : comme le rectangle, la longueur saisie place le coin opposé dans la direction du curseur.
+      if (L > MIN_LENGTH) onAddRoof?.(ox, oy, ex, ey);
+      setDraft(null);
+      return;
+    }
     if (activeDraft.kind === 'polyline' && activeDraft.origin === 'wall') {
       // Mur : la longueur saisie crée le mur depuis le point précédent, la chaîne continue de son extrémité.
       if (activeLayer && !activeLayer.locked && L > MIN_LENGTH) onAddWall?.(ox, oy, ex, ey);
@@ -801,7 +807,7 @@ export default function CanvasView({
       commitDraft({ ...activeDraft, cx: ex, cy: ey });
       setDraft(null);
     }
-  }, [lengthInput, activeDraft, activeLayer, onAdd, onAddWall, commitDraft, displayUnit]);
+  }, [lengthInput, activeDraft, activeLayer, onAdd, onAddWall, onAddRoof, commitDraft, displayUnit]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
