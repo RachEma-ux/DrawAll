@@ -528,6 +528,16 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - Accrochage : centre et coins du poteau ; extrémités et milieu de la poutre.
   - Un poteau rectangulaire tourne par quarts de tour (b et h échangés) ; un poteau circulaire et une poutre tournent librement.
 
+### 8.10 Tableaux de quantités (règle, lot 13.5)
+
+- La palette insère trois tableaux, posés à droite du dessin du niveau actif et à taille papier fixe, comme la nomenclature (lot 5.4) :
+  - **Tableau des pièces** : nom, surface au contour intérieur des murs (§8.3) ; une pièce non fermée est « non évaluée ». Le total est la somme des surfaces évaluées, précédée de « au moins » s'il en manque.
+  - **Tableau des ouvertures** : portes et fenêtres regroupées par type et largeur, avec leur quantité, et total.
+  - **Tableau des murs** : nom, épaisseur, longueur d'axe en mètres, et longueur totale.
+- **Mise à jour** : les tableaux sont recalculés depuis le modèle à chaque affichage. Modifier, ajouter ou supprimer un mur, une pièce ou une ouverture met le tableau à jour, y compris dans les fenêtres de feuille.
+- **Échanges** : un tableau se pose sur une feuille par une fenêtre et s'exporte avec elle en PDF. À l'export DXF, il devient des traits et des textes figés : les valeurs ne sont plus recalculées, et le rapport d'export le dit.
+- Aucune grandeur n'est inventée : pas de surface de mur sans hauteur, pas d'aire de baie sans hauteur de baie.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

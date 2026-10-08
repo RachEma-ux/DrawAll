@@ -430,7 +430,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
   if (counts.cut) report.transformed.push(`Vues en coupe : ${counts.cut} → contours (LINE), hachures (HATCH) et désignation (TEXT) ; le lien à la face et au repère est perdu.`);
   if (counts.views) report.transformed.push(`Vues liées : ${counts.views} → traits (LINE) vus, cachés (ACAD_ISO02W100) et axes (ACAD_ISO04W100) ; le lien à la vue de face est perdu.`);
-  if (counts.bom) report.transformed.push(`Nomenclature et repères : ${counts.bom} → traits, cercles et textes figés ; les numéros et quantités ne sont plus recalculés.`);
+  if (counts.bom) report.transformed.push(`Nomenclature, tableaux et repères : ${counts.bom} → traits, cercles et textes figés ; les numéros, quantités et totaux ne sont plus recalculés.`);
   if (counts.symbol) report.transformed.push(`Symboles (nord, repères de coupe, cotes de niveau, états de surface) : ${counts.symbol} → traits, cercles, surfaces pleines (SOLID) et textes, à la taille papier de l'échelle 1:${Math.round(hatchScale * 1000) / 1000}.`);
   if (counts.room) report.transformed.push(`Pièces : ${counts.room} → contour (LWPOLYLINE) et étiquette nom + surface (TEXT) ; la surface n'est plus recalculée.`);
   if (counts.opening) report.transformed.push(`Ouvertures : ${counts.opening} → traits et arcs (baies coupées dans les murs) ; le lien au mur est perdu.`);

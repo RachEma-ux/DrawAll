@@ -320,6 +320,8 @@ export interface CutObj extends Base {
 export interface BomObj extends Base {
   kind: 'bom';
   x: number; y: number;
+  /** Tableau de quantités calculé depuis le modèle (lot 13.5) ; absent = nomenclature des pièces (lot 5.4). */
+  table?: 'pieces' | 'ouvertures' | 'murs';
 }
 
 /** Repère de pièce (lot 5.4) : bulle en (x, y) reliée à la pièce `targetId`, numéro tiré de la nomenclature. */

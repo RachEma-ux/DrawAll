@@ -7,6 +7,7 @@ import type { BalloonObj, BlockDef, BomObj, CadObject } from '@/types/cad';
 import { materialById } from '@/lib/materials';
 import { objectBounds } from '@/lib/geometry';
 import { isSymbol, symbolGeometry, type Pt, type SymbolGeometry, type SymbolObject } from '@/lib/symbols';
+import { scheduleTable, type Table } from '@/lib/schedules';
 
 export interface BomRow { item: number; designation: string; material: string; quantity: number; ids: string[] }
 
@@ -42,30 +43,38 @@ export const itemOf = (rows: BomRow[], id: string) => rows.find(r => r.ids.inclu
 export const BOM_PAPER = { cols: [14, 60, 40, 14], row: 7, text: 3.5, pad: 1.5, balloon: 5, dot: 0.75 } as const;
 export const BOM_HEADER = ['Rep.', 'Désignation', 'Matériau', 'Qté'];
 
-/** Tableau de nomenclature, coin supérieur gauche en (x, y), `u` mm du modèle par mm papier. */
-export function bomGeometry(o: Pick<BomObj, 'x' | 'y'>, rows: BomRow[], u: number): SymbolGeometry {
+/**
+ * Tableau dessiné, coin supérieur gauche en (x, y), `u` mm du modèle par mm papier : en-tête, lignes,
+ * ligne de total éventuelle (séparée par un trait fort). Commun à la nomenclature et aux tableaux de
+ * quantités (lot 13.5).
+ */
+export function tableGeometry(o: Pick<BomObj, 'x' | 'y'>, t: Table, u: number): SymbolGeometry {
   const g: SymbolGeometry = { lines: [], fills: [], circles: [], texts: [] };
   const P = BOM_PAPER;
-  const W = P.cols.reduce((a, b) => a + b, 0) * u, rh = P.row * u;
-  const n = rows.length + 1;
+  const W = t.cols.reduce((a, b) => a + b, 0) * u, rh = P.row * u;
+  const cells = [t.header, ...t.rows, ...(t.total ? [t.total] : [])];
+  const n = cells.length;
   const at = (dx: number, dy: number): Pt => ({ x: o.x + dx, y: o.y + dy });
-  for (let i = 0; i <= n; i++) g.lines.push({ a: at(0, i * rh), b: at(W, i * rh), weight: i === 0 || i === n || i === 1 ? 'fort' : 'fin' });
+  for (let i = 0; i <= n; i++) g.lines.push({ a: at(0, i * rh), b: at(W, i * rh), weight: i === 0 || i === n || i === 1 || (t.total && i === n - 1) ? 'fort' : 'fin' });
   let x = 0;
-  for (let c = 0; c <= P.cols.length; c++) {
-    g.lines.push({ a: at(x, 0), b: at(x, n * rh), weight: c === 0 || c === P.cols.length ? 'fort' : 'fin' });
-    if (c < P.cols.length) x += P.cols[c] * u;
+  for (let c = 0; c <= t.cols.length; c++) {
+    g.lines.push({ a: at(x, 0), b: at(x, n * rh), weight: c === 0 || c === t.cols.length ? 'fort' : 'fin' });
+    if (c < t.cols.length) x += t.cols[c] * u;
   }
-  const cells = [BOM_HEADER, ...rows.map(r => [String(r.item), r.designation, r.material, String(r.quantity)])];
-  cells.forEach((cells, i) => {
+  cells.forEach((row, i) => {
     let cx = 0;
-    cells.forEach((text, c) => {
-      const w = P.cols[c] * u;
-      const centered = c === 0 || c === 3;
-      g.texts.push({ at: at(centered ? cx + w / 2 : cx + P.pad * u, i * rh + rh / 2 + (P.text * u) / 2), text, height: P.text * u, anchor: centered ? 'middle' : 'start' });
+    row.forEach((text, c) => {
+      const w = t.cols[c] * u;
+      if (text) g.texts.push({ at: at(t.centered[c] ? cx + w / 2 : cx + P.pad * u, i * rh + rh / 2 + (P.text * u) / 2), text, height: P.text * u, anchor: t.centered[c] ? 'middle' : 'start' });
       cx += w;
     });
   });
   return g;
+}
+
+/** Tableau de nomenclature, coin supérieur gauche en (x, y), `u` mm du modèle par mm papier. */
+export function bomGeometry(o: Pick<BomObj, 'x' | 'y'>, rows: BomRow[], u: number): SymbolGeometry {
+  return tableGeometry(o, { header: BOM_HEADER, cols: [...BOM_PAPER.cols], centered: [true, false, false, true], rows: rows.map(r => [String(r.item), r.designation, r.material, String(r.quantity)]) }, u);
 }
 
 /** Point d'attache d'un repère : centre de l'emprise de la pièce. */
@@ -94,6 +103,7 @@ export function balloonGeometry(o: Pick<BalloonObj, 'x' | 'y'>, item: number | n
 
 /** Géométrie d'un tableau ou d'un repère de nomenclature. */
 export function bomAnnotation(o: BomObj | BalloonObj, u: number, objects: CadObject[], blocks: BlockDef[]): SymbolGeometry {
+  if (o.kind === 'bom' && o.table) return tableGeometry(o, scheduleTable(o.table, objects), u);
   const rows = bomRows(objects, blocks);
   if (o.kind === 'bom') return bomGeometry(o, rows, u);
   return balloonGeometry(o, itemOf(rows, o.targetId), anchorOf(objects.find(t => t.id === o.targetId), objects, blocks), u);
