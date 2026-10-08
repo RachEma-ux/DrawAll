@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { setCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import * as jose from "jose";
 import * as cookie from "cookie";
 import { env } from "../lib/env";
@@ -10,6 +10,7 @@ import { signSessionToken, verifySessionToken } from "./session";
 import { users as kimiUsers } from "./platform";
 import { findUserByUnionId, upsertUser } from "../queries/users";
 import type { TokenResponse } from "./types";
+import { STATE_COOKIE, callbackUrl, newState, stateCookieOptions, statesMatch } from "./oauth-state";
 
 async function exchangeAuthCode(
   code: string,
@@ -71,12 +72,38 @@ export async function authenticateRequest(headers: Headers) {
   return user;
 }
 
+/**
+ * Début de la connexion (lot 8.3) : `state` aléatoire gardé dans un cookie court, puis redirection
+ * vers l'autorisation avec l'adresse de retour calculée par le serveur.
+ */
+export function createOAuthLoginHandler() {
+  return (c: Context) => {
+    const state = newState();
+    setCookie(c, STATE_COOKIE, state, stateCookieOptions(c.req.raw.headers));
+    const url = new URL(`${env.kimiAuthUrl}/api/oauth/authorize`);
+    url.searchParams.set("client_id", env.appId);
+    url.searchParams.set("redirect_uri", callbackUrl(c.req.url, c.req.raw.headers));
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("scope", "profile");
+    url.searchParams.set("state", state);
+    return c.redirect(url.toString(), 302);
+  };
+}
+
 export function createOAuthCallbackHandler() {
   return async (c: Context) => {
     const code = c.req.query("code");
     const state = c.req.query("state");
     const error = c.req.query("error");
     const errorDescription = c.req.query("error_description");
+
+    // Le `state` reçu doit être celui émis pour ce navigateur (cookie court, usage unique), y compris
+    // pour une réponse d'erreur du fournisseur : le cookie est effacé dans tous les cas.
+    const expected = getCookie(c, STATE_COOKIE);
+    deleteCookie(c, STATE_COOKIE, { path: "/api/oauth" });
+    if (!state || !statesMatch(expected, state)) {
+      return c.json({ error: "invalid_state", error_description: "Connexion expirée ou non initiée par ce navigateur : recommencez." }, 400);
+    }
 
     if (error) {
       if (error === "access_denied") {
@@ -88,12 +115,12 @@ export function createOAuthCallbackHandler() {
       );
     }
 
-    if (!code || !state) {
+    if (!code) {
       return c.json({ error: "code and state are required" }, 400);
     }
 
     try {
-      const redirectUri = atob(state);
+      const redirectUri = callbackUrl(c.req.url, c.req.raw.headers);
       const tokenResp = await exchangeAuthCode(code, redirectUri);
       const { userId } = await verifyAccessToken(tokenResp.access_token);
       const userProfile = await kimiUsers.getProfile(tokenResp.access_token);
