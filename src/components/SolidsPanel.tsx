@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import type { CadObject, SolidObj } from '@/types/cad';
 import type { SolidRecipe } from '@/lib/kernel/recipe';
 import { kernelVolume } from '@/lib/kernel/client';
-import { BOOLEAN_LABEL, contourOf, extrudeRecipe, holeRecipe, recipeSteps, revolveRecipe, type BooleanOp, type SolidResult } from '@/lib/solids';
+import { BOOLEAN_LABEL, contourOf, extrudeRecipe, holeRecipe, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type SolidResult } from '@/lib/solids';
 
 interface Props {
   objects: CadObject[];
@@ -31,6 +31,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const [busy, setBusy] = useState(false);
   const [extr, setExtr] = useState({ height: '', z: '0' });
   const [angle, setAngle] = useState('360');
+  const [sweepZ, setSweepZ] = useState('0');
   const [hole, setHole] = useState({ x: '', y: '', d: '', depth: '' });
 
   // Volume du solide sélectionné, calculé par le noyau.
@@ -69,6 +70,16 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
     if ('error' in c || ax?.kind !== 'line') return;
     void run(revolveRecipe(c, { x: ax.x1, y: ax.y1 }, { x: ax.x2, y: ax.y2 }, parse(angle)), r => onCreate(src, r, 'Révolution'), 'Révolution créée');
   };
+  // Balayage : le premier désigné est le profil (contour fermé), le second le trajet.
+  const [first, second] = selected;
+  const sweepProfile = first && first.kind !== 'solid' ? contourOf(first) : null;
+  const sweepPath = second ? pathOf(second) : null;
+  const canSweep = selected.length === 2 && !!sweepProfile && !('error' in sweepProfile) && !!sweepPath && !('error' in sweepPath);
+  const sweep = () => {
+    if (!sweepProfile || 'error' in sweepProfile || !sweepPath || 'error' in sweepPath) return;
+    const len = sweepPath.length.toLocaleString('fr-FR', { maximumFractionDigits: 3 });
+    void run(sweepRecipe(sweepProfile, sweepPath.path, parse(sweepZ || '0')), r => onCreate(first, r, 'Balayer'), `Balayage créé (trajet de ${len} mm)`);
+  };
   const combine = (op: BooleanOp) => {
     const [a, b] = solids;
     void run({ recipe: { op, a: a.recipe, b: b.recipe } }, () => onCombine(a.id, b.id, op), `${BOOLEAN_LABEL[op]} faite`);
@@ -103,6 +114,12 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
         <span className="w-full text-foreground">Révolution d’un contour autour d’une ligne (sélectionnez les deux)</span>
         <label className="flex items-center gap-1">Angle <input aria-label="Angle de révolution (°)" inputMode="decimal" value={angle} onChange={e => setAngle(e.target.value)} className={field} /> °</label>
         <button type="button" className={button} disabled={!canRevolve || busy} onClick={revolve}>Tourner</button>
+      </section>
+
+      <section aria-label="Balayage" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">
+        <span className="w-full text-foreground">Balayage (Follow Me) : un profil fermé, puis son trajet (ligne, arc, polyligne, spline)</span>
+        <label className="flex items-center gap-1">Cote du trajet <input aria-label="Cote du trajet (mm)" inputMode="decimal" value={sweepZ} onChange={e => setSweepZ(e.target.value)} className={field} /> mm</label>
+        <button type="button" className={button} disabled={!canSweep || busy} onClick={sweep}>Balayer</button>
       </section>
 
       <section aria-label="Booléens" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">

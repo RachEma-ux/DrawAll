@@ -566,6 +566,14 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Relecture** : une recette mal formée est écartée.
 - **Classe IFC** par défaut : `IfcBuildingElementProxy`.
 
+### 8.13 Balayage et Follow Me (règle, lot 15.3)
+
+- **Sélection** : le profil d'abord (contour fermé : rectangle, cercle, polyligne fermée), puis le trajet (ligne, arc, polyligne ouverte ou fermée, spline). Bouton « Balayer » du panneau Solides, avec la cote du trajet.
+- **Profil redressé** : le contour dessiné en plan est lu comme vu en élévation (le haut de l'écran vers le haut). Le milieu de sa largeur est posé sur le trajet, sa base à la cote du trajet. Il est placé dans le plan vertical perpendiculaire au départ du trajet ; sa droite à l'écran est à droite du sens de parcours. Un cercle donne un tube plein posé sur le trajet.
+- **Trajet** : droites et arcs exacts. Une spline est échantillonnée à 10⁻⁴ mm, puis approchée par le noyau à 10⁻³ mm. Les sommets d'une polyligne sont des angles vifs (onglets). Un trajet fermé donne un anneau.
+- **Longueur du trajet** affichée à la création ; en plan, la trace du balayage est son trajet.
+- **Contrôle** par le noyau (volume non nul), comme au §8.12. Le volume d'un profil centré vaut l'aire du profil × la longueur du trajet ; c'est la preuve du lot.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

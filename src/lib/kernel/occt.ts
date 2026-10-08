@@ -3,8 +3,8 @@
 // séparé, chargé à la demande et remplaçable (décision de licence du maître d'ouvrage, feuille de
 // route §7). Ce fichier n'est importé que par le Worker du noyau et par les tests.
 import opencascade from 'replicad-opencascadejs';
-import { FaceFinder, cast, draw, getOC, iterTopo, makeBaseBox, makeCylinder, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
-import type { EdgeRef, FaceRef, MeshResult, SolidRecipe, Vec3 } from './recipe';
+import { FaceFinder, assembleWire, cast, draw, genericSweep, getOC, iterTopo, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
+import type { EdgeRef, FaceRef, MeshResult, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './recipe';
 import { inventory, parseStepFile, type StepInventory } from './step-file';
 import { edgeLabel, faceLabel, featureSupports, pointOnSupport, supportOf, surfaceTypeOf, type RefReport, type Support, type Supports } from './references';
 
@@ -81,6 +81,7 @@ function build(r: SolidRecipe, report?: RefReport[]): Shape3D {
     case 'revolve': return r.axis
       ? polygon(r.profile).sketchOnPlane('XY').revolve([r.axis.dir[0], r.axis.dir[1], 0], { origin: [r.axis.origin[0], r.axis.origin[1], 0], angle: r.angle }) as Shape3D
       : polygon(r.profile).sketchOnPlane('XZ').revolve([0, 0, 1], { angle: r.angle }) as Shape3D;
+    case 'sweep': return sweep(r.profile, r.path, r.z ?? 0);
     case 'translate': return derive(r.of, report, s => s.translate(r.by));
     case 'rotate': return derive(r.of, report, s => s.rotate(r.angle, [r.about[0], r.about[1], 0], [0, 0, 1]));
     case 'mirror': return derive(r.of, report, s => s.mirror(r.axis === 'x' ? 'YZ' : 'XZ', r.axis === 'x' ? [r.value, 0, 0] : [0, r.value, 0]));
@@ -105,6 +106,36 @@ function build(r: SolidRecipe, report?: RefReport[]): Shape3D {
         return applyResolved(found, report, s, ([t]) => s.shell(r.thickness, f => f.when(({ element }) => element.isSame(t))));
       });
     }
+  }
+}
+
+/** Arêtes d'un trajet du plan à la cote z. */
+function pathEdges(path: PathSeg[], z: number): Edge[] {
+  const P = (p: [number, number]): Vec3 => [p[0], p[1], z];
+  return path.map(s => (s.kind === 'line' ? makeLine(P(s.from), P(s.to))
+    : s.kind === 'arc' ? makeThreePointArc(P(s.from), P(s.via), P(s.to))
+    : makeBSplineApproximation(s.points.map(P), { tolerance: 1e-3, smoothing: null, degMax: 5 })));
+}
+
+function sweep(profile: SweepProfile, path: PathSeg[], z: number): Shape3D {
+  const edges = pathEdges(path, z);
+  const spine = assembleWire(edges);
+  const t = edges[0].tangentAt(0), o = edges[0].startPoint;
+  const [tx, ty] = [t.x, t.y], l = Math.hypot(tx, ty);
+  const n: Vec3 = [-ty / l, tx / l, 0], o3: Vec3 = [o.x, o.y, o.z];
+  t.delete(); o.delete();
+  const at = ([u, v]: [number, number]): Vec3 => [o3[0] + n[0] * u, o3[1] + n[1] * u, o3[2] + v];
+  let sides: Edge[];
+  if (Array.isArray(profile)) {
+    const pts = profile.map(at);
+    sides = pts.map((p, i) => makeLine(p, pts[(i + 1) % pts.length]));
+  } else sides = [makeCircle(profile.r, at(profile.c), [tx / l, ty / l, 0])];
+  const wire = assembleWire(sides);
+  try {
+    return genericSweep(wire, spine, { transitionMode: 'right' });
+  } finally {
+    for (const e of [...edges, ...sides]) e.delete();
+    spine.delete(); wire.delete();
   }
 }
 

@@ -2,8 +2,8 @@
 // aux formules (aire × hauteur, Pappus-Guldin, perçages), à 10⁻⁶ près en relatif.
 import { describe, expect, it } from 'vitest';
 import { loadKernel } from './occt';
-import { meshVolume, type SolidRecipe } from './recipe';
-import { extrudeRecipe, holeRecipe, moveSolid, recipeBounds, revolveRecipe } from '../solids';
+import { meshVolume, type PathSeg, type SolidRecipe, type SweepProfile } from './recipe';
+import { extrudeRecipe, holeRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
 
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.abs(b);
 const take = (r: { recipe: SolidRecipe } | { error: string }) => { if ('error' in r) throw new Error(r.error); return r.recipe; };
@@ -75,5 +75,48 @@ describe('solides du noyau (lot 15.2) : volumes de référence', async () => {
       expect(k.references(shell).map(r => r.status)).toEqual(['conservée']);
       expectVolume(shell, 100 * 50 * 20 - 96 * 46 * 18);
     }
+  });
+});
+
+describe('balayage et Follow Me (lot 15.3) : volume = aire du profil × longueur du trajet', async () => {
+  const k = await loadKernel();
+  const v = (r: SolidRecipe) => k.volume(r);
+  const prof = sweepProfileOf(sq(0, 0, 100, 50)); // 100 × 50, centré sur le trajet, base à la cote
+  const A = 5000;
+  const sweepOf = (path: PathSeg[], profile: SweepProfile = prof, z = 0): SolidRecipe => ({ ...take(sweepRecipe(sq(0, 0, 100, 50), path, z)), profile } as SolidRecipe);
+
+  it('droite, quart de cercle, polyligne en L à angle vif, contour fermé', () => {
+    const line: PathSeg[] = [{ kind: 'line', from: [0, 0], to: [1000, 0] }];
+    expect(rel(v(sweepOf(line)), A * 1000)).toBeLessThan(1e-6);
+    const arc: PathSeg[] = [{ kind: 'arc', from: [1000, 0], via: [1000 * Math.SQRT1_2, 1000 * Math.SQRT1_2], to: [0, 1000] }];
+    expect(rel(pathLength(arc), (Math.PI / 2) * 1000)).toBeLessThan(1e-12);
+    expect(rel(v(sweepOf(arc)), A * (Math.PI / 2) * 1000)).toBeLessThan(1e-6);
+    const L: PathSeg[] = [{ kind: 'line', from: [0, 0], to: [1000, 0] }, { kind: 'line', from: [1000, 0], to: [1000, 500] }];
+    expect(rel(v(sweepOf(L)), A * 1500)).toBeLessThan(1e-6);
+    const ring: PathSeg[] = [[0, 0], [1000, 0], [1000, 1000], [0, 1000]].map((p, i, a) => ({ kind: 'line', from: p as [number, number], to: a[(i + 1) % 4] as [number, number] }));
+    expect(rel(v(sweepOf(ring)), A * 4000)).toBeLessThan(1e-6);
+  });
+
+  it('profil circulaire (tube plein) ; cote du trajet', () => {
+    const line: PathSeg[] = [{ kind: 'line', from: [0, 0], to: [0, 800] }];
+    const tube = sweepOf(line, { r: 20, c: [0, 20] }, 300);
+    expect(rel(v(tube), Math.PI * 400 * 800)).toBeLessThan(1e-6);
+    const m = k.mesh(tube, 0.1), zs = m.vertices.filter((_, i) => i % 3 === 2);
+    expect(Math.min(...zs)).toBeCloseTo(300, 6);
+    expect(Math.max(...zs)).toBeCloseTo(340, 6);
+  });
+
+  it('profil décalé sur un arc : Pappus (centre de gravité à R − 50) ; u du côté (−t_y, t_x)', () => {
+    const arc: PathSeg[] = [{ kind: 'arc', from: [1000, 0], via: [1000 * Math.SQRT1_2, 1000 * Math.SQRT1_2], to: [0, 1000] }];
+    const r = { op: 'sweep', profile: [[0, 0], [100, 0], [100, 50], [0, 50]], path: arc } as SolidRecipe;
+    expect(rel(v(r), A * (Math.PI / 2) * 950)).toBeLessThan(1e-6);
+  });
+
+  it('spline : longueur du trajet retrouvée', () => {
+    const spline = { id: 'S', name: 'S', kind: 'spline', classification: 'non-classifie', layerId: 'L', hatch: 'none', createdSeq: 0, points: [0, 0, 300, 400, 700, -200, 1000, 0], degree: 3 } as const;
+    const p = pathOf(spline as never);
+    if ('error' in p) throw new Error(p.error);
+    expect(rel(pathLength(p.path), p.length)).toBeLessThan(1e-6);
+    expect(rel(v(sweepOf(p.path, { r: 20, c: [0, 20] })), Math.PI * 400 * p.length)).toBeLessThan(1e-5);
   });
 });

@@ -4,9 +4,9 @@ import { createDefaultLayers, dimensionOf } from '@/types/cad';
 import { exportDxf, exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
 import { defaultIfcClass } from './properties';
-import { contourOf, extrudeRecipe, holeRecipe, isRecipe, moveSolid, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace } from './solids';
+import { contourOf, extrudeRecipe, holeRecipe, isRecipe, moveSolid, pathLength, pathOf, pathPoints, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace, sweepProfileOf, sweepRecipe } from './solids';
 import { stretchObject, stretchPreview } from './stretch';
-import type { SolidRecipe } from './kernel/recipe';
+import type { PathSeg, SolidRecipe } from './kernel/recipe';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const rect = (x: number, y: number, w: number, h: number) => ({ ...base, id: 'OBJ-0001', name: 'R', kind: 'rect', x, y, w, h }) as CadObject;
@@ -119,5 +119,48 @@ describe('solides : recettes (lot 15.2)', () => {
     let deep: unknown = e;
     for (let i = 0; i < 300; i++) deep = { op: 'translate', of: deep, by: [0, 0, 0] };
     expect(isRecipe(deep)).toBe(false);
+  });
+
+  it('balayage : trajets (ligne, arc, polyligne, spline), longueurs de référence, refus', () => {
+    const line = { ...base, id: 'L', name: 'L', kind: 'line', x1: 0, y1: 0, x2: 300, y2: 400 } as CadObject;
+    expect(pathOf(line)).toEqual({ path: [{ kind: 'line', from: [0, 0], to: [300, 400] }], length: 500 });
+    // Demi-cercle de rayon 100 : longueur π·100, dans les deux sens de parcours.
+    const arc = { ...base, id: 'A', name: 'A', kind: 'arc', cx: 0, cy: 0, r: 100, start: 0, end: 180 } as CadObject;
+    const pa = pathOf(arc);
+    if ('error' in pa) throw new Error(pa.error);
+    expect(pa.length).toBeCloseTo(Math.PI * 100, 9);
+    expect(pathLength(pa.path)).toBeCloseTo(Math.PI * 100, 9);
+    const back: PathSeg[] = [{ kind: 'arc', from: [-100, 0], via: [0, 100], to: [100, 0] }];
+    expect(pathLength(back)).toBeCloseTo(Math.PI * 100, 9);
+    expect(pathLength([{ kind: 'arc', from: [100, 0], via: [0, -100], to: [0, 100] }])).toBeCloseTo(1.5 * Math.PI * 100, 9);
+    const pts = pathPoints(back);
+    expect(pts[0]).toEqual([-100, 0]);
+    expect(pts[pts.length - 1]).toEqual([100, 0]);
+    expect(pts.every(p => Math.abs(Math.hypot(p[0], p[1]) - 100) < 1e-9)).toBe(true);
+    // Polyligne : sommets répétés ignorés.
+    expect(pathOf(poly([0, 0, 1000, 0, 1000, 0, 1000, 500]))).toEqual({ path: [{ kind: 'line', from: [0, 0], to: [1000, 0] }, { kind: 'line', from: [1000, 0], to: [1000, 500] }], length: 1500 });
+    expect(pathOf(poly([5, 5, 5, 5]))).toEqual({ error: 'Trajet de longueur nulle.' });
+    expect(pathOf(rect(0, 0, 1, 1))).toEqual({ error: 'Trajet attendu : ligne, arc, polyligne ou spline.' });
+  });
+
+  it('balayage : profil redressé (centré, base à la cote), encombrement, trace ouverte, relecture', () => {
+    const c = contourOf(rect(1000, 2000, 100, 50));
+    if ('error' in c) throw new Error();
+    expect(sweepProfileOf(c)).toEqual([[-50, 50], [50, 50], [50, 0], [-50, 0]]);
+    expect(sweepProfileOf({ kind: 'circle', cx: 9, cy: 9, r: 20 })).toEqual({ r: 20, c: [0, 20] });
+    const path: PathSeg[] = [{ kind: 'line', from: [0, 0], to: [1000, 0] }, { kind: 'line', from: [1000, 0], to: [1000, 500] }];
+    const r = sweepRecipe(c, path, 300);
+    if ('error' in r) throw new Error(r.error);
+    expect(r.recipe).toEqual({ op: 'sweep', profile: [[-50, 50], [50, 50], [50, 0], [-50, 0]], path, z: 300 });
+    expect(recipeBounds(r.recipe)).toEqual({ min: [-50, -50, 300], max: [1050, 550, 350] });
+    expect(solidTrace(r.recipe)).toEqual([{ pts: [[0, 0], [1000, 0], [1000, 500]], hidden: false, open: true }]);
+    expect(solidPrimitives(solid(r.recipe))).toMatchObject([{ kind: 'polyline', points: [0, 0, 1000, 0, 1000, 500] }]);
+    expect(recipeSteps(r.recipe)).toEqual(['balayage']);
+    expect(isRecipe(r.recipe)).toBe(true);
+    expect(isRecipe({ op: 'sweep', profile: { r: 5, c: [0, 5] }, path: [{ kind: 'curve', points: [[0, 0], [1, 1]] }] })).toBe(true);
+    expect(isRecipe({ op: 'sweep', profile: { r: -5, c: [0, 5] }, path })).toBe(false);
+    expect(isRecipe({ op: 'sweep', profile: [[0, 0], [1, 0], [0, 1]], path: [] })).toBe(false);
+    expect(isRecipe({ op: 'sweep', profile: [[0, 0], [1, 0], [0, 1]], path: [{ kind: 'arc', from: [0, 0], to: [1, 1] }] })).toBe(false);
+    expect(sweepRecipe(c, [{ kind: 'line', from: [0, 0], to: [0, 0] }])).toEqual({ error: 'Balayage : trajet de longueur nulle.' });
   });
 });

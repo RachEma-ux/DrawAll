@@ -14,6 +14,18 @@ export interface FaceRef { feature: string; role: string }
 /** Arête désignée par les deux faces qu'elle sépare. */
 export interface EdgeRef { faces: [FaceRef, FaceRef] }
 
+/**
+ * Segment d'un trajet du plan (lot 15.3) : droite, arc par trois points, courbe lisse (B-spline
+ * approchée à 10⁻³ mm près par ses points, dans l'ordre).
+ */
+export type PathSeg =
+  | { kind: 'line'; from: [number, number]; to: [number, number] }
+  | { kind: 'arc'; from: [number, number]; via: [number, number]; to: [number, number] }
+  | { kind: 'curve'; points: [number, number][] };
+
+/** Profil d'un balayage, dans son repère (u, v) : polygone fermé, ou cercle de rayon r centré en c. */
+export type SweepProfile = [number, number][] | { r: number; c: [number, number] };
+
 export type SolidRecipe =
   /** Pavé de dimensions x, y, z, coin minimal en `at` (origine par défaut). */
   | { op: 'box'; x: number; y: number; z: number; at?: Vec3; name?: string }
@@ -31,6 +43,12 @@ export type SolidRecipe =
    * du plan XY passant par `origin`, de direction `dir`.
    */
   | { op: 'revolve'; profile: [number, number][]; angle: number; axis?: { origin: [number, number]; dir: [number, number] } }
+  /**
+   * Balayage (lot 15.3) : profil fermé (u, v) mené le long d'un trajet du plan posé à la cote `z`.
+   * Au départ du trajet, le profil est dans le plan vertical perpendiculaire : u le long de
+   * (−t_y, t_x) (t : tangente de départ), v vers le haut. Angles vifs aux sommets du trajet.
+   */
+  | { op: 'sweep'; profile: SweepProfile; path: PathSeg[]; z?: number; name?: string }
   /** Déplacement (lot 15.2). */
   | { op: 'translate'; of: SolidRecipe; by: Vec3 }
   /** Rotation de `angle` degrés autour de la verticale passant par `about` (lot 15.2). */

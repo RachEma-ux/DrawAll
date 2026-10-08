@@ -3,7 +3,9 @@
 // évaluée par OCCT dans le Worker ; ce module, pur, construit et contrôle les recettes, calcule leur
 // encombrement et leur trace en plan. Millimètres, degrés ; X, Y du plan, Z vers le haut.
 import type { CadObject, PrimitiveObject, SolidObj } from '@/types/cad';
-import type { SolidRecipe, Vec3 } from './kernel/recipe';
+import type { PathSeg, SolidRecipe, SweepProfile, Vec3 } from './kernel/recipe';
+import { arcEndpoints, arcLength, arcMidpoint } from './arc';
+import { splineLength, splineSamples } from './spline';
 
 type P2 = [number, number];
 export type Contour = { kind: 'polygon'; points: P2[] } | { kind: 'circle'; cx: number; cy: number; r: number };
@@ -96,6 +98,13 @@ export function recipeBounds(r: SolidRecipe): { min: Vec3; max: Vec3 } {
       for (const tt of [Math.min(...t), Math.max(...t)]) for (const s of [-dmax, dmax]) for (const z of [-dmax, dmax]) pts.push([o[0] + u[0] * tt + n[0] * s, o[1] + u[1] * tt + n[1] * s, z]);
       return box(pts);
     }
+    case 'sweep': {
+      // Trajet échantillonné, élargi de la plus grande distance latérale du profil (encombrement sûr).
+      const pr = profileRange(r.profile), z = r.z ?? 0, w = Math.max(Math.abs(pr.u[0]), Math.abs(pr.u[1]));
+      const pts = pathPoints(r.path);
+      const b = box(pts.map(p => [p[0], p[1], 0] as Vec3));
+      return { min: [b.min[0] - w, b.min[1] - w, z + pr.v[0]], max: [b.max[0] + w, b.max[1] + w, z + pr.v[1]] };
+    }
     case 'union': { const a = recipeBounds(r.a), b = recipeBounds(r.b); return box([a.min, a.max, b.min, b.max]); }
     case 'cut': return recipeBounds(r.a);
     case 'fillet': case 'shell': return recipeBounds(r.of);
@@ -133,7 +142,7 @@ export function holeRecipe(of: SolidRecipe, x: number, y: number, d: number, dep
 }
 
 /** Trace en plan : contours des fonctions (une partie retirée, en traits interrompus). */
-export type Trace = { pts: P2[]; hidden: boolean } | { circle: { cx: number; cy: number; r: number }; hidden: boolean };
+export type Trace = { pts: P2[]; hidden: boolean; open?: boolean } | { circle: { cx: number; cy: number; r: number }; hidden: boolean };
 
 export function solidTrace(r: SolidRecipe, hidden = false): Trace[] {
   const polys = (pts: P2[]): Trace[] => [{ pts, hidden }];
@@ -160,10 +169,12 @@ export function solidTrace(r: SolidRecipe, hidden = false): Trace[] {
     case 'union': case 'intersect': return [...solidTrace(r.a, hidden), ...solidTrace(r.b, hidden)];
     case 'cut': return [...solidTrace(r.a, hidden), ...solidTrace(r.b, true)];
     case 'fillet': case 'shell': return solidTrace(r.of, hidden);
+    // Balayage : son trajet, ouvert (pas de fermeture ajoutée).
+    case 'sweep': return [{ pts: pathPoints(r.path), hidden, open: true }];
     case 'translate': case 'rotate': case 'mirror': case 'scale': {
       const f = (p: P2): P2 => { if (r.op === 'translate') return [p[0] + r.by[0], p[1] + r.by[1]]; const q = moveP3(r, [p[0], p[1], 0]); return [q[0], q[1]]; };
       const k = r.op === 'scale' ? r.factor : 1;
-      return solidTrace(r.of, hidden).map(t => ('pts' in t ? { pts: t.pts.map(f), hidden: t.hidden } : { circle: { ...(([cx, cy]) => ({ cx, cy }))(f([t.circle.cx, t.circle.cy])), r: t.circle.r * k }, hidden: t.hidden }));
+      return solidTrace(r.of, hidden).map(t => ('pts' in t ? { ...t, pts: t.pts.map(f) } : { circle: { ...(([cx, cy]) => ({ cx, cy }))(f([t.circle.cx, t.circle.cy])), r: t.circle.r * k }, hidden: t.hidden }));
     }
   }
 }
@@ -174,7 +185,7 @@ export function solidPrimitives(o: SolidObj): PrimitiveObject[] {
   return solidTrace(o.recipe).map((t, i) => {
     const style = { hatch: 'none' as const, ...(t.hidden ? { lineType: 'interrompu' } : {}) };
     if ('circle' in t) return { ...base, ...style, id: `${o.id}#${i}`, kind: 'circle', cx: t.circle.cx, cy: t.circle.cy, r: t.circle.r } as PrimitiveObject;
-    return { ...base, ...style, id: `${o.id}#${i}`, kind: 'polyline', points: [...t.pts, t.pts[0]].flat() } as PrimitiveObject;
+    return { ...base, ...style, id: `${o.id}#${i}`, kind: 'polyline', points: (t.open ? t.pts : [...t.pts, t.pts[0]]).flat() } as PrimitiveObject;
   });
 }
 
@@ -194,7 +205,7 @@ export const scaleSolid = (r: SolidRecipe, cx: number, cy: number, factor: numbe
 export function recipeSteps(r: SolidRecipe): string[] {
   const label: Record<SolidRecipe['op'], string> = {
     box: 'pavé', cylinder: 'cylindre', extrude: 'extrusion', revolve: 'révolution', union: 'union', cut: 'différence', intersect: 'intersection',
-    fillet: 'congé', shell: 'coque', translate: 'déplacement', rotate: 'rotation', mirror: 'symétrie', scale: 'échelle',
+    fillet: 'congé', shell: 'coque', sweep: 'balayage', translate: 'déplacement', rotate: 'rotation', mirror: 'symétrie', scale: 'échelle',
   };
   const out: string[] = [];
   const walk = (x: SolidRecipe) => {
@@ -222,6 +233,18 @@ export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
     case 'extrude': return profile(x.profile) && num(x.height, true) && opt(x.z, num);
     case 'revolve': return profile(x.profile) && num(x.angle, true) && (x.angle as number) <= 360
       && opt(x.axis, a => !!a && typeof a === 'object' && p2((a as Record<string, unknown>).origin) && p2((a as Record<string, unknown>).dir));
+    case 'sweep': {
+      const pr = x.profile as Record<string, unknown> | undefined;
+      const prof = profile(x.profile) || (!!pr && !Array.isArray(pr) && num(pr.r, true) && p2(pr.c));
+      const seg = (g: unknown) => {
+        const q = g as Record<string, unknown> | null;
+        if (!q || typeof q !== 'object') return false;
+        if (q.kind === 'line') return p2(q.from) && p2(q.to);
+        if (q.kind === 'arc') return p2(q.from) && p2(q.via) && p2(q.to);
+        return q.kind === 'curve' && Array.isArray(q.points) && q.points.length >= 2 && q.points.every(p2);
+      };
+      return prof && Array.isArray(x.path) && x.path.length > 0 && x.path.every(seg) && opt(x.z, num);
+    }
     case 'union': case 'cut': case 'intersect': return isRecipe(x.a, depth + 1) && isRecipe(x.b, depth + 1);
     case 'fillet': return num(x.r, true) && isRecipe(x.of, depth + 1);
     case 'shell': return num(x.thickness, true) && isRecipe(x.of, depth + 1);
@@ -231,4 +254,108 @@ export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
     case 'scale': return num(x.factor, true) && v3(x.about) && isRecipe(x.of, depth + 1);
     default: return false;
   }
+}
+
+// ——— Balayage et Follow Me (lot 15.3) ———
+
+/** Cercle passant par trois points (centre, rayon), ou null s'ils sont alignés. */
+function circle3(a: P2, b: P2, c: P2): { c: P2; r: number } | null {
+  const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
+  if (Math.abs(d) < 1e-12) return null;
+  const s = (p: P2) => p[0] * p[0] + p[1] * p[1];
+  const cx = (s(a) * (b[1] - c[1]) + s(b) * (c[1] - a[1]) + s(c) * (a[1] - b[1])) / d;
+  const cy = (s(a) * (c[0] - b[0]) + s(b) * (a[0] - c[0]) + s(c) * (b[0] - a[0])) / d;
+  return { c: [cx, cy], r: Math.hypot(a[0] - cx, a[1] - cy) };
+}
+
+/** Arc par trois points : angle de départ et balayage signé (radians), du départ à l'arrivée par le point de passage. */
+function arc3(s: Extract<PathSeg, { kind: 'arc' }>) {
+  const k = circle3(s.from, s.via, s.to);
+  if (!k) return null;
+  const ang = (p: P2) => Math.atan2(p[1] - k.c[1], p[0] - k.c[0]);
+  const a0 = ang(s.from), norm = (x: number) => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const ccwTo = norm(ang(s.to) - a0), ccwVia = norm(ang(s.via) - a0);
+  const sweep = ccwVia <= ccwTo ? ccwTo : ccwTo - 2 * Math.PI;
+  return { ...k, a0, sweep };
+}
+
+/** Points du trajet (arcs à 64 segments par tour), dans l'ordre, sans doublon aux jonctions. */
+export function pathPoints(path: PathSeg[]): P2[] {
+  const out: P2[] = [];
+  const push = (p: P2) => { const l = out[out.length - 1]; if (!l || l[0] !== p[0] || l[1] !== p[1]) out.push(p); };
+  for (const s of path) {
+    if (s.kind === 'line') { push(s.from); push(s.to); continue; }
+    if (s.kind === 'curve') { s.points.forEach(push); continue; }
+    const a = arc3(s);
+    if (!a) { push(s.from); push(s.to); continue; }
+    const n = Math.max(2, Math.ceil((Math.abs(a.sweep) / (2 * Math.PI)) * 64));
+    for (let i = 0; i <= n; i++) {
+      const t = a.a0 + (a.sweep * i) / n;
+      push(i === 0 ? s.from : i === n ? s.to : [a.c[0] + a.r * Math.cos(t), a.c[1] + a.r * Math.sin(t)]);
+    }
+  }
+  return out;
+}
+
+/** Longueur du trajet : droites et arcs exacts ; courbe : longueur de sa ligne de points. */
+export function pathLength(path: PathSeg[]): number {
+  return path.reduce((sum, s) => {
+    if (s.kind === 'line') return sum + Math.hypot(s.to[0] - s.from[0], s.to[1] - s.from[1]);
+    if (s.kind === 'curve') return sum + s.points.slice(1).reduce((l, p, i) => l + Math.hypot(p[0] - s.points[i][0], p[1] - s.points[i][1]), 0);
+    const a = arc3(s);
+    return sum + (a ? a.r * Math.abs(a.sweep) : Math.hypot(s.to[0] - s.from[0], s.to[1] - s.from[1]));
+  }, 0);
+}
+
+/** Trajet d'un objet du plan : ligne, arc, polyligne (ouverte ou fermée), spline (échantillonnée à 10⁻⁴ mm). */
+export function pathOf(o: CadObject): { path: PathSeg[]; length: number } | { error: string } {
+  const P = (p: { x: number; y: number }): P2 => [p.x, p.y];
+  switch (o.kind) {
+    case 'line':
+      if (!(Math.hypot(o.x2 - o.x1, o.y2 - o.y1) > 0)) return { error: 'Trajet de longueur nulle.' };
+      return { path: [{ kind: 'line', from: [o.x1, o.y1], to: [o.x2, o.y2] }], length: Math.hypot(o.x2 - o.x1, o.y2 - o.y1) };
+    case 'arc': {
+      const [a, b] = arcEndpoints(o);
+      if (!(o.r > 0)) return { error: 'Arc de rayon nul.' };
+      return { path: [{ kind: 'arc', from: P(a), via: P(arcMidpoint(o)), to: P(b) }], length: arcLength(o) };
+    }
+    case 'polyline': {
+      const pts: P2[] = [];
+      for (let i = 0; i + 1 < o.points.length; i += 2) { const p: P2 = [o.points[i], o.points[i + 1]]; const l = pts[pts.length - 1]; if (!l || l[0] !== p[0] || l[1] !== p[1]) pts.push(p); }
+      if (pts.length < 2) return { error: 'Trajet de longueur nulle.' };
+      const path: PathSeg[] = pts.slice(1).map((p, i) => ({ kind: 'line', from: pts[i], to: p }));
+      return { path, length: pathLength(path) };
+    }
+    case 'spline': {
+      const pts = splineSamples(o, 1e-4).map(P);
+      if (pts.length < 2) return { error: 'Spline sans longueur.' };
+      return { path: [{ kind: 'curve', points: pts }], length: splineLength(o) };
+    }
+    default: return { error: 'Trajet attendu : ligne, arc, polyligne ou spline.' };
+  }
+}
+
+/** Étendue (u, v) d'un profil de balayage. */
+function profileRange(p: SweepProfile): { u: P2; v: P2 } {
+  if (!Array.isArray(p)) return { u: [p.c[0] - p.r, p.c[0] + p.r], v: [p.c[1] - p.r, p.c[1] + p.r] };
+  return { u: [Math.min(...p.map(q => q[0])), Math.max(...p.map(q => q[0]))], v: [Math.min(...p.map(q => q[1])), Math.max(...p.map(q => q[1]))] };
+}
+
+/**
+ * Profil de balayage tiré d'un contour du plan, « redressé » au départ du trajet : le contour est
+ * lu comme vu en élévation (le haut de l'écran vers le haut), le milieu de sa largeur sur le trajet,
+ * sa base (son point le plus bas à l'écran) à la cote du trajet.
+ */
+export function sweepProfileOf(c: Contour): SweepProfile {
+  if (c.kind === 'circle') return { r: c.r, c: [0, c.r] };
+  const xs = c.points.map(p => p[0]), ys = c.points.map(p => p[1]);
+  const mid = (Math.min(...xs) + Math.max(...xs)) / 2, bottom = Math.max(...ys);
+  return c.points.map(([x, y]) => [x - mid, bottom - y]);
+}
+
+/** Balayage (Follow Me) d'un contour fermé le long d'un trajet, posé à la cote z. */
+export function sweepRecipe(c: Contour, path: PathSeg[], z = 0): SolidResult {
+  if (!path.length || !(pathLength(path) > 0)) return { error: 'Balayage : trajet de longueur nulle.' };
+  if (!Number.isFinite(z)) return { error: 'Balayage : cote invalide.' };
+  return { recipe: { op: 'sweep', profile: sweepProfileOf(c), path, ...(z ? { z } : {}) } };
 }

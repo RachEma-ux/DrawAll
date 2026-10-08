@@ -96,3 +96,31 @@ test('lot 15.2 — différence de deux solides, perçage traversant : volumes de
   await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/);
   expect(errors).toEqual([]);
 });
+
+test('lot 15.3 — balayage (Follow Me) : profil le long d’une polyligne à angle vif, volume = aire × longueur', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'désignation multiple à la souris (Maj + clic)');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [
+    { id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 100, h: 50 },
+    { id: 'OBJ-0002', kind: 'polyline', points: [1000, 1000, 2000, 1000, 2000, 1500] },
+  ]);
+  // Le profil d'abord, le trajet ensuite.
+  await tapModel(page, info, 50, 0);
+  await page.keyboard.down('Shift');
+  await tapModel(page, info, 1500, 1000);
+  await page.keyboard.up('Shift');
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('solides 3d');
+  await page.getByText('Solides 3D', { exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Solides' });
+  await panel.getByRole('button', { name: 'Balayer' }).click();
+  // 100 × 50 mm sur 1 500 mm de trajet : 0,0075 m³.
+  await expect(panel.getByTestId('solides-message')).toHaveText(/^Balayage créé \(trajet de 1\s500 mm\) — volume 0,0075 m³\.$/, { timeout: 90_000 });
+  const solid = (await currentObjects(page)).find(o => o.kind === 'solid')!;
+  expect(solid.recipe).toMatchObject({ op: 'sweep', profile: [[-50, 50], [50, 50], [50, 0], [-50, 0]] });
+  expect(rel(await shownVolume(page), 5000 * 1500)).toBeLessThan(1e-9);
+  // En plan, la trace du balayage est son trajet.
+  await expect(page.locator(`[data-solide="${solid.id}"]`)).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
