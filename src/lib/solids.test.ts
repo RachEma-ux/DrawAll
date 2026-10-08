@@ -4,7 +4,7 @@ import { createDefaultLayers, dimensionOf } from '@/types/cad';
 import { exportDxf, exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
 import { defaultIfcClass } from './properties';
-import { contourOf, extrudeRecipe, faceChoices, shellRecipe, loftCheckPoints, loftRecipe, parseLevels, holeRecipe, isRecipe, moveSolid, pathLength, pathOf, pathPoints, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace, sweepProfileOf, sweepRecipe } from './solids';
+import { contourOf, extrudeRecipe, faceChoices, pushPullRecipe, shellRecipe, loftCheckPoints, loftRecipe, parseLevels, holeRecipe, isRecipe, moveSolid, pathLength, pathOf, pathPoints, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace, sweepProfileOf, sweepRecipe } from './solids';
 import { stretchObject, stretchPreview } from './stretch';
 import type { PathSeg, SolidRecipe } from './kernel/recipe';
 
@@ -213,5 +213,31 @@ describe('solides : recettes (lot 15.2)', () => {
     expect(isRecipe({ op: 'shell', of: e, thickness: 2, open: [] })).toBe(false);
     expect(isRecipe({ op: 'shell', of: e, thickness: 2, open: { feature: 1 } })).toBe(false);
     expect(recipeSteps({ op: 'shell', of: e, thickness: 2, open: top })).toEqual(['extrusion', 'coque']);
+  });
+
+  it('pousser / tirer : face plane désignée, encombrement et trace suivent, relecture', () => {
+    const e = ok(extrudeRecipe({ kind: 'polygon', points: [[0, 0], [1000, 0], [1000, 500], [0, 500]] }, 300, 0, 'P'));
+    const top = { feature: 'P', role: 'top' };
+    const up = ok(pushPullRecipe(e, top, 100));
+    expect(up).toEqual({ op: 'pushpull', of: e, face: top, distance: 100 });
+    expect(recipeBounds(up)).toEqual({ min: [0, 0, 0], max: [1000, 500, 400] });
+    // Dessus tiré : la trace en plan ne change pas.
+    expect(solidTrace(up)).toEqual(solidTrace(e));
+    // Côté tiré de 200 (normale −Y) : tranche ajoutée tracée ; poussé : tranche retirée en interrompu.
+    const side = ok(pushPullRecipe(e, { feature: 'P', role: 'side:s0' }, 200));
+    expect(recipeBounds(side)).toEqual({ min: [0, -200, 0], max: [1000, 500, 300] });
+    const t = solidTrace(side)[1];
+    expect('pts' in t && t.hidden === false && t.pts.length).toBe(4);
+    expect('pts' in t && [...t.pts].sort((a, b) => a[0] - b[0] || a[1] - b[1])).toEqual([[0, -200], [0, 0], [1000, -200], [1000, 0]]);
+    expect(solidTrace(ok(pushPullRecipe(e, { feature: 'P', role: 'side:s0' }, -200)))[1]).toMatchObject({ hidden: true });
+    expect(recipeBounds(ok(pushPullRecipe(e, top, -100)))).toEqual(recipeBounds(e));
+    expect(recipeSteps(up)).toEqual(['extrusion', 'pousser / tirer']);
+    expect(isRecipe(up)).toBe(true);
+    expect(isRecipe({ ...up, distance: 0 })).toBe(false);
+    expect(isRecipe({ ...up, face: { feature: 'P' } })).toBe(false);
+    expect(pushPullRecipe(e, top, Number.NaN)).toMatchObject({ error: expect.any(String) });
+    expect(pushPullRecipe(e, { feature: 'P', role: 'side:s9' }, 10)).toEqual({ error: 'Pousser / tirer : rôle « side:s9 » absent de la fonction « P ».' });
+    // Les faces restent désignables après pousser / tirer.
+    expect(faceChoices(up)).toHaveLength(6);
   });
 });

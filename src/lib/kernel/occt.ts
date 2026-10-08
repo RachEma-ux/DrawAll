@@ -3,7 +3,7 @@
 // séparé, chargé à la demande et remplaçable (décision de licence du maître d'ouvrage, feuille de
 // route §7). Ce fichier n'est importé que par le Worker du noyau et par les tests.
 import opencascade from 'replicad-opencascadejs';
-import { FaceFinder, assembleWire, cast, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
+import { FaceFinder, assembleWire, basicFaceExtrusion, cast, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
 import type { EdgeRef, FaceRef, LoftSection, MeshResult, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './recipe';
 import { inventory, parseStepFile, type StepInventory } from './step-file';
 import { edgeLabel, faceLabel, featureSupports, pointOnSupport, supportOf, surfaceTypeOf, type RefReport, type Support, type Supports } from './references';
@@ -88,6 +88,15 @@ function build(r: SolidRecipe, report?: RefReport[]): Shape3D {
       : polygon(r.profile).sketchOnPlane('XZ').revolve([0, 0, 1], { angle: r.angle }) as Shape3D;
     case 'sweep': return sweep(r.profile, r.path, r.z ?? 0);
     case 'loft': return lofted(r.sections, r.ruled);
+    case 'pushpull': return derive(r.of, report, s => {
+      const found = [resolveFace(s, featureSupports(r.of), r.face, 'pousser / tirer')];
+      return applyResolved(found, report, s, ([f]) => {
+        if (f.geomType !== 'PLANE') throw new Error('Pousser / tirer : face plane attendue.');
+        const c = f.center, n = f.normalAt(c), v = n.multiply(r.distance);
+        const prism = basicFaceExtrusion(f, v);
+        try { return r.distance > 0 ? s.fuse(prism) : s.cut(prism); } finally { prism.delete(); v.delete(); n.delete(); c.delete(); }
+      });
+    });
     case 'translate': return derive(r.of, report, s => s.translate(r.by));
     case 'rotate': return derive(r.of, report, s => s.rotate(r.angle, [r.about[0], r.about[1], 0], [0, 0, 1]));
     case 'mirror': return derive(r.of, report, s => s.mirror(r.axis === 'x' ? 'YZ' : 'XZ', r.axis === 'x' ? [r.value, 0, 0] : [0, r.value, 0]));
@@ -215,8 +224,8 @@ function indexIn<T extends Edge | Face>(list: T[], x: T): number {
   return i;
 }
 
-function resolveFace(shape: Shape3D, sup: Supports, ref: FaceRef): Found<Face> {
-  const base = { op: 'coque' as const, ref: faceLabel(ref) };
+function resolveFace(shape: Shape3D, sup: Supports, ref: FaceRef, op: RefReport['op'] = 'coque'): Found<Face> {
+  const base = { op, ref: faceLabel(ref) };
   const r = facesOf(shape, sup, ref);
   if ('reason' in r) return { report: { ...base, status: 'à réparer', reason: r.reason, candidates: 0 }, items: [] };
   const n = r.faces.length;

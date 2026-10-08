@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import type { CadObject, SolidObj } from '@/types/cad';
 import type { FaceRef, SolidRecipe } from '@/lib/kernel/recipe';
 import { kernelDeviation, kernelVolume } from '@/lib/kernel/client';
-import { BOOLEAN_LABEL, contourOf, extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, shellRecipe, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
+import { BOOLEAN_LABEL, contourOf, extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
 
 interface Props {
   objects: CadObject[];
@@ -34,6 +34,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const [sweepZ, setSweepZ] = useState('0');
   const [loft, setLoft] = useState({ levels: '', ruled: true });
   const [shell, setShell] = useState<{ thickness: string; open: string[] }>({ thickness: '', open: [] });
+  const [push, setPush] = useState({ face: '', distance: '' });
   const [hole, setHole] = useState({ x: '', y: '', d: '', depth: '' });
 
   // Volume du solide sélectionné, calculé par le noyau.
@@ -103,6 +104,13 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
     if (!one) return;
     const open = faces.filter(f => shell.open.includes(key(f.ref))).map(f => f.ref);
     void run(shellRecipe(one.recipe, parse(shell.thickness), open), r => onUpdate(one.id, r, 'Coque'), `Coque faite (${open.length} face${open.length > 1 ? 's' : ''} ouverte${open.length > 1 ? 's' : ''})`);
+  };
+  const doPush = () => {
+    const f = faces.find(c => key(c.ref) === push.face);
+    if (!one) return;
+    if (!f) { setMessage({ error: true, text: 'Pousser / tirer : désignez une face.' }); return; }
+    const d = parse(push.distance);
+    void run(pushPullRecipe(one.recipe, f.ref, d), r => onUpdate(one.id, r, d > 0 ? 'Tirer' : 'Pousser'), `${d > 0 ? 'Face tirée' : 'Face poussée'} (${f.label})`);
   };
   const combine = (op: BooleanOp) => {
     const [a, b] = solids;
@@ -185,6 +193,16 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
           </fieldset>
         )}
         <button type="button" className={button} disabled={!one || busy} onClick={doShell}>Évider</button>
+      </section>
+
+      <section aria-label="Pousser / tirer" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">
+        <span className="w-full text-foreground">Pousser / tirer une face plane (distance positive : tirer ; négative : pousser)</span>
+        <select aria-label="Face à pousser ou tirer" value={push.face} onChange={e => setPush(p => ({ ...p, face: e.target.value }))} className={`${field} w-auto max-w-full text-left`}>
+          <option value="">Face…</option>
+          {faces.filter(f => f.ref.role !== 'wall').map(f => <option key={key(f.ref)} value={key(f.ref)}>{f.label}</option>)}
+        </select>
+        <label className="flex items-center gap-1">Distance <input aria-label="Distance (mm)" inputMode="decimal" value={push.distance} onChange={e => setPush(p => ({ ...p, distance: e.target.value }))} className={field} /> mm</label>
+        <button type="button" className={button} disabled={!one || busy} onClick={doPush}>Appliquer</button>
       </section>
 
       {one && (

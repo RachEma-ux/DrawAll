@@ -171,3 +171,23 @@ test('lot 15.5 — coque : extrusion évidée, dessus ouvert, épaisseur 20 mm',
   await expect(panel.getByTestId('solide-volume')).toContainText('extrusion → coque');
   expect(errors).toEqual([]);
 });
+
+test('lot 15.6 — pousser / tirer le dessus, puis coque sur la face déplacée (référence suivie)', async ({ page }, info) => {
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  const panel = await extrudeAt(page, info, 500, 0, '300');
+  await panel.getByLabel('Face à pousser ou tirer').selectOption({ label: 'OBJ-0001 — dessus' });
+  await panel.getByLabel('Distance (mm)').fill('100');
+  await panel.getByRole('button', { name: 'Appliquer' }).click();
+  // 1 000 × 500 × 400 mm = 0,2 m³.
+  await expect(panel.getByTestId('solides-message')).toHaveText('Face tirée (OBJ-0001 — dessus) — volume 0,2 m³.', { timeout: 90_000 });
+  // Le dessus, déplacé de 100 mm, reste désigné par son nom : la coque l'ouvre.
+  await panel.getByLabel('Épaisseur de la coque (mm)').fill('20');
+  await panel.getByLabel('OBJ-0001 — dessus').check();
+  await panel.getByRole('button', { name: 'Évider' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Coque faite', { timeout: 90_000 });
+  expect(rel(await shownVolume(page), 1000 * 500 * 400 - 960 * 460 * 380)).toBeLessThan(1e-9);
+  await expect(panel.getByTestId('solide-volume')).toContainText('extrusion → pousser / tirer → coque');
+  expect(errors).toEqual([]);
+});

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadKernel } from './occt';
 import { meshVolume, type PathSeg, type SolidRecipe, type SweepProfile } from './recipe';
-import { extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, shellRecipe, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
+import { extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
 
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.abs(b);
 const take = (r: { recipe: SolidRecipe } | { error: string }) => { if ('error' in r) throw new Error(r.error); return r.recipe; };
@@ -177,4 +177,41 @@ describe('coque (lot 15.5) : volume de matière de référence, faces ouvertes d
   });
 
   function expectVolumeOf(v: number, ref: number) { expect(rel(v, ref)).toBeLessThan(1e-6); }
+});
+
+describe('pousser / tirer (lot 15.6) : volume après modification, références suivies', async () => {
+  const k = await loadKernel();
+  const block = take(extrudeRecipe(sq(0, 0, 1000, 500), 300, 0, 'P'));
+  const top = { feature: 'P', role: 'top' };
+
+  it('tirer le dessus de 100, pousser le dessus de 50', () => {
+    expect(rel(k.volume(take(pushPullRecipe(block, top, 100))), 1000 * 500 * 400)).toBeLessThan(1e-6);
+    expect(rel(k.volume(take(pushPullRecipe(block, top, -50))), 1000 * 500 * 250)).toBeLessThan(1e-6);
+  });
+
+  it('tirer un côté : la tranche est ajoutée ; encombrement et trace suivent', () => {
+    const side = { feature: 'P', role: 'side:s0' }; // de (0 ; 0) à (1 000 ; 0), normale sortante −Y
+    const r = take(pushPullRecipe(block, side, 200));
+    expect(rel(k.volume(r), 1000 * 700 * 300)).toBeLessThan(1e-6);
+    expect(recipeBounds(r)).toEqual({ min: [0, -200, 0], max: [1000, 500, 300] });
+  });
+
+  it('références suivies : après avoir tiré le dessus puis un côté, la coque ouvre le dessus déplacé', () => {
+    const pulled = take(pushPullRecipe(take(pushPullRecipe(block, top, 100)), { feature: 'P', role: 'side:s1' }, 100));
+    const shell = take(shellRecipe(pulled, 20, [top]));
+    expect(k.references(shell).map(x => `${x.op} ${x.ref} ${x.status}`)).toEqual(['pousser / tirer P.top conservée', 'pousser / tirer P.side:s1 conservée', 'coque P.top conservée']);
+    // Bloc final 1 100 × 500 × 400, coque de 20 ouverte en haut.
+    expect(rel(k.volume(shell), 1100 * 500 * 400 - 1060 * 460 * 380)).toBeLessThan(1e-6);
+    // Le côté tiré lui-même reste désignable après déplacement : on le pousse de nouveau.
+    const back = take(pushPullRecipe(pulled, { feature: 'P', role: 'side:s1' }, -100));
+    expect(rel(k.volume(back), 1000 * 500 * 400)).toBeLessThan(1e-6);
+  });
+
+  it('dessus d’un cylindre (disque) tiré ; distance nulle ou face inconnue refusées', () => {
+    const cyl = take(extrudeRecipe({ kind: 'circle', cx: 0, cy: 0, r: 100 }, 200, 0, 'C'));
+    expect(rel(k.volume(take(pushPullRecipe(cyl, { feature: 'C', role: 'cap' }, 50))), Math.PI * 1e4 * 250)).toBeLessThan(1e-6);
+    expect(pushPullRecipe(block, top, 0)).toMatchObject({ error: expect.stringContaining('distance non nulle') });
+    expect(pushPullRecipe(block, { feature: 'Q', role: 'top' }, 10)).toEqual({ error: 'Pousser / tirer : fonction « Q » absente de la recette.' });
+    expect(pushPullRecipe(cyl, { feature: 'C', role: 'wall' }, 10)).toEqual({ error: 'Pousser / tirer : face plane attendue.' });
+  });
 });

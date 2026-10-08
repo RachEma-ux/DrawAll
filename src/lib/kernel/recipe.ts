@@ -57,6 +57,11 @@ export type SolidRecipe =
    * dans l'ordre ; surfaces réglées (droites d'une section à la suivante) ou lisses.
    */
   | { op: 'loft'; sections: LoftSection[]; ruled: boolean }
+  /**
+   * Pousser / tirer (lot 15.6) : la face plane désignée avance de `distance` mm selon sa normale
+   * sortante (positif : matière ajoutée ; négatif : matière retirée).
+   */
+  | { op: 'pushpull'; of: SolidRecipe; face: FaceRef; distance: number }
   /** Déplacement (lot 15.2). */
   | { op: 'translate'; of: SolidRecipe; by: Vec3 }
   /** Rotation de `angle` degrés autour de la verticale passant par `about` (lot 15.2). */

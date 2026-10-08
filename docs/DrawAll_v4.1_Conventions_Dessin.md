@@ -588,6 +588,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Référence non résolue** : une face disparue, partagée en morceaux, ou un nom en double, est signalée « à réparer ». La coque n'est alors pas appliquée, et rien n'est réattribué en silence.
 - **Contrôle** : volume de matière non nul, calculé par le noyau (§8.12).
 
+### 8.16 Pousser / tirer (règle, lot 15.6)
+
+- **Face** : une face plane désignée par son nom (§8.15) : dessus, dessous ou côté d'une extrusion, base ou dessus d'un cylindre. Distance positive : la face est tirée (matière ajoutée) ; négative : elle est poussée (matière retirée), selon sa normale sortante.
+- **Références suivies** : la face déplacée garde son nom, et les faces qu'elle borde s'allongent avec elle. Une coque ou un nouveau pousser / tirer peut donc viser la face après modification. Une face devenue introuvable est « à réparer », et rien n'est appliqué (lot 11.3).
+- **En plan** : une face latérale tirée ajoute l'emprise de la tranche ; poussée, cette emprise est en traits interrompus. Le dessus ou le dessous ne change pas la trace.
+- **Contrôle** par le noyau (volume non nul), comme au §8.12.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

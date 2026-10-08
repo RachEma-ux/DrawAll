@@ -5,6 +5,7 @@
 import type { CadObject, PrimitiveObject, SolidObj } from '@/types/cad';
 import type { FaceRef, LoftSection, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './kernel/recipe';
 import { arcEndpoints, arcLength, arcMidpoint } from './arc';
+import { featureSupports, supportOf } from './kernel/references';
 import { splineLength, splineSamples } from './spline';
 
 type P2 = [number, number];
@@ -114,6 +115,10 @@ export function recipeBounds(r: SolidRecipe): { min: Vec3; max: Vec3 } {
     }
     case 'union': { const a = recipeBounds(r.a), b = recipeBounds(r.b); return box([a.min, a.max, b.min, b.max]); }
     case 'cut': return recipeBounds(r.a);
+    case 'pushpull': {
+      const b = recipeBounds(r.of), moved = pushedFace(r);
+      return moved && r.distance > 0 ? box([b.min, b.max, ...moved.after]) : b;
+    }
     case 'fillet': case 'shell': return recipeBounds(r.of);
     case 'intersect': {
       const a = recipeBounds(r.a), b = recipeBounds(r.b);
@@ -176,6 +181,12 @@ export function solidTrace(r: SolidRecipe, hidden = false): Trace[] {
     case 'union': case 'intersect': return [...solidTrace(r.a, hidden), ...solidTrace(r.b, hidden)];
     case 'cut': return [...solidTrace(r.a, hidden), ...solidTrace(r.b, true)];
     case 'fillet': case 'shell': return solidTrace(r.of, hidden);
+    case 'pushpull': {
+      // Face latérale poussée ou tirée : emprise de la tranche ajoutée (ou retirée, en interrompu).
+      const moved = pushedFace(r), base = solidTrace(r.of, hidden);
+      if (!moved || moved.vertical) return base;
+      return [...base, { pts: hull2([...moved.before, ...moved.after].map(p => [p[0], p[1]] as P2)), hidden: hidden || r.distance < 0 }];
+    }
     // Lissage : le contour de chaque section.
     case 'loft': return r.sections.map(s => ('circle' in s ? { circle: s.circle, hidden } : { pts: s.points, hidden }));
     // Balayage : son trajet, ouvert (pas de fermeture ajoutée).
@@ -214,7 +225,7 @@ export const scaleSolid = (r: SolidRecipe, cx: number, cy: number, factor: numbe
 export function recipeSteps(r: SolidRecipe): string[] {
   const label: Record<SolidRecipe['op'], string> = {
     box: 'pavé', cylinder: 'cylindre', extrude: 'extrusion', revolve: 'révolution', union: 'union', cut: 'différence', intersect: 'intersection',
-    fillet: 'congé', shell: 'coque', sweep: 'balayage', loft: 'lissage', translate: 'déplacement', rotate: 'rotation', mirror: 'symétrie', scale: 'échelle',
+    fillet: 'congé', shell: 'coque', sweep: 'balayage', loft: 'lissage', pushpull: 'pousser / tirer', translate: 'déplacement', rotate: 'rotation', mirror: 'symétrie', scale: 'échelle',
   };
   const out: string[] = [];
   const walk = (x: SolidRecipe) => {
@@ -265,6 +276,10 @@ export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
     }
     case 'union': case 'cut': case 'intersect': return isRecipe(x.a, depth + 1) && isRecipe(x.b, depth + 1);
     case 'fillet': return num(x.r, true) && isRecipe(x.of, depth + 1);
+    case 'pushpull': {
+      const f = x.face as FaceRef | undefined;
+      return !!f && typeof f.feature === 'string' && typeof f.role === 'string' && num(x.distance) && x.distance !== 0 && isRecipe(x.of, depth + 1);
+    }
     case 'shell': {
       const face = (f: unknown) => !!f && typeof f === 'object' && typeof (f as FaceRef).feature === 'string' && typeof (f as FaceRef).role === 'string';
       const open = x.open === undefined || face(x.open) || (Array.isArray(x.open) && x.open.length > 0 && x.open.every(face));
@@ -448,4 +463,45 @@ export function shellRecipe(of: SolidRecipe, thickness: number, open: FaceRef[])
   if (!(thickness > 0) || !Number.isFinite(thickness)) return { error: 'Coque : épaisseur positive attendue.' };
   if (!open.length) return { error: 'Coque : désignez au moins une face ouverte.' };
   return { recipe: { op: 'shell', of, thickness, open: open.length === 1 ? open[0] : open } };
+}
+
+// ——— Pousser / tirer (lot 15.6) ———
+
+/** Coins de la face plane poussée, avant et après ; `vertical` : normale verticale (dessus, dessous). */
+function pushedFace(r: Extract<SolidRecipe, { op: 'pushpull' }>): { before: Vec3[]; after: Vec3[]; vertical: boolean } | null {
+  const s = supportOf(featureSupports(r.of), r.face);
+  if ('reason' in s || s.support.kind === 'cylinder') return null;
+  if (s.support.kind === 'disc') {
+    // Base ou dessus d'un cylindre vertical.
+    const d = s.support;
+    if (Math.abs(Math.abs(d.n[2]) - 1) > 1e-9) return null;
+    const before: Vec3[] = [[d.o[0] - d.r, d.o[1] - d.r, d.o[2]], [d.o[0] + d.r, d.o[1] + d.r, d.o[2]]];
+    return { before, after: before.map(q => [q[0], q[1], q[2] + d.n[2] * r.distance] as Vec3), vertical: true };
+  }
+  const p = s.support;
+  const at = (a: number, b: number): Vec3 => [0, 1, 2].map(i => p.o[i] + p.u[i] * a + p.v[i] * b) as Vec3;
+  const before = [at(p.ur[0], p.vr[0]), at(p.ur[1], p.vr[0]), at(p.ur[1], p.vr[1]), at(p.ur[0], p.vr[1])];
+  const after = before.map(q => [0, 1, 2].map(i => q[i] + p.n[i] * r.distance) as Vec3);
+  return { before, after, vertical: Math.abs(Math.abs(p.n[2]) - 1) < 1e-9 };
+}
+
+/** Enveloppe convexe (chaîne monotone), sens trigonométrique. */
+function hull2(pts: P2[]): P2[] {
+  const ps = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: P2, a: P2, b: P2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (list: P2[]) => {
+    const h: P2[] = [];
+    for (const p of list) { while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 1e-9) h.pop(); h.push(p); }
+    return h.slice(0, -1);
+  };
+  return [...half(ps), ...half([...ps].reverse())];
+}
+
+/** Pousser / tirer une face plane désignée de `distance` mm (≠ 0) selon sa normale sortante. */
+export function pushPullRecipe(of: SolidRecipe, face: FaceRef, distance: number): SolidResult {
+  if (!Number.isFinite(distance) || distance === 0) return { error: 'Pousser / tirer : distance non nulle attendue (positive : tirer ; négative : pousser).' };
+  const s = supportOf(featureSupports(of), face);
+  if ('reason' in s) return { error: `Pousser / tirer : ${s.reason}.` };
+  if (s.support.kind === 'cylinder') return { error: 'Pousser / tirer : face plane attendue.' };
+  return { recipe: { op: 'pushpull', of, face, distance } };
 }
