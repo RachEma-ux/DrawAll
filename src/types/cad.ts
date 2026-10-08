@@ -502,9 +502,26 @@ export interface MicroVersion {
   zones?: Zone[];                // zones (lot 13.3) ; absent = aucune
 }
 
-export interface ProjectState {
+/**
+ * Branche (variante, lot 14.1) rangée pendant qu'une autre est active : son historique complet, sa
+ * position, et la version dont elle est partie.
+ */
+export interface Branch {
+  id: string;
+  name: string;
+  /** Origine : branche et microversion (seq) de départ ; absente pour la branche principale. */
+  from?: { branchId: string; seq: number };
   versions: MicroVersion[];
+  pointer: number;
+}
+
+export interface ProjectState {
+  versions: MicroVersion[];  // historique de la branche active
   pointer: number;         // indice de la microversion courante
+  /** Branche active (lot 14.1) ; absente = branche principale « Principale ». */
+  branch?: { id: string; name: string; from?: { branchId: string; seq: number } };
+  /** Autres branches, rangées. */
+  branches?: Branch[];
   counter: number;         // compteur d'identifiants OBJ-
   layerCounter: number;    // compteur d'identifiants LAY-
   blockCounter: number;    // compteur d'identifiants BLQ-

@@ -1190,6 +1190,10 @@ function Workbench() {
       diagnostics={project.diagnostics}
       onGoTo={project.goTo}
       onNameVersion={project.nameVersion}
+      branches={project.branches}
+      onCreateVariant={name => project.createVariant(name)}
+      onSwitchVariant={project.switchVariant}
+      onRemoveVariant={project.removeVariant}
       compact={level === 'essentiel'}
       syncLabel={SYNC_META[syncStatus].label}
       syncColor={SYNC_META[syncStatus].color}

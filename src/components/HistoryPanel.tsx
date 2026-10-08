@@ -2,6 +2,7 @@
 // microversions, versions nommées immuables, diagnostics (T07).
 import { useState } from 'react';
 import type { MicroVersion } from '@/types/cad';
+import type { BranchInfo } from '@/lib/branches';
 
 interface Props {
   versions: MicroVersion[];
@@ -12,9 +13,17 @@ interface Props {
   compact: boolean;
   syncLabel: string;
   syncColor: string;
+  /** Variantes (lot 14.1) : branches du projet, l'active d'abord. */
+  branches?: BranchInfo[];
+  onCreateVariant?: (name: string) => string | null;
+  onSwitchVariant?: (id: string) => string | null;
+  onRemoveVariant?: (id: string) => string | null;
 }
 
-export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, onNameVersion, compact, syncLabel, syncColor }: Props) {
+export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, onNameVersion, compact, syncLabel, syncColor, branches, onCreateVariant, onSwitchVariant, onRemoveVariant }: Props) {
+  const [variant, setVariant] = useState('');
+  const [variantError, setVariantError] = useState<string | null>(null);
+  const active = branches?.find(b => b.active);
   const [tab, setTab] = useState<'modifs' | 'problemes'>('modifs');
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
@@ -56,21 +65,46 @@ export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, o
       <div className="flex-1 overflow-y-auto">
         {tab === 'modifs' ? (
           <div>
+            {branches && onCreateVariant && (
+              <div data-testid="variantes" className="space-y-1 border-b border-border/60 px-3 py-2 font-mono text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <span className="uppercase tracking-[0.12em]">Variante</span>
+                  <select aria-label="Variante active" value={active?.id} onChange={e => setVariantError(onSwitchVariant?.(e.target.value) ?? null)}
+                    className="min-w-0 flex-1 rounded-sm border border-input bg-background px-1 py-0.5 text-foreground">
+                    {branches.map(b => <option key={b.id} value={b.id}>{b.name} ({b.versions} v.)</option>)}
+                  </select>
+                  {branches.length > 1 && !compact && (
+                    <select aria-label="Supprimer une variante" value="" onChange={e => { if (e.target.value && window.confirm(`Supprimer la variante « ${branches.find(b => b.id === e.target.value)?.name} » et son historique ?`)) setVariantError(onRemoveVariant?.(e.target.value) ?? null); }}
+                      className="w-8 rounded-sm border border-input bg-background px-0.5 py-0.5 text-red-300" title="Supprimer une variante rangée">
+                      <option value="">×</option>
+                      {branches.filter(b => !b.active).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  )}
+                </div>
+                {active?.from && <p>Partie de v{active.from.seq} de « {branches.find(b => b.id === active.from!.branchId)?.name ?? active.from.branchId} »</p>}
+                <form className="flex items-center gap-1" onSubmit={e => { e.preventDefault(); const err = onCreateVariant(variant); setVariantError(err); if (!err) setVariant(''); }}>
+                  <input aria-label="Nom de la nouvelle variante" placeholder={`Variante depuis v${versions[pointer].seq}`} value={variant} onChange={e => setVariant(e.target.value)}
+                    className="min-w-0 flex-1 rounded-sm border border-input bg-background px-1 py-0.5 text-foreground" />
+                  <button type="submit" aria-label="Créer la variante" className="rounded-sm border border-border px-1.5 py-0.5 text-foreground hover:bg-white/5">Créer</button>
+                </form>
+                {variantError && <p role="alert" className="text-red-300">{variantError}</p>}
+              </div>
+            )}
             {shown.map((v) => {
               const idx = versions.findIndex(candidate => candidate.seq === v.seq);
-              const active = idx === pointer;
+              const current = idx === pointer;
               return (
                 <button
                   key={v.seq}
                   onClick={() => onGoTo(idx)}
                   className={`flex w-full items-center gap-3 border-b border-border/40 px-3 py-1.5 text-left transition-colors ${
-                    active ? 'bg-cyan-400/10' : 'hover:bg-accent'
+                    current ? 'bg-cyan-400/10' : 'hover:bg-accent'
                   }`}
                 >
-                  <span className={`font-mono text-[10px] ${active ? 'text-cyan-400' : 'text-muted-foreground'}`}>
+                  <span className={`font-mono text-[10px] ${current ? 'text-cyan-400' : 'text-muted-foreground'}`}>
                     v{v.seq}
                   </span>
-                  <span className={`truncate text-xs ${active ? 'text-foreground' : 'text-foreground/70'}`}>{v.label}</span>
+                  <span className={`truncate text-xs ${current ? 'text-foreground' : 'text-foreground/70'}`}>{v.label}</span>
                   {v.named && (
                     <span className="shrink-0 rounded-sm border border-emerald-400/50 bg-emerald-400/10 px-1.5 py-px font-mono text-[9px] text-emerald-400">
                       {v.named}

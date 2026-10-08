@@ -267,7 +267,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 13.3 Zones | Fait (conventions §8.8) | #64 |
 | 13.4 Poteaux et poutres | Fait (conventions §8.9) | #65 |
 | 13.5 Tableaux de quantités | Fait (conventions §8.10) | #66 |
-| 14.1 Branches | À faire | — |
+| 14.1 Branches | Fait (conventions §10.5) | #67 |
 | 14.2 Comparaison et fusion | À faire | — |
 | 14.3 Analyse d'impact | À faire | — |
 | 14.4 Publication | À faire | — |
