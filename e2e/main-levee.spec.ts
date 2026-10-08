@@ -34,3 +34,28 @@ test('lot 10.6 — main levée : un geste continu devient une polyligne simplifi
   expect(Math.hypot(pts[pts.length - 2], pts[pts.length - 1] - 2000)).toBeLessThan(2 * px);
   expect(errors).toEqual([]);
 });
+
+test('lot 10.6 — main levée au doigt : trait court gardé, geste annulé par un second doigt effacé', async ({ page }, info) => {
+  test.skip(!isPhone(info), 'gestes tactiles : projet téléphone');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: -1000, y: -1000, w: 6000, h: 5000 }]);
+  await chooseTool(page, /^Main levée/);
+  const a = await toScreen(page, 1000, 1000);
+  const cdp = await page.context().newCDPSession(page);
+  // Trait de 5 px (sous le seuil de confirmation d'un geste au doigt, au-dessus du seuil de création).
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...a, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: a.x + 3, y: a.y, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: a.x + 5, y: a.y, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect.poll(async () => (await currentObjects(page)).filter(o => o.kind === 'polyline').length).toBe(1);
+  // Tracé commencé puis second doigt (pincement) : ni objet ni aperçu ne subsistent.
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...a, id: 1 }] });
+  for (let i = 1; i <= 10; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: a.x + 4 * i, y: a.y + 2 * i, id: 1 }] });
+  await expect(page.locator('[data-apercu-main-levee]')).toHaveCount(1);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: a.x + 40, y: a.y + 20, id: 1 }, { x: a.x + 120, y: a.y + 80, id: 2 }] });
+  await expect(page.locator('[data-apercu-main-levee]')).toHaveCount(0);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(page.locator('[data-apercu-main-levee]')).toHaveCount(0);
+  expect((await currentObjects(page)).filter(o => o.kind === 'polyline').length).toBe(1);
+  expect(errors).toEqual([]);
+});

@@ -249,6 +249,9 @@ export default function CanvasView({
   const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   // Tracé de main levée en cours (lot 10.6), points du modèle.
   const [freehand, setFreehand] = useState<{ x: number; y: number }[] | null>(null);
+  // Points du tracé à main levée, lus au relâcher : une référence, car le relâcher peut suivre
+  // l'appui dans le même rendu (l'état n'y serait pas encore à jour).
+  const freehandPts = useRef<{ x: number; y: number }[]>([]);
   const drag = useRef<{
     mode: 'pan' | 'move' | 'marquee' | 'freehand' | null;
     ids?: string[];
@@ -495,6 +498,7 @@ export default function CanvasView({
       // Main levée (lot 10.6) : le tracé suit le pointeur, sans accrochage, jusqu'au relâcher.
       if (!activeLayer || activeLayer.locked) return;
       drag.current = { mode: 'freehand', lx: w.x, ly: w.y };
+      freehandPts.current = [w];
       setFreehand([w]);
       return;
     }
@@ -615,7 +619,8 @@ export default function CanvasView({
       // Un point retenu dès que le pointeur a bougé d'un demi-pixel.
       if (Math.hypot(w.x - drag.current.lx, w.y - drag.current.ly) >= 0.5 / tf.k) {
         drag.current.lx = w.x; drag.current.ly = w.y;
-        setFreehand(f => (f ? [...f, w] : [w]));
+        freehandPts.current = [...freehandPts.current, w];
+        setFreehand(freehandPts.current);
       }
       onCursor(w.x, w.y);
       return;
@@ -649,7 +654,8 @@ export default function CanvasView({
     const w = toWorld(e);
     if (drag.current.mode === 'freehand') {
       // Tracé simplifié à 1,5 pixel d'écran (Douglas–Peucker), puis polyligne.
-      const raw = [...(freehand ?? []), w];
+      const raw = [...freehandPts.current, w];
+      freehandPts.current = [];
       const pts = simplifyPath(raw, FREEHAND_TOLERANCE_PX / tf.k).flatMap(p => [Math.round(p.x * 1000) / 1000, Math.round(p.y * 1000) / 1000]);
       setFreehand(null);
       drag.current = { mode: null, lx: 0, ly: 0 };
@@ -854,6 +860,8 @@ export default function CanvasView({
     pendingDown.current = null;
     setDraft(draftAtGestureStart.current);
     setMarquee(null);
+    setFreehand(null);
+    freehandPts.current = [];
     drag.current = { mode: null, lx: 0, ly: 0 };
   };
 
@@ -886,6 +894,12 @@ export default function CanvasView({
       const p = aimFor(e);
       setAim(p);
       handleMove(aimEvent(p));
+      return;
+    }
+    if (tool === 'freehand') {
+      // Main levée : le tracé commence au contact, sans attendre la confirmation du geste (un trait
+      // court est un trait). Un second doigt l'annule comme tout geste (restoreGestureStart).
+      handleDown(e);
       return;
     }
     e.persist?.();
@@ -953,6 +967,8 @@ export default function CanvasView({
       if (e.pointerType === 'mouse') {
         drag.current = { mode: null, lx: 0, ly: 0 };
         setMarquee(null);
+        setFreehand(null);
+        freehandPts.current = [];
       } else {
         restoreGestureStart();
       }
