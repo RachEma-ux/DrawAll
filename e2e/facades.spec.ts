@@ -57,3 +57,25 @@ test('lot 16.2 — façade sud et coupe A–A générées depuis le modèle 3D, 
   expect(vps).toMatchObject([{ name: 'Façade sud', scale: { paper: 1, model: 100 } }]);
   expect(errors).toEqual([]);
 });
+
+test('lot 17.1 — export IFC 4.3 depuis la palette : fichier et rapport', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [
+    wall('OBJ-0001', 0, 0, 5000, 0), wall('OBJ-0002', 5000, 0, 5000, 4000), wall('OBJ-0003', 5000, 4000, 0, 4000), wall('OBJ-0004', 0, 4000, 0, 0),
+    { id: 'OBJ-0005', kind: 'opening', layerId: 'LAY-0001', hostId: 'OBJ-0001', type: 'fenetre', position: 2500, width: 1200, hinge: 'debut', side: 'gauche', classification: 'architecture' },
+  ]);
+  let report = '';
+  page.on('dialog', d => { report = d.message(); d.accept().catch(() => {}); });
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('ifc');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByText('Exporter en IFC 4.3', { exact: true }).click()]);
+  expect(download.suggestedFilename()).toMatch(/\.ifc$/);
+  const { readFileSync } = await import('node:fs');
+  const ifc = readFileSync((await download.path())!, 'utf8');
+  expect(ifc).toContain("FILE_SCHEMA(('IFC4X3_ADD2'));");
+  expect(ifc.match(/IFCWALL\(/g)).toHaveLength(4);
+  await expect.poll(() => report).toContain('4 IfcWall');
+  expect(report).toContain('OBJ-0005 : fenêtre sans hauteur de baie saisie');
+  expect(errors).toEqual([]);
+});

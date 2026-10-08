@@ -281,7 +281,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 16.2 Façades et coupes générées | Fait (conventions §8.18) | #78 |
 | 16.3 Pièces et occurrences | Fait (conventions §8.19) | #79 |
 | 16.4 Liaisons et nomenclature d'assemblage | Fait (conventions §8.20) | #80 |
-| 17.1 Export IFC 4.3 | À faire | — |
+| 17.1 Export IFC 4.3 | Fait (conventions §7.5) | #81 |
 | 17.2 STEP AP242 édition 3 | À faire | — |
 | 17.3 Géoréférencement | À faire | — |
 | 18.1 API de commandes | À faire | — |

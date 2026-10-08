@@ -964,6 +964,26 @@ export default function Inspector({ impact, zones, onOpenZones, onOpenSolids, on
               {toggle('type', [['porte', 'Porte'], ['fenetre', 'Fenêtre']])}
               {num('width', 'Largeur')}
               {num('position', 'Position')}
+              {(['height', 'sill'] as const).map(key => {
+                // Hauteur de baie et allège (lot 17.1) : facultatives, jamais supposées.
+                const label = key === 'height' ? 'Hauteur de baie' : 'Allège', cur = obj[key];
+                return (
+                  <label key={key} className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    {label}
+                    <span className="flex items-center gap-1">
+                      <input key={`${obj.id}-${key}-${cur ?? ''}`} aria-label={`Ouverture — ${label}`} placeholder="non saisie" defaultValue={cur === undefined ? '' : String(cur).replace('.', ',')} inputMode="decimal"
+                        onBlur={e => {
+                          const t = e.target.value.trim(), v = Number(t.replace(',', '.'));
+                          if (t === '') { if (cur !== undefined) onUpdate(obj.id, { [key]: undefined }, `Ouverture : ${label.toLowerCase()} retirée`); return; }
+                          if (Number.isFinite(v) && (key === 'sill' ? v >= 0 : v > 0) && v !== cur) onUpdate(obj.id, { [key]: v }, `Ouverture : ${label.toLowerCase()}`);
+                          else e.target.value = cur === undefined ? '' : String(cur).replace('.', ',');
+                        }}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                        className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+                    </span>
+                  </label>
+                );
+              })}
               {obj.type === 'porte' && toggle('hinge', [['debut', 'Charnière début'], ['fin', 'Charnière fin']])}
               {obj.type === 'porte' && toggle('side', [['droite', 'Ouvre à droite'], ['gauche', 'Ouvre à gauche']])}
               <p className="font-mono text-[9px] text-muted-foreground">Position : centre de la baie depuis le début du mur. L’ouverture suit son mur.</p>

@@ -59,6 +59,7 @@ import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
 import { formatElevation, levelBelow, onLevel } from '@/lib/levels';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
+import { exportIfc } from '@/lib/ifc';
 import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint, mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
 
 // Vue 3D (lot 15.1) : three.js chargé à la demande.
@@ -352,6 +353,23 @@ function Workbench() {
   useEffect(() => {
     if (project.allObjects.some(o => o.kind === 'projection' || o.kind === 'elevation')) void ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
   }, [project.allObjects, project.levels]);
+
+  // Export IFC 4.3 (lot 17.1) : tout le projet, tous niveaux, rapport de ce qui n'est pas exporté.
+  const exportIfcFile = useCallback(() => {
+    const { content, report } = exportIfc({ objects: project.allObjects, levels: project.levels, projectName: cloudName.trim() || 'drawall-projet', date: new Date() });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: 'application/x-step' }));
+    a.download = `${cloudName.trim() || 'drawall-projet'}.ifc`;
+    a.click();
+    const href = a.href;
+    window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+    const lines = [
+      'Export IFC 4.3 (IFC4X3_ADD2, millimètres)',
+      `Exporté : ${Object.entries(report.exported).map(([k, n]) => `${n} ${k}`).join(', ') || 'rien'}.`,
+      ...(report.notExported.length ? ['Non exporté ou exporté sans volume :', ...report.notExported.map(t => `– ${t}`)] : []),
+    ];
+    window.setTimeout(() => window.alert(lines.join('\n')), 0);
+  }, [project.allObjects, project.levels, cloudName]);
 
   const exportDxf = useCallback(async () => {
     await ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
@@ -1126,6 +1144,7 @@ function Workbench() {
       keywords: ['tableau', 'quantites', 'metre', 'quantitatif', t, t === 'pieces' ? 'surfaces' : t === 'murs' ? 'longueurs' : 'portes fenetres'], run: () => { setMode('atelier'); project.addBom(t); },
     })),
     { id: 'schedule-assemblage', title: 'Insérer la nomenclature d’assemblage', hint: 'Repère, désignation et quantité de chaque pièce (pièce type et occurrences), mise à jour à chaque modification', keywords: ['nomenclature', 'assemblage', 'pieces', 'occurrences', 'repere', 'quantite', 'bom'], run: () => { setMode('atelier'); project.addBom('assemblage'); } },
+    { id: 'export-ifc', title: 'Exporter en IFC 4.3', hint: 'Étages, murs, dalles, baies, portes, fenêtres, espaces, toitures, poteaux, poutres, propriétés et quantités (IFC4X3_ADD2)', keywords: ['ifc', 'bim', 'export', 'ifc4', 'openbim', 'maquette numerique'], run: exportIfcFile },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
     { id: 'export', title: 'Exporter le paquet du projet', hint: 'Projet entier : historique, niveaux, feuilles, styles, ressources (JSON, relu à l’identique)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json', 'sauvegarde'], run: exportPackage },
     { id: 'import-package', title: 'Restaurer un projet depuis son paquet', hint: 'Remplace le projet courant par celui du paquet DrawAll (historique compris)', keywords: ['restaurer', 'importer', 'paquet', 'json', 'sauvegarde', 'ouvrir'], run: () => packageInputRef.current?.click() },

@@ -422,6 +422,21 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - le fond de plan est une référence de travail : il n'est exporté ni en PDF ni en DXF, et le rapport DXF le signale ;
   - le paquet du projet contient les images.
 
+### 7.5 Export IFC 4.3 (règle, lot 17.1)
+
+- **Format** : fichier STEP physique (ISO 10303-21), schéma `IFC4X3_ADD2`, en millimètres. Commande « Exporter en IFC 4.3 » de la palette ; tout le projet, tous niveaux.
+- **Repère** : X du plan → X ; Y du plan (vers le bas de l'écran) → −Y, le nord vers +Y comme l'exige IFC ; altitude → Z. Un étage IFC par niveau, avec son altitude.
+- **Éléments**, avec les mêmes éléments et les mêmes hauteurs que la vue 3D (§8.11) :
+  - murs, dalles, poteaux et poutres en volumes extrudés ;
+  - toitures en faces ;
+  - pièces en espaces (`IfcSpace`), volume seulement si la hauteur d'étage est connue.
+  La classe IFC choisie (§1.15) l'emporte sur celle du type, sauf pour les espaces, portes et fenêtres.
+- **Baies** : une ouverture (`IfcOpeningElement`) évide le mur et reçoit la porte ou la fenêtre (`IfcRelFillsElement`). Elle a un volume seulement si sa hauteur de baie est saisie, et pour une fenêtre son allège aussi ; sinon la porte ou la fenêtre est exportée sans volume, et le rapport le dit.
+- **Propriétés** : chaque jeu de propriétés saisi devient un `IfcPropertySet` (texte `IfcLabel`, nombre `IfcReal`, vrai/faux `IfcBoolean` ; l'unité en description). **Quantités de base** : `Qto_WallBaseQuantities` (longueur, épaisseur, hauteur, volumes brut et net), `Qto_SlabBaseQuantities`, `Qto_ColumnBaseQuantities`, `Qto_BeamBaseQuantities`, `Qto_SpaceBaseQuantities` (surface nette au sol, §8.3).
+- **Identifiants** : `GlobalId` déterministes (projet + objet), `Tag` = identifiant DrawAll. Deux exports du même projet donnent les mêmes identifiants.
+- **Rapport** : éléments exportés par classe, et ce qui ne l'est pas, avec sa raison : élément sans hauteur, baie sans hauteur, pièce non fermée, solide du noyau (échange STEP, lot 17.2).
+- **Preuve** : en CI, le fichier de référence est relu par IfcOpenShell 0.9.0. Le schéma, les étages et les propriétés sont vérifiés ; chaque volume et chaque surface lus dans la géométrie retrouvent la quantité exportée à 10⁻⁶ près, un cylindre étant lu comme son prisme inscrit.
+
 ### 7.4 À décider
 
 - Version DXF visée par défaut (R2000 retenue pour sa compatibilité ; R2018 possible).

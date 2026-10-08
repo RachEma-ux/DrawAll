@@ -194,6 +194,9 @@ export interface OpeningObj extends Base {
   width: number;
   hinge: 'debut' | 'fin';
   side: 'gauche' | 'droite';
+  /** Hauteur de baie et hauteur d'allège (mm, lot 17.1) ; absentes = non saisies, baie sans volume en IFC. */
+  height?: number;
+  sill?: number;
 }
 
 /**

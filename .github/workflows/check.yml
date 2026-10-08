@@ -45,6 +45,7 @@ jobs:
           DXF_FIXTURES_DIR: ${{ runner.temp }}/dxf
           PDF_FIXTURES_DIR: ${{ runner.temp }}/pdf
           SVG_FIXTURES_DIR: ${{ runner.temp }}/svg
+          IFC_FIXTURES_DIR: ${{ runner.temp }}/ifc
 
       - name: Lire les DXF exportés avec ezdxf
         run: |
@@ -58,6 +59,11 @@ jobs:
 
       - name: Lire les SVG exportés (XML strict, dimensions de la feuille)
         run: python3 scripts/check-svg.py "${{ runner.temp }}/svg"
+
+      - name: Relire l'IFC exporté avec IfcOpenShell (étages, propriétés, quantités retrouvées)
+        run: |
+          python3 -m pip install --quiet ifcopenshell==0.9.0
+          python3 scripts/check-ifc.py "${{ runner.temp }}/ifc"
 
       - name: Build
         run: npm run build
