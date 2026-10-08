@@ -479,6 +479,9 @@ describe('symboles et bibliothèque (lot 4.5)', () => {
     expect(content).toMatch(/\n1\n\+2,80\n/);
     // Cercle du nord : 6 mm papier au 1:50 = 300 mm.
     expect(content).toMatch(/\n40\n300\n/);
+    // Repère de coupe : trace en trait mixte, traits forts 0,7 mm, traits fins 0,25 mm.
+    expect(content).toMatch(/\nLINE\n(?:[^\n]*\n){6}6\nACAD_ISO04W100\n370\n25\n/);
+    expect(content).toMatch(/\nLINE\n(?:[^\n]*\n){6}6\nCONTINUOUS\n370\n70\n/);
     expect(report.transformed.join(' ')).toMatch(/Symboles .* : 3/);
     expect(report.transformed.join(' ')).toMatch(/Occurrences de blocs : 1/);
   });

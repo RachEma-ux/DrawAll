@@ -250,11 +250,15 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       const g = symbolGeometry(object, hatchScale);
       if (!g) continue;
       counts.symbol++;
+      const own = style;
       for (const l of g.lines) {
+        // Comme à l'écran et en PDF : trait fort 0,7 mm ou fin 0,25 mm ; trace de coupe en trait mixte.
+        style = { ...own, lineWeight: l.weight === 'fort' ? 0.7 : 0.25, lineType: l.dash ? 'mixte' : 'continu' };
         entityHeader('LINE', layer, 'AcDbLine');
         push(10, n(l.a.x)); push(20, n(-l.a.y)); push(30, 0);
         push(11, n(l.b.x)); push(21, n(-l.b.y)); push(31, 0);
       }
+      style = own;
       for (const c of g.circles) writePrimitive(entityHeader, push, { ...object, kind: 'circle', cx: c.c.x, cy: c.c.y, r: c.r } as unknown as PrimitiveObject, layer);
       for (const f of g.fills) {
         // SOLID : sommets dans l'ordre 1, 2, 4, 3 (un triangle répète son dernier sommet).

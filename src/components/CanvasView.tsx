@@ -103,6 +103,8 @@ interface Props {
   /** Outil Symbole : points désignés (un pour le nord et la cote de niveau, deux pour un repère de coupe). */
   onAddSymbol?: (points: number[]) => void;
   symbolPoints?: number;
+  /** Type de symbole choisi : en changer abandonne le symbole commencé. */
+  symbolKind?: string;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -163,6 +165,7 @@ export default function CanvasView({
   onAddRoom,
   onAddSymbol,
   symbolPoints = 1,
+  symbolKind,
   pdimAutoFinish = null,
   onMoveMany,
   gridSize,
@@ -182,9 +185,11 @@ export default function CanvasView({
   useEffect(() => { cornerPick.current = null; }, [tool, objects]);
   const [tf, setTf] = useState({ x: 60, y: 40, k: 1 });
   const [draft, setDraft] = useState<Draft | null>(null);
-  // Un tracé commencé sur un niveau ne se termine pas sur un autre (état réinitialisé au rendu).
-  const [draftLevel, setDraftLevel] = useState(levelKey);
-  if (draftLevel !== levelKey) { setDraftLevel(levelKey); setDraft(null); }
+  // Un tracé commencé sur un niveau ne se termine pas sur un autre, ni un symbole commencé sous un
+  // autre type (état réinitialisé au rendu).
+  const draftScope = `${levelKey ?? ''}|${symbolKind ?? ''}`;
+  const [draftScopeSeen, setDraftScopeSeen] = useState(draftScope);
+  if (draftScopeSeen !== draftScope) { setDraftScopeSeen(draftScope); setDraft(null); }
   const activeDraft = draft && (
     (draft.kind === 'polyline' && (draft.origin ?? 'polyline') === tool) ||
     (draft.kind === 'measure' && tool === 'measure') ||

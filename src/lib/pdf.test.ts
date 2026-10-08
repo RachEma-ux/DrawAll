@@ -123,4 +123,10 @@ describe('symboles sur la feuille (lot 4.5)', () => {
     // l'arc commence à centre + rayon = 221 mm.
     expect(out).toContain(`${((215 + 6) * MM_TO_PT).toFixed(3)} 466.299 m`);
   });
+
+  it('altitude négative : le signe moins est encodé (pas de « ? »)', () => {
+    const out = sheetToPdf({ sheet, objects: [{ ...base, id: 'OBJ-0013', kind: 'levelMark', x: 1000, y: 200, elevation: -450 }], layers, blocks: [], versions, pointer: 0, date: new Date(Date.UTC(2026, 9, 7, 12)) });
+    expect(out).toContain(pdfString('−0,45'));
+    expect(pdfString('−0,45')).not.toContain('?');
+  });
 });

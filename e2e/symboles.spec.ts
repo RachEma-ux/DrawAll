@@ -64,3 +64,16 @@ test('lot 4.5 — bloc de la bibliothèque bâtiment inséré', async ({ page },
   expect(block.name).toBe('Lit double 140 × 190');
   expect(state.objects[1]).toMatchObject({ kind: 'blockRef', blockId: block.id });
 });
+
+test('lot 4.5 — changer de type de symbole abandonne le repère de coupe commencé', async ({ page }, info) => {
+  await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 6000, h: 4000 }]);
+  await chooseTool(page, /^Symbole/);
+  await symbolPanel(page).getByLabel('Type de symbole').selectOption('section');
+  await tapModel(page, info, 1000, 1000);
+  // Premier point de coupe posé, puis passage au nord : le nord se pose au point touché ensuite.
+  await symbolPanel(page).getByLabel('Type de symbole').selectOption('north');
+  await tapModel(page, info, 5000, 3000);
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(2);
+  expect((await currentObjects(page))[1]).toMatchObject({ kind: 'north', x: 5000, y: 3000 });
+});

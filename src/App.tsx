@@ -1059,6 +1059,7 @@ function Workbench() {
                 onAddRoom={addRoom}
                 onAddSymbol={addSymbol}
                 symbolPoints={symbolParams.kind === 'section' ? 2 : 1}
+                symbolKind={symbolParams.kind}
                 pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
                 gridSize={gridSize}
                 projectKey={projectKey}
