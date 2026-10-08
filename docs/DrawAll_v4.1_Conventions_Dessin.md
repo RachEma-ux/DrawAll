@@ -141,9 +141,17 @@ Les correspondances usuelles (acier en traits simples, aluminium en traits doubl
 
 DrawAll les proposera sous forme de **profils de dessin** modifiables et versionnés, chacun avec sa source et son domaine d'application. Le choix du profil par défaut et de ses sources revient au maître d'ouvrage.
 
-### 4.4 État actuel
+### 4.4 Matériaux et profils de dessin (règle, lot 3.1)
 
-L'atelier propose trois motifs (diagonales, croisées, plein) sur les contours fermés. Ils sont exportés en DXF (entités HATCH, motifs ANSI31, ANSI37 et SOLID). Le modèle matériau / motif / contexte est l'objet du lot 3.
+- Un objet peut porter un **matériau** (béton, béton armé, maçonnerie, bois, terre, acier, aluminium, isolant, verre) : un nom seulement, sans propriété physique ni réglementaire.
+- Le **profil de dessin** actif du projet associe à chaque matériau un motif. Changer de profil change l'apparence (écran, feuilles, PDF, DXF) ; le matériau de l'objet ne change jamais.
+- Chaque profil a une version, une source et un domaine ; aucun n'est présenté comme une norme. Profils fournis : « Neutre » 1.0 (par défaut, diagonales pour tout matériau — décision §7 en attente), « Enseignement — usages courants » 1.0, « Plans de présentation — aplats » 1.0.
+- Un objet sans matériau garde le motif choisi à la main. Avec un matériau, le motif vient du profil ; pour le forcer, on retire le matériau.
+- Le profil est versionné avec le projet (historique, annulation).
+
+### 4.5 État actuel
+
+Motifs disponibles : diagonales, croisées, plein, sur les contours fermés ; exportés en DXF (HATCH ANSI31, ANSI37, SOLID) et en PDF. Sur une feuille, ils sont tracés au pas papier de 3 mm. Les hachures paramétrées (angle, pas, origine, trous) sont l'objet du lot 3.2.
 
 ## 5. Cotation
 

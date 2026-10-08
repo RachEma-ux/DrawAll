@@ -12,6 +12,7 @@ import { pdimGeometry } from '@/lib/pdim';
 import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetSize } from '@/lib/sheet';
 import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
 import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
+import { occurrencePrimitives } from '@/lib/materials';
 
 export const MM_TO_PT = 72 / 25.4;
 const HATCH_SPACING = 3; // mm papier
@@ -186,7 +187,7 @@ export function sheetToPdf(input: PdfInput): string {
       if (o.kind === 'blockRef') {
         const block = blocks.find(b => b.id === o.blockId);
         if (!block) continue;
-        for (const prim of block.primitives) drawPrimitive(primitiveIn(prim, o.x, o.y, o.scale), effectiveStyle(o, layer));
+        for (const prim of occurrencePrimitives(block, o)) drawPrimitive(primitiveIn(prim, o.x, o.y, o.scale), effectiveStyle(o, layer));
         continue;
       }
       drawPrimitive(o, effectiveStyle(o, layer));

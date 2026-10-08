@@ -35,6 +35,7 @@ import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } 
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
 import { pdimGeometry } from '@/lib/pdim';
+import { occurrencePrimitives } from '@/lib/materials';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
@@ -976,8 +977,10 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale }: {
+export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix }: {
   obj: CadObject;
+  /** Préfixe des motifs de hachure (une fenêtre de feuille définit les siens, au pas papier). */
+  hatchPrefix?: string;
   unit: DisplayUnit;
   layer: Layer | undefined;
   colorMode: ColorMode;
@@ -990,14 +993,15 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   zoom: number;
 }) {
   if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
-  if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
+  if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
-  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
+  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
 }
 
-function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner, paperScale }: {
+function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner, paperScale, hatchPrefix = '' }: {
   obj: PrimitiveObject;
+  hatchPrefix?: string;
   paperScale?: DrawingScale;
   unit?: DisplayUnit;
   layer?: Layer;
@@ -1018,7 +1022,7 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
   const pattern = paperScale ? dashInModel(st.lineType, st.lineWeight, paperScale) : screenDash(st.lineType, widthPx)?.map(v => v / zoom);
   const dash = pattern ? pattern.join(' ')
     : colorMode === 'metier' && view === 'batiment' && obj.classification === 'electrique' ? `${8 / zoom} ${5 / zoom}` : undefined;
-  const hatchFill = obj.hatch === 'diagonal' ? 'url(#hatch-diagonal)' : obj.hatch === 'cross' ? 'url(#hatch-cross)' : undefined;
+  const hatchFill = obj.hatch === 'diagonal' ? `url(#${hatchPrefix}hatch-diagonal)` : obj.hatch === 'cross' ? `url(#${hatchPrefix}hatch-cross)` : undefined;
   const solidFill = obj.hatch === 'solid';
   const common = { stroke: color, strokeWidth: sw, strokeDasharray: dash };
 
@@ -1187,7 +1191,7 @@ function DimensionShape({ obj, objects, selected, zoom, layer, colorMode = 'calq
   );
 }
 
-function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, paperScale }: { obj: Extract<CadObject, { kind: 'blockRef' }>; blocks: BlockDef[]; view: ViewReading; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale }) {
+function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, paperScale, hatchPrefix }: { obj: Extract<CadObject, { kind: 'blockRef' }>; blocks: BlockDef[]; view: ViewReading; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale; hatchPrefix?: string }) {
   const block = blocks.find(b => b.id === obj.blockId);
   if (!block) {
     return (
@@ -1202,9 +1206,9 @@ function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, pa
     <g>
       <g transform={`translate(${obj.x},${obj.y}) scale(${obj.scale})`}>
         {/* Sous scale(s), une unité locale vaut s × zoom pixels : le zoom vu par la primitive est zoom × s. */}
-        {block.primitives.map(p => (
+        {occurrencePrimitives(block, obj).map(p => (
           <PrimitiveShape key={p.id} obj={p} view={view} selected={false} zoom={zoom * obj.scale} showLabel={false} layer={layer} colorMode={colorMode} owner={obj}
-            paperScale={paperScale && { paper: paperScale.paper * obj.scale, model: paperScale.model }} />
+            paperScale={paperScale && { paper: paperScale.paper * obj.scale, model: paperScale.model }} hatchPrefix={hatchPrefix} />
         ))}
       </g>
       <rect

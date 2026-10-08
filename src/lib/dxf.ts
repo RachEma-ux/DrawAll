@@ -14,6 +14,7 @@ import { dimensionGeometry, dimensionText } from '@/lib/geometry';
 import { pdimGeometry } from '@/lib/pdim';
 import { PAPER_DIMENSION_STYLE, arrowHead } from '@/lib/annotation';
 import { DEFAULT_LINE_TYPE, DEFAULT_LINE_WEIGHT, LINE_TYPES, dxfLineWeight, lineTypeDef, lineTypeFromDxf } from '@/lib/linestyle';
+import { occurrencePrimitives } from '@/lib/materials';
 
 /** Écart maximal entre un arc et la polyligne qui l'approche, en millimètres. */
 export const ARC_TOLERANCE_MM = 0.05;
@@ -160,7 +161,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       const block = blocks.find(b => b.id === object.blockId);
       if (!block) { counts.blockSkipped++; continue; }
       counts.blockRef++;
-      for (const primitive of block.primitives) writeOne(transformPrimitive(primitive, object.x, object.y, object.scale), layer);
+      for (const primitive of occurrencePrimitives(block, object)) writeOne(transformPrimitive(primitive, object.x, object.y, object.scale), layer);
       continue;
     }
     if (object.kind === 'dimension') {
