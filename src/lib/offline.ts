@@ -50,11 +50,15 @@ export async function loadProject(): Promise<SavedProject | null> {
 }
 
 /**
- * Reprise : la copie IndexedDB remplace l'état lu dans le stockage local quand son dernier
- * enregistrement n'a pas atteint le stockage local, ou quand celui-ci n'a pas de projet.
+ * Reprise : la copie IndexedDB remplace l'état lu dans le stockage local quand celui-ci n'a pas de
+ * projet, ou quand son dernier enregistrement n'a pas atteint le stockage local **et** qu'elle est
+ * plus récente que le dernier enregistrement réussi du stockage local (`localSavedAt`) : une copie
+ * IndexedDB ancienne ne fait jamais revenir en arrière.
  */
-export function shouldResume(saved: SavedProject | null, localHasProject: boolean): boolean {
-  return !!saved && (!saved.localOk || !localHasProject);
+export function shouldResume(saved: SavedProject | null, localHasProject: boolean, localSavedAt = 0): boolean {
+  if (!saved) return false;
+  if (!localHasProject) return true;
+  return !saved.localOk && saved.savedAt > localSavedAt;
 }
 
 /** Part du quota de stockage du navigateur au-delà de laquelle l'atelier avertit. */

@@ -37,6 +37,8 @@ import { objectBounds, projectBounds } from '@/lib/geometry';
 import { linkedViews } from '@/lib/views';
 
 const STORAGE_KEY = 'drawall-projet-v1';
+/** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
+const SAVED_AT_KEY = 'drawall-projet-v1-date';
 /** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
 const GEOMETRY_EPSILON = 1e-6;
 const LAYER_COLORS = ['#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185'];
@@ -344,11 +346,14 @@ export function useProject() {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     let alive = true;
-    let localHasProject = false;
-    try { localHasProject = !!localStorage.getItem(STORAGE_KEY); } catch { /* stockage local illisible */ }
+    let localHasProject = false, localSavedAt = 0;
+    try {
+      localHasProject = !!localStorage.getItem(STORAGE_KEY);
+      localSavedAt = Number(localStorage.getItem(SAVED_AT_KEY)) || 0;
+    } catch { /* stockage local illisible */ }
     loadProject()
       .then(saved => {
-        if (!alive || !shouldResume(saved, localHasProject)) return;
+        if (!alive || !shouldResume(saved, localHasProject, localSavedAt)) return;
         try { setState(normalizeProjectState(JSON.parse(saved!.json))); } catch { /* copie illisible : état local gardé */ }
       })
       .catch(() => { /* IndexedDB indisponible : stockage local seul */ })
@@ -361,10 +366,12 @@ export function useProject() {
   useEffect(() => {
     if (!hydrated) return;
     const json = JSON.stringify(state);
+    const savedAt = Date.now();
     let localOk = true;
-    try { localStorage.setItem(STORAGE_KEY, json); } catch { localOk = false; }
+    // La date accompagne l'état dans le stockage local : la reprise compare les deux copies.
+    try { localStorage.setItem(STORAGE_KEY, json); localStorage.setItem(SAVED_AT_KEY, String(savedAt)); } catch { localOk = false; }
     let alive = true;
-    saveProject({ savedAt: Date.now(), json, localOk })
+    saveProject({ savedAt, json, localOk })
       .then(() => { if (alive) setStorageFull(false); })
       .catch(() => { if (alive) setStorageFull(!localOk); })
       .finally(() => { void storageUsage().then(u => setQuotaWarning(quotaWarning(u))); });

@@ -100,12 +100,9 @@ test('lot 7.1 — un stylet pointe directement, sans décalage, même réticule 
   for (const [v, t] of [[line.x1, 0], [line.y1, 500], [line.x2, 1000], [line.y2, 500]]) expect(Math.abs(v - t) * k).toBeLessThanOrEqual(1);
 });
 
-/** Attend que le service worker contrôle la page (après un rechargement, fichiers mis en cache). */
-async function controlledBySw(page: Page) {
+/** Attend que le service worker soit actif (page et fichiers de l'application en cache dès la première visite). */
+async function swReady(page: Page) {
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
-  await page.reload();
-  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
-  await expect(page.getByTestId('canvas')).toBeVisible();
 }
 
 async function drawLine(page: Page, a: string, b: string) {
@@ -118,7 +115,8 @@ test('lot 7.2 — hors ligne : dessiner, recharger, retrouver', async ({ page, c
   test.skip(info.project.name !== 'bureau', 'recette du service worker sur un navigateur');
   const errors = await openAtelier(page);
   await loadObjects(page, []);
-  await controlledBySw(page);
+  // Première visite : aucun rechargement de plus n'est nécessaire avant de couper le réseau.
+  await swReady(page);
   await drawLine(page, '0;0', '1000;0');
   await expect.poll(async () => (await currentObjects(page)).length).toBe(1);
 
@@ -156,3 +154,4 @@ test('lot 7.2 — reprise : un enregistrement que le stockage local a manqué es
   await expect(page.getByTestId('canvas')).toBeVisible();
   await expect.poll(async () => (await currentObjects(page)).length).toBe(1);
 });
+
