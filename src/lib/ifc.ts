@@ -10,6 +10,7 @@ import { building3d, roofFaces } from './building3d';
 import { levelIdOf, levelsOf, onLevel } from './levels';
 import { ifcClassOf, type PropertySet } from './properties';
 import { areaM2, roomPolygons } from './rooms';
+import { effectiveSolid, prismVolume, solidPrisms } from './solids';
 import { wallQuad } from './wall';
 
 type P2 = [number, number];
@@ -159,10 +160,14 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
     const c = ifcClassOf(o);
     return c === 'IfcAnnotation' || c === 'IfcSpace' || c === 'IfcDoor' || c === 'IfcWindow' ? fallback : c;
   };
-  const element = (o: CadObject, cls: string, rep: string, predefined = '.NOTDEFINED.') => {
+  const element = (o: CadObject, cls: string, rep: string, predefined = '.NOTDEFINED.', fallback?: string) => {
     const st = storeys.get(levelIdOf(o))!;
     const pl = s.add(`IFCLOCALPLACEMENT(${st.pl},${axis3([0, 0, 0])})`);
-    const ref = s.add(`${cls.toUpperCase()}(${guid(o.id)},$,${stepString(o.name)},$,$,${pl},${rep},${stepString(o.id)},${predefined})`);
+    // Le type prédéfini n'appartient qu'à la classe par défaut ; une autre classe choisie : NOTDEFINED.
+    const pre = fallback === undefined || cls === fallback ? predefined : '.NOTDEFINED.';
+    // Attributs propres avant PredefinedType : diamètre et longueur nominaux (fixation), lieu d'assemblage.
+    const own = cls === 'IfcMechanicalFastener' ? '$,$,' : cls === 'IfcElementAssembly' ? '$,' : '';
+    const ref = s.add(`${cls.toUpperCase()}(${guid(o.id)},$,${stepString(o.name)},$,$,${pl},${rep},${stepString(o.id)},${own}${pre})`);
     st.contents.push(ref);
     count(cls);
     psetsOf(o, ref);
@@ -196,13 +201,13 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
     for (let i = 0; i < n; i++) ring.push(toIfc([m.positions[3 * i], m.positions[3 * i + 2]]));
     const z0 = m.positions[1] - elev, h = m.positions[3 * n + 1] - m.positions[1];
     if (o.kind === 'column' && o.section === 'circle') {
-      const ref = element(o, entityOf(o, 'IfcColumn'), circleExtruded(toIfc([o.x, o.y]), o.d! / 2, z0, h), '.COLUMN.');
+      const ref = element(o, entityOf(o, 'IfcColumn'), circleExtruded(toIfc([o.x, o.y]), o.d! / 2, z0, h), '.COLUMN.', 'IfcColumn');
       quantities(o, ref, 'Qto_ColumnBaseQuantities', [['Length', 'LENGTH', h], ['GrossVolume', 'VOLUME', (Math.PI * (o.d! / 2) ** 2 * h) / 1e9]]);
       continue;
     }
     const cls = o.kind === 'wall' ? 'IfcWall' : o.kind === 'slab' ? 'IfcSlab' : o.kind === 'column' ? 'IfcColumn' : 'IfcBeam';
     const predefined = o.kind === 'wall' ? '.STANDARD.' : o.kind === 'slab' ? '.FLOOR.' : o.kind === 'column' ? '.COLUMN.' : '.BEAM.';
-    const ref = element(o, entityOf(o, cls), extruded(ring, z0, h), predefined);
+    const ref = element(o, entityOf(o, cls), extruded(ring, z0, h), predefined, cls);
     const vol = (area(ring) * h) / 1e9;
     if (o.kind === 'wall') {
       walls.set(o.id, { ref, z0, h, wall: o });
@@ -261,8 +266,25 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
     }
   }
 
+  // Solides et occurrences (lot 19.1) : exportés quand ils se décomposent exactement en prismes
+  // verticaux (pavés, cylindres, extrusions, leurs déplacements, unions disjointes) ; les autres
+  // passent par STEP (lot 17.2). Cote relative à l'étage, comme dans le modèle.
   for (const o of objects) {
-    if (o.kind === 'solid' || o.kind === 'occurrence') report.notExported.push(`${o.id} : solide du noyau (échange par STEP, lot 17.2)`);
+    if (o.kind !== 'solid' && o.kind !== 'occurrence') continue;
+    const solid = effectiveSolid(o, objects);
+    const prisms = solid ? solidPrisms(solid.recipe) : null;
+    if (!prisms?.length) { report.notExported.push(`${o.id} : solide non prismatique (échange par STEP, lot 17.2)`); continue; }
+    const items = prisms.map(p => {
+      const profile = 'circle' in p
+        ? s.add(`IFCCIRCLEPROFILEDEF(.AREA.,$,${s.add(`IFCAXIS2PLACEMENT2D(${pt2(toIfc([p.circle.cx, p.circle.cy]))},$)`)},${stepReal(p.circle.r)})`)
+        : s.add(`IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,${polyline2(p.ring.map(toIfc))})`);
+      return s.add(`IFCEXTRUDEDAREASOLID(${profile},${axis3([0, 0, p.z0])},${dir([0, 0, 1])},${stepReal(p.h)})`);
+    });
+    const cls = entityOf(o, 'IfcBuildingElementProxy');
+    const ref = element(o, cls, shape(s.add(`IFCSHAPEREPRESENTATION(${body},'Body','SweptSolid',${list(items)})`)), '.NOTDEFINED.');
+    const vol = prisms.reduce((a, p) => a + prismVolume(p), 0) / 1e9;
+    const qto = cls === 'IfcBuildingElementProxy' ? ['Qto_BuildingElementProxyQuantities', 'NetVolume'] : SOLID_QTO.has(cls) ? [`Qto_${cls.slice(3)}BaseQuantities`, 'GrossVolume'] : null;
+    if (qto) quantities(o, ref, qto[0], [[qto[1], 'VOLUME', vol]]);
   }
   for (const [id, st] of storeys) {
     if (st.contents.length) s.add(`IFCRELCONTAINEDINSPATIALSTRUCTURE(${guid(`contenu|${id}`)},$,$,$,${list(st.contents)},${st.ref})`);
@@ -277,6 +299,9 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
   ];
   return { content: [...header, ...s.lines, 'ENDSEC;', 'END-ISO-10303-21;', ''].join('\n'), report };
 }
+
+/** Classes dont le jeu de quantités de base porte un volume brut (GrossVolume). */
+const SOLID_QTO = new Set(['IfcPlate', 'IfcMember', 'IfcFooting', 'IfcBeam', 'IfcColumn', 'IfcSlab']);
 
 function storeyHeightOf(levels: Level[], id: string): number | null {
   const sorted = [...levels].sort((a, b) => a.elevation - b.elevation);

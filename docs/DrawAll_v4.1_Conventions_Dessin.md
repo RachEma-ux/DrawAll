@@ -434,7 +434,17 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Baies** : une ouverture (`IfcOpeningElement`) évide le mur et reçoit la porte ou la fenêtre (`IfcRelFillsElement`). Elle a un volume seulement si sa hauteur de baie est saisie, et pour une fenêtre son allège aussi ; sinon la porte ou la fenêtre est exportée sans volume, et le rapport le dit.
 - **Propriétés** : chaque jeu de propriétés saisi devient un `IfcPropertySet` (texte `IfcLabel`, nombre `IfcReal`, vrai/faux `IfcBoolean` ; l'unité en description). **Quantités de base** : `Qto_WallBaseQuantities` (longueur, épaisseur, hauteur, volumes brut et net), `Qto_SlabBaseQuantities`, `Qto_ColumnBaseQuantities`, `Qto_BeamBaseQuantities`, `Qto_SpaceBaseQuantities` (surface nette au sol, §8.3).
 - **Identifiants** : `GlobalId` déterministes (projet + objet), `Tag` = identifiant DrawAll. Deux exports du même projet donnent les mêmes identifiants.
-- **Rapport** : éléments exportés par classe, et ce qui ne l'est pas, avec sa raison : élément sans hauteur, baie sans hauteur, pièce non fermée, solide du noyau (échange STEP, lot 17.2).
+- **Solides et occurrences de pièces** (lot 19.1) : exportés quand leur recette se décompose exactement en prismes verticaux. Sont concernés :
+  - le pavé, le cylindre vertical et l'extrusion ;
+  - leurs déplacements, rotations autour de la verticale, symétries et homothéties ;
+  - les assemblages et les unions de parties disjointes.
+
+  Chaque prisme devient un `IfcExtrudedAreaSolid` (contour ou cercle) de la représentation Body, à la cote du solide relative à son étage.
+  - Classe : celle choisie (par exemple `IfcPlate` pour une platine, `IfcMechanicalFastener` pour un ancrage), sinon `IfcBuildingElementProxy` (un équipement comme une armoire).
+  - Attributs propres : ceux de la classe choisie sont écrits non renseignés (`$`), par exemple le diamètre et la longueur nominaux d'une fixation. Le type prédéfini vaut `NOTDEFINED` dès que la classe n'est pas celle par défaut.
+  - Volume exact : `NetVolume` (élément générique) ou `GrossVolume` (platine, membrure, semelle, poutre, poteau, dalle). Les fixations, accessoires et mobilier n'ont pas de jeu de quantités standard portant un volume ; aucun n'est écrit.
+  - Les autres solides (booléen à recouvrement, congé, coque, balayage, lissage, STEP importé) passent par STEP (lot 17.2).
+- **Rapport** : éléments exportés par classe, et ce qui ne l'est pas, avec sa raison : élément sans hauteur, baie sans hauteur, pièce non fermée, solide non prismatique (échange STEP, lot 17.2).
 - **Preuve** : en CI, le fichier de référence est relu par IfcOpenShell 0.9.0. Le schéma, les étages et les propriétés sont vérifiés ; chaque volume et chaque surface lus dans la géométrie retrouvent la quantité exportée à 10⁻⁶ près, un cylindre étant lu comme son prisme inscrit.
 
 ### 7.6 STEP AP242 édition 3 (règle, lot 17.2)

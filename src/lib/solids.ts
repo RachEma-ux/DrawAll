@@ -555,3 +555,69 @@ export const nextPartNo = (objects: CadObject[]) => Math.max(0, ...objects.map(o
 export function partInstances(defId: string, objects: CadObject[]): string[] {
   return [defId, ...objects.filter(o => o.kind === 'occurrence' && o.sourceId === defId).map(o => o.id)];
 }
+
+/**
+ * Prisme droit vertical (lot 19.1, échange IFC) : contour du plan (ou cercle) extrudé de z0 à z0 + h.
+ */
+export type Prism = { ring: P2[]; z0: number; h: number } | { circle: { cx: number; cy: number; r: number }; z0: number; h: number };
+
+/**
+ * Décomposition exacte d'une recette en prismes verticaux, ou null : pavé, cylindre vertical,
+ * extrusion, leurs déplacements, rotations autour de la verticale, symétries et homothéties,
+ * assemblages, et unions de parties disjointes (volumes additifs). Tout autre solide (booléen à
+ * recouvrement, congé, coque, balayage…) n'est pas un assemblage de prismes : null.
+ */
+export function solidPrisms(r: SolidRecipe): Prism[] | null {
+  const mapXY = (ps: Prism[] | null, f: (p: P2) => P2, reverse = false): Prism[] | null => ps && ps.map(p => {
+    if ('circle' in p) { const [cx, cy] = f([p.circle.cx, p.circle.cy]); return { ...p, circle: { ...p.circle, cx, cy } }; }
+    const ring = p.ring.map(f);
+    return { ...p, ring: reverse ? ring.reverse() : ring };
+  });
+  switch (r.op) {
+    case 'box': {
+      const [x, y, z] = r.at ?? [0, 0, 0];
+      return r.x > 0 && r.y > 0 && r.z > 0 ? [{ ring: [[x, y], [x + r.x, y], [x + r.x, y + r.y], [x, y + r.y]], z0: z, h: r.z }] : null;
+    }
+    case 'cylinder': {
+      const [x, y, z] = r.at ?? [0, 0, 0];
+      const d = r.dir ?? [0, 0, 1];
+      if (d[0] !== 0 || d[1] !== 0 || d[2] === 0) return null;
+      return [{ circle: { cx: x, cy: y, r: r.r }, z0: d[2] > 0 ? z : z - r.h, h: r.h }];
+    }
+    case 'extrude': return [{ ring: r.profile.map(p => [p[0], p[1]] as P2), z0: r.z ?? 0, h: r.height }];
+    case 'translate': {
+      const ps = solidPrisms(r.of);
+      return ps && mapXY(ps, ([x, y]) => [x + r.by[0], y + r.by[1]])!.map(p => ({ ...p, z0: p.z0 + r.by[2] }));
+    }
+    case 'rotate': {
+      const a = (r.angle * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a), [ox, oy] = r.about;
+      return mapXY(solidPrisms(r.of), ([x, y]) => [ox + (x - ox) * c - (y - oy) * s, oy + (x - ox) * s + (y - oy) * c]);
+    }
+    case 'mirror': return mapXY(solidPrisms(r.of), ([x, y]) => (r.axis === 'x' ? [2 * r.value - x, y] : [x, 2 * r.value - y]), true);
+    case 'scale': {
+      const k = r.factor, [ax, ay, az] = r.about;
+      const ps = mapXY(solidPrisms(r.of), ([x, y]) => [ax + k * (x - ax), ay + k * (y - ay)]);
+      return ps && ps.map(p => ({ ...('circle' in p ? { circle: { ...p.circle, r: p.circle.r * k } } : { ring: p.ring }), z0: az + k * (p.z0 - az), h: p.h * k }) as Prism);
+    }
+    case 'compound': {
+      const all = r.parts.map(solidPrisms);
+      return all.every(Boolean) ? all.flat() as Prism[] : null;
+    }
+    case 'union': {
+      const a = solidPrisms(r.a), b = solidPrisms(r.b);
+      if (!a || !b) return null;
+      // Parties disjointes seulement (contact admis) : le volume de l'union est la somme.
+      const ba = recipeBounds(r.a), bb = recipeBounds(r.b);
+      const apart = [0, 1, 2].some(i => ba.max[i] <= bb.min[i] || bb.max[i] <= ba.min[i]);
+      return apart ? [...a, ...b] : null;
+    }
+    default: return null;
+  }
+}
+
+/** Volume d'un prisme (mm³). */
+export function prismVolume(p: Prism): number {
+  if ('circle' in p) return Math.PI * p.circle.r * p.circle.r * p.h;
+  const a = Math.abs(p.ring.reduce((s, q, i) => { const n = p.ring[(i + 1) % p.ring.length]; return s + q[0] * n[1] - n[0] * q[1]; }, 0)) / 2;
+  return a * p.h;
+}
