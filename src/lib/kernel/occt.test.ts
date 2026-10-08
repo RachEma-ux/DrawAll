@@ -44,6 +44,15 @@ describe('essai P0 — noyau OCCT (lot 11.2)', async () => {
     });
   }
 
+  it('coque : sommet trouvé sur le solide construit, quelle que soit la recette (ici une union)', () => {
+    const stacked: SolidRecipe = { op: 'union', a: box(100, 50, 10), b: box(100, 50, 10, [0, 0, 10]) };
+    expect(rel(kernel.volume({ op: 'shell', of: stacked, thickness: 2 }), 100 * 50 * 20 - 96 * 46 * 18)).toBeLessThan(1e-6);
+  });
+
+  it('coque : sommet courbe (cylindre couché) refusé en clair', () => {
+    expect(() => kernel.volume({ op: 'shell', of: { op: 'cylinder', r: 10, h: 40, dir: [1, 0, 0] }, thickness: 1 })).toThrow('aucune face plane horizontale');
+  });
+
   it('maillage : volume du maillage fermé (divergence) = volume du noyau', () => {
     for (const r of [CASES[0].recipe, CASES[2].recipe, CASES[9].recipe]) {
       const m = kernel.mesh(r, 0.01);

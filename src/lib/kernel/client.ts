@@ -16,8 +16,19 @@ type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
 
 function call(req: WithoutId<KernelRequest>): Promise<KernelResponse> {
   if (!worker) {
-    worker = new Worker(new URL('./kernel.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (e: MessageEvent<KernelResponse>) => { pending.get(e.data.id)?.resolve(e.data); pending.delete(e.data.id); };
+    const w = new Worker(new URL('./kernel.worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (e: MessageEvent<KernelResponse>) => { pending.get(e.data.id)?.resolve(e.data); pending.delete(e.data.id); };
+    // Worker qui ne se charge pas (module introuvable hors ligne, politique de sécurité) ou qui
+    // s'arrête : chaque demande en attente reçoit une erreur, et le prochain appel recrée le Worker.
+    const fail = (why: string) => {
+      w.terminate();
+      if (worker === w) worker = null;
+      for (const [id, p] of pending) p.resolve({ id, ok: false, error: `Noyau 3D indisponible : ${why}` });
+      pending.clear();
+    };
+    w.onerror = e => { e.preventDefault?.(); fail(e.message || 'le module du noyau n’a pas pu être chargé'); };
+    w.onmessageerror = () => fail('message illisible');
+    worker = w;
   }
   const id = next++;
   return new Promise(resolve => { pending.set(id, { resolve }); worker!.postMessage({ ...req, id }); });
