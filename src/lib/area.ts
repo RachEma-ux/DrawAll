@@ -107,6 +107,8 @@ export function measureObject(o: CadObject): Measure | null {
       const points = o.points;
       return isClosedPolyline(o) ? measurePolygon(points) : { closed: false, length: pathLength(points, false) };
     }
+    // Dalle (lot 13.1) : aire et périmètre de son contour fermé.
+    case 'slab': return measurePolygon([...o.points, o.points[0], o.points[1]]);
     default: return null;
   }
 }

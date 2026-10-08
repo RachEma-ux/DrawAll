@@ -187,6 +187,16 @@ function collectObjectSnaps(
       add('center', object.cx, object.cy);
       return;
     }
+    case 'slab': {
+      // Dalle (lot 13.1) : contour fermé, sommets et milieux des côtés, côté de fermeture compris.
+      const p = object.points, n = p.length / 2;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        add('endpoint', p[2 * i], p[2 * i + 1]);
+        add('midpoint', (p[2 * i] + p[2 * j]) / 2, (p[2 * i + 1] + p[2 * j + 1]) / 2);
+      }
+      return;
+    }
     case 'polyline':
       for (let i = 0; i + 1 < object.points.length; i += 2) add('endpoint', object.points[i], object.points[i + 1]);
       for (let i = 0; i + 3 < object.points.length; i += 2) {
@@ -307,6 +317,11 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
       // Arêtes d'accrochage : polyligne à 0,01 mm de la courbe.
       const pts = object.kind === 'spline' ? splineSamples(object) : ellipseSamples(object);
       for (let i = 0; i + 1 < pts.length; i++) segments.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y, objectId: object.id, curve: true });
+      return;
+    }
+    case 'slab': {
+      const p = object.points, n = p.length / 2;
+      for (let i = 0; i < n; i++) { const j = (i + 1) % n; segments.push({ x1: p[2 * i], y1: p[2 * i + 1], x2: p[2 * j], y2: p[2 * j + 1], objectId: object.id }); }
       return;
     }
     case 'polyline':
@@ -530,6 +545,7 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
     case 'arc': return arcBounds(object);
     case 'ellipse': return ellipseBounds(object);
     case 'spline': return splineBounds(object);
+    case 'slab':
     case 'polyline': {
       const pts: Point[] = [];
       for (let i = 0; i + 1 < object.points.length; i += 2) pts.push({ x: object.points[i], y: object.points[i + 1] });
@@ -711,6 +727,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'arc':
     case 'ellipse': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'spline':
+    case 'slab':
     case 'polyline': return { points: object.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)) };
     case 'dimension': return { offset: object.offset + (object.style === 'vertical' ? dx : dy) };
     case 'pdim': return transformPdim(object, q => ({ x: q.x + dx, y: q.y + dy })) ?? {};
@@ -794,6 +811,7 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
       const p = rotatePoint(object.cx, object.cy, cx, cy, rad);
       return { cx: p.x, cy: p.y, rotation: norm360(object.rotation - angleDeg) };
     }
+    case 'slab':
     case 'polyline': {
       const points: number[] = [];
       for (let i = 0; i + 1 < object.points.length; i += 2) {
@@ -882,6 +900,7 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
         ? { cx: mx(object.cx), rotation: norm360(180 - object.rotation), ...params }
         : { cy: mx(object.cy), rotation: norm360(-object.rotation), ...params };
     }
+    case 'slab':
     case 'polyline':
       return { points: object.points.map((v, i) => (i % 2 === 0) === (axis === 'x') ? mx(v) : v) };
     case 'underlay':
@@ -937,6 +956,8 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'arc': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'ellipse': return { cx: s(object.cx, cx), cy: s(object.cy, cy), rx: round(object.rx * factor), ry: round(object.ry * factor) };
     case 'spline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
+    // Dalle : homothétie en volume, l'épaisseur suit le contour.
+    case 'slab': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)), thickness: round(object.thickness * factor) };
     case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
     case 'blockRef': return { x: s(object.x, cx), y: s(object.y, cy), scale: round(object.scale * factor) };
     case 'dimension': return { offset: round(object.offset * factor) };
@@ -980,6 +1001,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
       if (!(r > 0)) return null;
       return { r };
     }
+    case 'slab':
     case 'polyline':
     case 'ellipse': // le décalé d'une ellipse ou d'une spline n'est pas du même type (lot 10.4)
     case 'spline':

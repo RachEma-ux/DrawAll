@@ -28,6 +28,11 @@ export function loopOf(o: CadObject, segments?: number): Loop | null {
       }
       return out;
     }
+    case 'slab': {
+      const out: Loop = [];
+      for (let i = 0; i + 1 < o.points.length; i += 2) out.push({ x: o.points[i], y: o.points[i + 1] });
+      return out;
+    }
     case 'polyline': {
       if (!isClosedPolyline(o)) return null;
       const out: Loop = [];

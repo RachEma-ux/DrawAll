@@ -39,6 +39,7 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
       return p && { x1: p[0], y1: p[1], x2: p[2], y2: p[3] };
     }
     case 'polyline':
+    case 'slab':
     case 'spline':
     case 'pdim': {
       const p = stretchPoints(o.points, w, dx, dy);
@@ -97,7 +98,7 @@ export function stretchAll(objects: CadObject[], w: Window, dx: number, dy: numb
 function vertices(o: CadObject): { x: number; y: number }[] {
   switch (o.kind) {
     case 'line': case 'wall': case 'section': return [{ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }];
-    case 'polyline': case 'spline': case 'pdim': {
+    case 'polyline': case 'slab': case 'spline': case 'pdim': {
       const out: { x: number; y: number }[] = [];
       for (let i = 0; i + 1 < o.points.length; i += 2) out.push({ x: o.points[i], y: o.points[i + 1] });
       return out;

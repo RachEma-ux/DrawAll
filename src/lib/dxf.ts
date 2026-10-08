@@ -9,6 +9,7 @@
 // Convention : DrawAll travaille en Y descendant (SVG), DXF en Y ascendant.
 import type { BlockDef, CadObject, Layer, OpeningObj, PrimitiveObject, TextAlign, TextObj, WallObj } from '@/types/cad';
 import { textLines } from '@/lib/text';
+import { slabAsPolyline } from '@/lib/slab';
 import { norm360 } from '@/lib/arc';
 import { affineEllipse } from '@/lib/ellipse';
 import { isValidSpline, knotsOf } from '@/lib/spline';
@@ -393,7 +394,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       if (pseudo.hatch && pseudo.hatch !== 'none' && writeHatch(entityHeader, push, pseudo, layer, islands, hatchScale)) counts.hatch++;
       continue;
     }
-    writeOne(object, layer);
+    // Dalle (lot 13.1) : contour fermé en LWPOLYLINE.
+    writeOne(object.kind === 'slab' ? slabAsPolyline(object) as PrimitiveObject : object, layer);
   }
   push(0, 'ENDSEC'); push(0, 'EOF');
 

@@ -468,6 +468,18 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - DXF : traits (LINE), cercle (CIRCLE), surfaces pleines (SOLID) et textes (TEXT) à la taille papier de l'échelle de la première fenêtre (1:1 sans feuille) ; le rapport d'échange l'indique.
 - Bibliothèque bâtiment : lits, table, WC, lavabo, évier, douche, baignoire, en blocs ordinaires du projet. Leurs dimensions sont des gabarits courants indicatifs, non normatifs, à remplacer par celles du fabricant ; la définition le rappelle.
 
+### 8.6 Dalles et planchers (règle, lot 13.1)
+
+- **Outil « Dalle »** (niveaux contextuel et complet, palette), deux modes :
+  - **Depuis une pièce** : toucher l'intérieur d'une pièce reprend son contour intérieur des murs. Le contour est copié, non associatif, et la pièce d'origine est notée (`roomId`). Hors de toute pièce, rien n'est créé et la raison est donnée.
+  - **Contour point par point**, puis Terminer : contour fermé d'au moins trois sommets et d'aire non nulle. Un dernier point qui répète le premier est retiré.
+- **Épaisseur** : elle est saisie dans le panneau de l'outil (200 mm proposés) et modifiable dans l'inspecteur. La dalle est rattachée au niveau actif ; son dessus est à l'altitude de ce niveau.
+- **Quantités** (inspecteur) : surface du contour (m², deux décimales) et volume = surface × épaisseur (m³, trois décimales). Elles sont calculées sur le contour tel quel, sans déduction de trémies ni de jonctions avec les murs.
+- **Représentation.**
+  - En plan, la dalle est dessinée par son contour fermé (hachurable). Ses sommets et milieux de côtés sont accrochables. Elle se déplace, s'étire, tourne et se met à l'échelle comme une polyligne.
+  - Export DXF : LWPOLYLINE fermée.
+  - Classe IFC par défaut : `IfcSlab`.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

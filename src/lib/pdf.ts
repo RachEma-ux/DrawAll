@@ -5,6 +5,7 @@
 import type { BlockDef, CadObject, Layer, Level, MicroVersion, OpeningObj, PrimitiveObject, Sheet, TextObj, Viewport, WallObj } from '@/types/cad';
 import { dimensionValue, isClosedPolyline } from '@/types/cad';
 import { dimensionGeometry, primitiveBounds } from '@/lib/geometry';
+import { slabAsPolyline } from '@/lib/slab';
 import { arcSweep } from '@/lib/arc';
 import { ellipseBeziers, isFullEllipse } from '@/lib/ellipse';
 import { splineSamples } from '@/lib/spline';
@@ -290,7 +291,7 @@ export function sheetToPdf(input: PdfInput): string {
         for (const prim of occurrencePrimitives(block, o)) drawPrimitive(primitiveIn(prim, o.x, o.y, o.scale), effectiveStyle(o, layer));
         continue;
       }
-      drawPrimitive(o, effectiveStyle(o, layer), (o.holes ?? []).map(id => objects.find(x => x.id === id)).filter((x): x is CadObject => !!x));
+      drawPrimitive(o.kind === 'slab' ? slabAsPolyline(o) as PrimitiveObject : o, effectiveStyle(o, layer), (o.holes ?? []).map(id => objects.find(x => x.id === id)).filter((x): x is CadObject => !!x));
     }
     out('Q');
 
