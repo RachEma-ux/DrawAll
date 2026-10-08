@@ -3,8 +3,9 @@
 // séparé, chargé à la demande et remplaçable (décision de licence du maître d'ouvrage, feuille de
 // route §7). Ce fichier n'est importé que par le Worker du noyau et par les tests.
 import opencascade from 'replicad-opencascadejs';
-import { FaceFinder, draw, makeBaseBox, makeCylinder, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
+import { FaceFinder, cast, draw, getOC, iterTopo, makeBaseBox, makeCylinder, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
 import type { EdgeRef, FaceRef, MeshResult, SolidRecipe, Vec3 } from './recipe';
+import { inventory, parseStepFile, type StepInventory } from './step-file';
 import { edgeLabel, faceLabel, featureSupports, pointOnSupport, supportOf, surfaceTypeOf, type RefReport, type Support, type Supports } from './references';
 
 /** Référence non résolue : l'opération n'est pas appliquée, la référence est à réparer (lot 11.3). */
@@ -25,8 +26,27 @@ export interface Kernel {
    * une référence est à réparer est sautée (son solide d'entrée passe tel quel) ; rien n'est réattribué.
    */
   references(recipe: SolidRecipe): RefReport[];
+  /** Import d'un fichier STEP : solides transférés (en mm) et compte rendu des pertes (lot 11.4). */
+  importStep(text: string): StepImportReport;
   /** Durée du chargement du module (ms). */
   loadMs: number;
+}
+
+export interface StepSolid { volume: number; valid: boolean; center: Vec3; size: Vec3 }
+
+export interface StepImportReport {
+  status: 'importé' | 'importé avec pertes' | 'échec';
+  error?: string;
+  /** Lecture du texte (produits, assemblage, unités, contenus non transférés) ; absente si illisible. */
+  inventory?: StepInventory;
+  roots: number;
+  rootsTransferred: number;
+  /** Solides transférés, en millimètres, placements d'assemblage appliqués. */
+  solids: StepSolid[];
+  totalVolume: number;
+  /** Pertes signalées, en clair. */
+  losses: string[];
+  ms: number;
 }
 
 let loading: Promise<Kernel> | null = null;
@@ -200,10 +220,69 @@ function makeKernel(loadMs: number): Kernel {
         return { vertices: Array.from(m.vertices), triangles: Array.from(m.triangles) };
       } finally { s.delete(); }
     },
+    importStep: text => importStep(text),
     references: r => {
       const report: RefReport[] = [];
       build(r, report).delete();
       return report;
     },
   };
+}
+
+const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
+
+/** Lit un fichier STEP par le noyau ; la lecture du texte complète ce que le noyau ne rend pas. */
+function importStep(text: string): StepImportReport {
+  const t0 = performance.now();
+  const losses: string[] = [];
+  let inv: StepInventory | undefined, parseError: string | undefined;
+  try { inv = inventory(parseStepFile(text)); } catch (e) { parseError = e instanceof Error ? e.message : String(e); }
+  const oc = getOC();
+  const file = `import-${Math.random().toString(36).slice(2)}.step`;
+  oc.FS.writeFile(`/${file}`, new TextEncoder().encode(text));
+  const reader = new oc.STEPControl_Reader();
+  const solids: StepSolid[] = [];
+  let roots = 0, rootsTransferred = 0;
+  const done = (status: StepImportReport['status'], error?: string): StepImportReport => ({
+    status, ...(error ? { error } : {}), ...(inv ? { inventory: inv } : {}), roots, rootsTransferred, solids,
+    totalVolume: r6(solids.reduce((s, x) => s + x.volume, 0)), losses, ms: Math.round((performance.now() - t0) * 10) / 10,
+  });
+  try {
+    const status = reader.ReadFile(file);
+    if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) return done('échec', parseError ?? `lecture refusée par le noyau (${String(status)})`);
+    if (parseError) losses.push(`structure du fichier illisible : ${parseError}`);
+    roots = reader.NbRootsForTransfer();
+    for (let i = 1; i <= roots; i++) {
+      const progress = new oc.Message_ProgressRange();
+      if (reader.TransferRoot(i, progress)) rootsTransferred++;
+      progress.delete();
+    }
+    if (reader.NbShapes() > 0) {
+      const shape = reader.OneShape();
+      for (const s of iterTopo(shape, 'solid')) {
+        const solid = cast(s) as Shape3D;
+        const check = new oc.BRepCheck_Analyzer(s, true, false, false);
+        const bb = solid.boundingBox;
+        solids.push({ volume: r6(measureVolume(solid)), valid: check.IsValid(), center: bb.center.map(r6) as Vec3, size: [r6(bb.width), r6(bb.height), r6(bb.depth)] });
+        check.delete(); bb.delete(); solid.delete();
+      }
+      shape.delete();
+    }
+  } finally {
+    reader.delete();
+    oc.FS.unlink(`/${file}`);
+  }
+  if (rootsTransferred < roots) losses.push(`${roots - rootsTransferred} racine(s) sur ${roots} non transférée(s)`);
+  if (inv) {
+    for (const [cat, n] of Object.entries(inv.notTransferred)) losses.push(`${cat} : ${n} entité(s) non importée(s)`);
+    if (inv.danglingRefs.length) {
+      const d = inv.danglingRefs[0];
+      losses.push(`${inv.danglingRefs.length} référence(s) vers des entités absentes du fichier (ex. #${d.to}, citée par #${d.from})`);
+    }
+    if (solids.length < inv.leafOccurrences) losses.push(`${inv.leafOccurrences - solids.length} occurrence(s) de pièce sur ${inv.leafOccurrences} sans solide transféré`);
+  }
+  const invalid = solids.filter(s => !s.valid).length;
+  if (invalid) losses.push(`${invalid} solide(s) invalide(s) au contrôle du noyau`);
+  if (!solids.length) return done('échec', 'aucun solide transféré');
+  return done(losses.length ? 'importé avec pertes' : 'importé');
 }
