@@ -3,7 +3,7 @@
 // quelle) ; chaque autre version ne porte que ce qui change par rapport à la précédente : objets
 // ajoutés ou modifiés, identifiants retirés, ordre s'il change, autres champs remplacés s'ils
 // changent. En mémoire, les versions partagent les objets inchangés (aucune copie complète).
-import type { CadObject, MicroVersion, ProjectState } from '@/types/cad';
+import type { Branch, CadObject, MicroVersion, ProjectState } from '@/types/cad';
 
 const META = new Set(['seq', 'label', 'time', 'named', 'index']);
 
@@ -69,21 +69,38 @@ export function applyDelta(prev: MicroVersion, m: Pick<MicroVersion, 'seq' | 'la
   return out as unknown as MicroVersion;
 }
 
-/** État à enregistrer : historique par différences (première et courante versions en entier). */
-export function encodeHistory(state: ProjectState): Omit<ProjectState, 'versions'> & { versions: StoredVersion[] } {
-  const versions: StoredVersion[] = state.versions.map((v, i) =>
-    i === 0 || i === state.pointer ? v : { ...meta(v), delta: diffVersion(state.versions[i - 1], v) });
-  return { ...state, versions };
-}
+const encodeVersions = (versions: MicroVersion[], pointer: number): StoredVersion[] =>
+  versions.map((v, i) => (i === 0 || i === pointer ? v : { ...meta(v), delta: diffVersion(versions[i - 1], v) }));
 
-/** État reconstruit : chaque version entière, objets inchangés partagés avec la précédente. */
-export function decodeHistory<T extends { versions: unknown[] }>(stored: T): T {
+function decodeVersions(stored: StoredVersion[]): MicroVersion[] {
   const out: MicroVersion[] = [];
-  for (const raw of stored.versions as StoredVersion[]) {
+  for (const raw of stored) {
     if ('delta' in raw && raw.delta && out.length) {
       const { delta, ...m } = raw;
       out.push(applyDelta(out[out.length - 1], m, delta));
     } else out.push(raw as MicroVersion);
   }
-  return { ...stored, versions: out };
+  return out;
+}
+
+/**
+ * État à enregistrer : historique par différences (première et courante versions en entier), pour la
+ * branche active comme pour chaque branche rangée (lot 14.1).
+ */
+export function encodeHistory(state: ProjectState): Omit<ProjectState, 'versions' | 'branches'> & { versions: StoredVersion[]; branches?: (Omit<Branch, 'versions'> & { versions: StoredVersion[] })[] } {
+  return {
+    ...state,
+    versions: encodeVersions(state.versions, state.pointer),
+    ...(state.branches ? { branches: state.branches.map(b => ({ ...b, versions: encodeVersions(b.versions, b.pointer) })) } : {}),
+  };
+}
+
+/** État reconstruit : chaque version entière, objets inchangés partagés avec la précédente. */
+export function decodeHistory<T extends { versions: unknown[] }>(stored: T): T {
+  const branches = (stored as { branches?: unknown }).branches;
+  return {
+    ...stored,
+    versions: decodeVersions(stored.versions as StoredVersion[]),
+    ...(Array.isArray(branches) ? { branches: branches.map(b => (b && typeof b === 'object' && Array.isArray(b.versions) ? { ...b, versions: decodeVersions(b.versions) } : b)) } : {}),
+  };
 }

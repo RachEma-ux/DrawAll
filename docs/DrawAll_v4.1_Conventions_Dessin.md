@@ -594,6 +594,18 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - En lecture, la synchronisation est refusée ; « Enregistrer comme nouveau » crée une copie dont le compte est propriétaire. En écriture, les enregistrements concurrents restent arbitrés par la révision (§ conflits) : rien n'est écrasé.
 - Les commentaires sont ancrés sur un objet (identifiant `OBJ-…`), stockés côté serveur (hors du dessin et de ses exports), visibles de tous les membres dans l'inspecteur. Un commentaire est résolu ou rouvert par son auteur ou par un droit d'écriture.
 
+### 10.5 Variantes (branches) (règle, lot 14.1)
+
+- **Création** (panneau Historique, « Variante ») : une variante part de la version courante. Pour partir d'une version antérieure, on s'y place d'abord dans l'historique.
+  - Son historique reprend les versions jusqu'à celle-ci, partagées sans copie.
+  - La variante créée devient active ; elle note sa branche et sa version d'origine.
+  - La branche quittée est rangée intacte, versions postérieures comprises.
+- **Bascule** : choisir une variante range l'active avec sa position et reprend l'autre là où elle avait été laissée. Annuler et rétablir agissent dans la branche active seulement.
+- **Identifiants** : le compteur est commun à toutes les branches. Deux variantes ne créent jamais deux objets de même identifiant, ce qui prépare leur comparaison et leur fusion (lot 14.2).
+- **Suppression** : une variante rangée se supprime avec son historique, après confirmation ; la variante active ne se supprime pas.
+- **Enregistrement** : les branches sont enregistrées (historique par différences, §10.1) et conservées par le paquet natif (aller-retour octet pour octet).
+- Se placer sur une version antérieure puis modifier abandonne les versions en avance de la branche, et le diagnostic le rappelle. Pour les garder, créer d'abord une variante.
+
 ## 11. Références
 
 | Sujet | Référence |

@@ -9,6 +9,7 @@ import {
   type GeoConstraint,
   type PolylineObj,
   type Zone,
+  type Branch,
   type Asset,
   type Layer,
   type Level,
@@ -48,6 +49,7 @@ import { bindConstraintValues, constraintExprError, usesOf } from '@/lib/params/
 import { isIfcClass, normalizePsets } from '@/lib/properties';
 import { isHexColor } from '@/lib/zones';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
+import { allVersions, branchList, createBranch, removeBranch, switchBranch } from '@/lib/branches';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -301,25 +303,41 @@ export function normalizeProjectState(raw: unknown): ProjectState {
       });
     if (versions.length > 0) {
       const pointer = Math.max(0, Math.min(versions.length - 1, Number(p.pointer ?? versions.length - 1)));
-      // Objets distincts (partagés entre versions) ; maximum calculé sans étaler de grands tableaux
-      // en arguments (un long historique dépasserait la pile d'appels).
-      const allObjects = new Set(versions.flatMap(v => v.objects));
-      const allLayers = new Set(versions.flatMap(v => v.layers));
-      const allBlocks = new Set(versions.flatMap(v => v.blocks));
       const maxOf = <T,>(items: Iterable<T>, f: (x: T) => number, floor: number) => { let m = floor; for (const x of items) { const v = f(x); if (v > m) m = v; } return m; };
       const currentLayers = versions[pointer].layers;
       const activeLayerId = currentLayers.some(l => l.id === p.activeLayerId)
         ? p.activeLayerId!
         : currentLayers[0].id;
+      // Branches rangées (lot 14.1) : chacune normalisée comme un historique ; les compteurs
+      // d'identifiants couvrent toutes les branches (jamais deux objets de même identifiant).
+      const branches: Branch[] = [];
+      for (const b of Array.isArray(p.branches) ? p.branches : []) {
+        if (!b || typeof b !== 'object' || typeof b.id !== 'string' || typeof b.name !== 'string' || !Array.isArray(b.versions) || !b.versions.length) continue;
+        if (branches.some(x => x.id === b.id) || (p.branch?.id ?? 'BR-0000') === b.id) continue;
+        const n = normalizeProjectState({ ...p, versions: b.versions, pointer: b.pointer, branches: undefined, branch: undefined } as ProjectState);
+        const from = b.from && typeof b.from.branchId === 'string' && Number.isFinite(b.from.seq) ? { branchId: b.from.branchId, seq: b.from.seq } : undefined;
+        branches.push({ id: b.id, name: b.name, ...(from ? { from } : {}), versions: n.versions, pointer: n.pointer });
+      }
+      // Objets distincts (partagés entre versions) ; maximum calculé sans étaler de grands tableaux
+      // en arguments (un long historique dépasserait la pile d'appels).
+      const everywhere = [...versions, ...branches.flatMap(b => b.versions)];
+      const objectsAll = new Set(everywhere.flatMap(v => v.objects));
+      const layersAll = new Set(everywhere.flatMap(v => v.layers));
+      const blocksAll = new Set(everywhere.flatMap(v => v.blocks));
+      const branch = p.branch && typeof p.branch.id === 'string' && typeof p.branch.name === 'string'
+        ? { id: p.branch.id, name: p.branch.name, ...(p.branch.from && typeof p.branch.from.branchId === 'string' && Number.isFinite(p.branch.from.seq) ? { from: { branchId: p.branch.from.branchId, seq: p.branch.from.seq } } : {}) }
+        : undefined;
       return {
         versions,
         pointer,
-        counter: maxOf(allObjects, o => numericSuffix(o.id, 'OBJ'), Math.max(Number(p.counter ?? 0) || 0, 0)),
-        layerCounter: maxOf(allLayers, l => numericSuffix(l.id, 'LAY'), Math.max(Number(p.layerCounter ?? 0) || 0, currentLayers.length)),
-        blockCounter: maxOf(allBlocks, b => numericSuffix(b.id, 'BLQ'), Math.max(Number(p.blockCounter ?? 0) || 0, 0)),
+        counter: maxOf(objectsAll, o => numericSuffix(o.id, 'OBJ'), Math.max(Number(p.counter ?? 0) || 0, 0)),
+        layerCounter: maxOf(layersAll, l => numericSuffix(l.id, 'LAY'), Math.max(Number(p.layerCounter ?? 0) || 0, currentLayers.length)),
+        blockCounter: maxOf(blocksAll, b => numericSuffix(b.id, 'BLQ'), Math.max(Number(p.blockCounter ?? 0) || 0, 0)),
         activeLayerId,
         ...(typeof p.activeLevelId === 'string' ? { activeLevelId: p.activeLevelId } : {}),
         ...(normalizeAssets(p.assets) ? { assets: normalizeAssets(p.assets) } : {}),
+        ...(branch ? { branch } : {}),
+        ...(branches.length ? { branches } : {}),
       };
     }
   }
@@ -1070,7 +1088,7 @@ export function useProject() {
     const hidden = layers.filter(l => !l.visible);
     if (hidden.length > 0) out.push({ level: 'info', text: `${hidden.length} calque(s) masqué(s) : ${hidden.map(l => l.name).join(', ')}.` });
     if (state.pointer < state.versions.length - 1) {
-      out.push({ level: 'info', text: `Position historique : ${state.versions.length - 1 - state.pointer} microversion(s) en avance — toute modification créera une branche.` });
+      out.push({ level: 'info', text: `Position historique : ${state.versions.length - 1 - state.pointer} microversion(s) en avance — une modification les abandonnera ; créez une variante pour les garder.` });
     }
     if (out.length === 0) out.push({ level: 'info', text: 'Aucun problème détecté sur la révision courante.' });
     return out;
@@ -1078,7 +1096,8 @@ export function useProject() {
 
   // ─── Feuilles et fenêtres ────────────────────────────────────────────────────
   // Identifiants jamais réutilisés, même après suppression puis annulation.
-  const versions = state.versions;
+  // Identifiants attribués sur l'ensemble des branches : jamais repris d'une variante à l'autre.
+  const versions = useMemo(() => allVersions(state), [state]);
   const allSheetIds = useMemo(() => versions.flatMap(v => (v.sheets ?? []).map(sh => sh.id)), [versions]);
   const allViewportIds = useMemo(() => versions.flatMap(v => (v.sheets ?? []).flatMap(sh => sh.viewports.map(vp => vp.id))), [versions]);
 
@@ -1346,7 +1365,21 @@ export function useProject() {
     });
   }, [allObjects, zones, commit]);
 
+  // ─── Branches (lot 14.1) ─────────────────────────────────────────────────────
+  const branches = useMemo(() => branchList(state), [state]);
+  const apply = useCallback((r: ProjectState | { error: string }): string | null => {
+    if ('error' in r) return r.error;
+    setState(r);
+    setSelectedIds([]);
+    return null;
+  }, [setSelectedIds]);
+  /** Nouvelle variante depuis la version d'indice `index` (par défaut la courante) ; elle devient active. */
+  const createVariant = useCallback((name: string, index?: number) => apply(createBranch(state, name, index ?? state.pointer)), [state, apply]);
+  const switchVariant = useCallback((id: string) => apply(switchBranch(state, id)), [state, apply]);
+  const removeVariant = useCallback((id: string) => apply(removeBranch(state, id)), [state, apply]);
+
   return {
+    branches, createVariant, switchVariant, removeVariant,
     zones, addZone, updateZone, removeZone, setRoomZone,
     constraints, addConstraint, removeConstraint, setConstraintExpr,
     parameters, addParameter, updateParameter, removeParameter,
