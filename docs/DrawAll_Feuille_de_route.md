@@ -254,7 +254,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 10.4 Décalage à distance saisie | Fait | #51 |
 | 10.5 Groupes | Fait | #52 |
 | 10.6 Main levée | Fait | #53 |
-| 11.1 Solveur de contraintes (essai P0) | À faire | — |
+| 11.1 Solveur de contraintes (essai P0) | Fait (compte rendu `docs/p0/11.1-solveur.md` ; choix proposé : solveur DrawAll, planegcs gardé en oracle de test) | #54 |
 | 11.2 Noyau : chargement, mémoire, cas difficiles | À faire | — |
 | 11.3 Références topologiques | À faire | — |
 | 11.4 Import de référence | À faire | — |
