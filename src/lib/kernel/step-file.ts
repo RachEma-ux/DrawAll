@@ -89,9 +89,13 @@ function parseInstance(body: string): StepEntity | null {
 export function parseStepFile(text: string): StepFile {
   if (!/^\s*ISO-10303-21\s*;/.test(text)) throw new Error('Fichier STEP invalide : en-tête ISO-10303-21 absent.');
   if (!/END-ISO-10303-21\s*;\s*$/.test(text)) throw new Error('Fichier STEP incomplet : marque de fin END-ISO-10303-21 absente (fichier tronqué ?).');
-  const header = /HEADER\s*;([\s\S]*?)ENDSEC\s*;/.exec(text)?.[1] ?? '';
-  const data = /DATA\s*;([\s\S]*?)ENDSEC\s*;/.exec(text)?.[1];
-  if (data === undefined) throw new Error('Fichier STEP invalide : section DATA absente.');
+  const head = /HEADER\s*;([\s\S]*?)ENDSEC\s*;/.exec(text);
+  const header = head?.[1] ?? '';
+  // Sections DATA : une ou plusieurs (édition 3 de la Part 21), éventuellement paramétrées
+  // « DATA('nom', ('schéma')); » ; toutes sont lues, après l'en-tête.
+  const body = head ? text.slice(head.index + head[0].length) : text;
+  const sections = [...body.matchAll(/\bDATA\s*(?:\((?:[^()']|'(?:[^']|'')*'|\((?:[^()']|'(?:[^']|'')*')*\))*\))?\s*;([\s\S]*?)ENDSEC\s*;/g)].map(m => m[1]);
+  if (!sections.length) throw new Error('Fichier STEP invalide : section DATA absente.');
   let schemas: string[] = [], originatingSystem = '';
   for (const st of statements(header)) {
     const e = parseInstance(st);
@@ -101,7 +105,7 @@ export function parseStepFile(text: string): StepFile {
     if (e.types[0] === 'FILE_NAME') originatingSystem = stepString(a[5]);
   }
   const entities = new Map<number, StepEntity>();
-  for (const st of statements(data)) {
+  for (const st of sections.flatMap(statements)) {
     const m = /^#(\d+)\s*=\s*([\s\S]+)$/.exec(st);
     if (!m) continue;
     const e = parseInstance(m[2].trim());

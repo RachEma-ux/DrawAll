@@ -24,6 +24,18 @@ describe('lecture du texte STEP (sans noyau)', () => {
   it('DIMENSIONAL_EXPONENTS (dimension d’une unité) n’est pas une annotation', () => {
     expect(inventory(parseStepFile(read('assemblage-pouce.step'))).notTransferred).toEqual({ 'couleurs et styles': 2 });
   });
+  it('plusieurs sections DATA (dont une paramétrée) : toutes lues, références croisées résolues', () => {
+    const text = read('assemblage-mm.step');
+    const lines = text.split('\n');
+    // Coupe de la section DATA en deux, entre deux entités, la seconde paramétrée.
+    const cut = lines.findIndex((l, i) => i > lines.length / 2 && /^#\d+ = /.test(l));
+    const split = [...lines.slice(0, cut), 'ENDSEC;', "DATA('suite',('AUTOMOTIVE_DESIGN'));", ...lines.slice(cut)].join('\n');
+    const one = inventory(parseStepFile(text)), two = inventory(parseStepFile(split));
+    expect(two.entityCount).toBe(one.entityCount);
+    expect(two.danglingRefs).toEqual([]);
+    expect(two.tree).toEqual(one.tree);
+    expect(two.lengthUnits).toEqual(one.lengthUnits);
+  });
   it('fichier tronqué : refusé avec sa raison', () => {
     expect(() => parseStepFile(read('tronque.step'))).toThrow(/incomplet/);
   });
