@@ -5,6 +5,13 @@ export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dime
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
+
+/**
+ * Hachure paramétrée : angle (degrés, antihoraire depuis +X), pas entre traits, unité du pas
+ * (« papier » : constant sur la feuille quelle que soit l'échelle ; « modèle » : dimension réelle,
+ * par exemple un calepinage), origine du motif dans le modèle.
+ */
+export interface HatchParams { angle: number; spacing: number; unit: 'papier' | 'modele'; originX?: number; originY?: number }
 export type DimensionStyle = 'horizontal' | 'vertical' | 'aligned' | 'radial';
 
 // Ontologies activables (Architecture §4) — deux lectures d'un même objet
@@ -41,6 +48,10 @@ interface Base {
   createdSeq: number;      // microversion de création
   /** Matériau (bibliothèque src/lib/materials.ts) ; le motif affiché en découle par le profil de dessin. */
   materialId?: string;
+  /** Paramètres des hachures (lot 3.2) ; absents = 45°, pas papier de 3 mm. */
+  hatchParams?: HatchParams;
+  /** Îlots non hachurés : identifiants de contours fermés situés dans l'objet. */
+  holes?: string[];
   // Propriétés de trait propres à l'objet ; absentes = « du calque ».
   color?: string;
   lineType?: LineType;

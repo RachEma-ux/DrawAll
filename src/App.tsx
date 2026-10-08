@@ -273,7 +273,9 @@ function Workbench() {
   }, [project]);
 
   const exportDxf = useCallback(() => {
-    const { content, report } = exportDxfFile(shownObjects, project.layers, shownBlocks);
+    // Pas de hachure papier : convertis à l'échelle de la première fenêtre de feuille, sinon 1:1.
+    const vp = project.sheets.flatMap(sh => sh.viewports)[0];
+    const { content, report } = exportDxfFile(shownObjects, project.layers, shownBlocks, { hatchPaperScale: vp ? vp.scale.model / vp.scale.paper : 1 });
     const blob = new Blob([content], { type: 'application/dxf' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -283,7 +285,7 @@ function Workbench() {
     if (report.transformed.length > 0 || report.lost.length > 0) {
       window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report));
     }
-  }, [cloudName, shownObjects, shownBlocks, project.layers]);
+  }, [cloudName, shownObjects, shownBlocks, project.layers, project.sheets]);
 
   const importDxfFile = useCallback(async (file: File) => {
     const text = await file.text();

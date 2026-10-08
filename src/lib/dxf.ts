@@ -13,6 +13,8 @@ import { norm360 } from '@/lib/arc';
 import { dimensionGeometry, dimensionText } from '@/lib/geometry';
 import { pdimGeometry } from '@/lib/pdim';
 import { PAPER_DIMENSION_STYLE, arrowHead } from '@/lib/annotation';
+import { hatchAngles, hatchParamsOf } from '@/lib/hatch';
+import { primitiveBounds } from '@/lib/geometry';
 import { DEFAULT_LINE_TYPE, DEFAULT_LINE_WEIGHT, LINE_TYPES, dxfLineWeight, lineTypeDef, lineTypeFromDxf } from '@/lib/linestyle';
 import { occurrencePrimitives } from '@/lib/materials';
 
@@ -87,7 +89,14 @@ export function exportToDxf(objects: CadObject[], layers: Layer[], blocks: Block
   return exportDxf(objects, layers, blocks).content;
 }
 
-export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDef[]): DxfExportResult {
+export interface DxfExportOptions {
+  /** Échelle réel / papier pour convertir les pas de hachure papier (1 par défaut, soit 1:1). */
+  hatchPaperScale?: number;
+}
+
+export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDef[], options: DxfExportOptions = {}): DxfExportResult {
+  const hatchScale = options.hatchPaperScale && options.hatchPaperScale > 0 ? options.hatchPaperScale : 1;
+  let paperHatches = 0;
   const out: string[] = [];
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
@@ -146,11 +155,16 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
     if (style.lineWeight !== undefined) push(370, dxfLineWeight(style.lineWeight));
     push(100, subclass);
   };
-  const writeOne = (object: PrimitiveObject, layer: string) => {
+  const writeOne = (object: PrimitiveObject, layer: string, inBlock = false) => {
     writePrimitive(entityHeader, push, object, layer);
     if (object.kind === 'rect') counts.rect++;
     else counts[object.kind]++;
-    if (object.hatch && object.hatch !== 'none' && writeHatch(entityHeader, push, object, layer)) counts.hatch++;
+    // Îlots : contours du dessin désignés par l'objet (pas pour les primitives d'un bloc).
+    const islands = inBlock ? [] : ((object as CadObject).holes ?? []).map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
+    if (object.hatch && object.hatch !== 'none' && writeHatch(entityHeader, push, object, layer, islands, hatchScale)) {
+      counts.hatch++;
+      if (object.hatch !== 'solid' && hatchParamsOf(object).unit === 'papier') paperHatches++;
+    }
   };
 
   for (const object of objects) {
@@ -161,7 +175,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       const block = blocks.find(b => b.id === object.blockId);
       if (!block) { counts.blockSkipped++; continue; }
       counts.blockRef++;
-      for (const primitive of occurrencePrimitives(block, object)) writeOne(transformPrimitive(primitive, object.x, object.y, object.scale), layer);
+      for (const primitive of occurrencePrimitives(block, object)) writeOne(transformPrimitive(primitive, object.x, object.y, object.scale), layer, true);
       continue;
     }
     if (object.kind === 'dimension') {
@@ -240,7 +254,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.polyline) report.kept.push(`Polylignes : ${counts.polyline} (LWPOLYLINE).`);
   if (counts.text) report.kept.push(`Textes sur une ligne : ${counts.text} (TEXT : contenu, hauteur, rotation, alignement).`);
   if (counts.mtext) report.kept.push(`Textes sur plusieurs lignes : ${counts.mtext} (MTEXT).`);
-  if (counts.hatch) report.kept.push(`Hachures : ${counts.hatch} (HATCH, motif ANSI31 / ANSI37 / SOLID).`);
+  if (counts.hatch) report.kept.push(`Hachures : ${counts.hatch} (HATCH : aplat SOLID ou motif défini par l'utilisateur à l'angle, au pas et à l'origine de l'objet ; îlots en boucles intérieures).`);
+  if (paperHatches) report.transformed.push(`Hachures à pas papier : ${paperHatches} → pas réel à l'échelle 1:${Math.round(hatchScale * 1000) / 1000} (le DXF ne connaît que le modèle).`);
   if (counts.rect) report.transformed.push(`Rectangles : ${counts.rect} → polylignes fermées (LWPOLYLINE).`);
   if (counts.blockRef) report.transformed.push(`Occurrences de blocs : ${counts.blockRef} → éclatées en entités simples (la définition partagée n'est pas exportée).`);
   if (counts.pdim) report.transformed.push(`Cotes par points (série, cumulées, angulaires, niveaux) : ${counts.pdim} → traits, arcs et textes ; la mesure n'est plus recalculée.`);
@@ -341,46 +356,65 @@ function writePrimitive(header: EntityHeader, push: Push, object: PrimitiveObjec
  * Hachure associée à un contour fermé. Le pas reproduit l'aperçu de l'atelier :
  * diagonales espacées de 8 mm, croisées espacées d'environ 7,07 mm.
  */
-function writeHatch(header: EntityHeader, push: Push, object: PrimitiveObject, layer: string): boolean {
-  const style = object.hatch;
-  if (!style || style === 'none') return false;
-  const poly = primitivePoints(object);
-  if (object.kind !== 'circle' && !(poly && poly.closed)) return false;
-
-  const solid = style === 'solid';
-  const name = solid ? 'SOLID' : style === 'cross' ? 'ANSI37' : 'ANSI31';
-  const spacing = style === 'cross' ? 10 / Math.SQRT2 : 8;
-  header('HATCH', layer, 'AcDbHatch');
-  push(10, 0); push(20, 0); push(30, 0);
-  push(210, 0); push(220, 0); push(230, 1);
-  push(2, name);
-  push(70, solid ? 1 : 0);
-  push(71, 0);
-  push(91, 1);
+/** Boucle de contour HATCH : cercle par arête d'arc, autres contours par polyligne. */
+function writeHatchLoop(push: Push, object: CadObject, external: boolean): boolean {
   if (object.kind === 'circle') {
-    push(92, 1); // contour externe, défini par arêtes
+    push(92, external ? 1 : 0); // arêtes
     push(93, 1);
     push(72, 2); // arc de cercle
     push(10, n(object.cx)); push(20, n(-object.cy)); push(40, n(object.r));
     push(50, 0); push(51, 360); push(73, 1);
-  } else if (poly) {
-    push(92, 3); // contour externe + polyligne
-    push(72, 0); push(73, 1); push(93, poly.points.length / 2);
-    for (let i = 0; i + 1 < poly.points.length; i += 2) {
-      push(10, n(poly.points[i])); push(20, n(-poly.points[i + 1]));
-    }
+    push(97, 0);
+    return true;
+  }
+  const poly = object.kind === 'rect' || object.kind === 'polyline' ? primitivePoints(object) : null;
+  if (!poly || !poly.closed) return false;
+  push(92, external ? 3 : 2); // polyligne (+ contour externe)
+  push(72, 0); push(73, 1); push(93, poly.points.length / 2);
+  for (let i = 0; i + 1 < poly.points.length; i += 2) {
+    push(10, n(poly.points[i])); push(20, n(-poly.points[i + 1]));
   }
   push(97, 0);
-  push(75, 0); // style normal
-  push(76, 1); // motif prédéfini
+  return true;
+}
+
+/**
+ * HATCH : aplat (SOLID) ou motif défini par l'utilisateur (_USER) à l'angle, au pas et à l'origine de
+ * l'objet ; îlots en boucles intérieures (style pair-impair). Un pas papier est converti en pas réel
+ * à l'échelle `paperScale` (réel / papier).
+ */
+function writeHatch(header: EntityHeader, push: Push, object: PrimitiveObject, layer: string, islands: CadObject[] = [], paperScale = 1): boolean {
+  const style = object.hatch;
+  if (!style || style === 'none') return false;
+  const poly = primitivePoints(object);
+  if (object.kind !== 'circle' && !(poly && poly.closed)) return false;
+  const loops = islands.filter(i => i.kind === 'circle' || ((i.kind === 'rect' || i.kind === 'polyline') && primitivePoints(i)?.closed));
+
+  const solid = style === 'solid';
+  const hp = hatchParamsOf(object);
+  const spacing = hp.unit === 'modele' ? hp.spacing : hp.spacing * paperScale;
+  header('HATCH', layer, 'AcDbHatch');
+  push(10, 0); push(20, 0); push(30, 0);
+  push(210, 0); push(220, 0); push(230, 1);
+  push(2, solid ? 'SOLID' : '_USER');
+  push(70, solid ? 1 : 0);
+  push(71, 0);
+  push(91, 1 + loops.length);
+  writeHatchLoop(push, object as CadObject, true);
+  for (const island of loops) writeHatchLoop(push, island, false);
+  push(75, 0); // style normal (pair-impair)
+  push(76, solid ? 1 : 0); // 1 prédéfini (SOLID), 0 défini par l'utilisateur
   if (!solid) {
-    push(52, 0); push(41, n(spacing / 3.175)); push(77, 0);
-    const angles = style === 'cross' ? [45, 135] : [45];
+    const b = primitiveBounds(object);
+    // Origine du motif : coin de l'emprise + décalage, en repère DXF (Y vers le haut).
+    const ox = b.minX + (hp.originX ?? 0), oy = -(b.minY + (hp.originY ?? 0));
+    push(52, n(hp.angle)); push(41, 1); push(77, style === 'cross' ? 1 : 0);
+    const angles = hatchAngles(style, hp);
     push(78, angles.length);
     for (const angle of angles) {
       const rad = (angle * Math.PI) / 180;
       // Décalage perpendiculaire à la direction des traits, d'une longueur égale au pas.
-      push(53, angle); push(43, 0); push(44, 0);
+      push(53, n(angle)); push(43, n(ox)); push(44, n(oy));
       push(45, n(-Math.sin(rad) * spacing)); push(46, n(Math.cos(rad) * spacing));
       push(79, 0);
     }

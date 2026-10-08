@@ -83,8 +83,7 @@ describe('export DXF', () => {
     ];
     const { content, report } = exportDxf(objects, layers, []);
     expect(content.match(/\nHATCH\n/g)).toHaveLength(3);
-    expect(content).toContain('ANSI37');
-    expect(content).toContain('ANSI31');
+    expect(content.match(/\n2\n_USER\n/g)).toHaveLength(2);
     expect(content).toContain('SOLID');
     expect(report.kept.join(' ')).toContain('Hachures : 3');
     expect(report.transformed.join(' ')).toContain('Rectangles : 1');
@@ -378,5 +377,36 @@ describe('cotes par points (lot 2.6)', () => {
     expect(report.transformed.join(' ')).toMatch(/Cotes par points .* : 3/);
     // Flèches de la série (2 par cote élémentaire) et de l'angle (2) en SOLID ; triangle de niveau (3 LINE).
     expect(content.match(/\nSOLID\n/g)!.length).toBe(6);
+  });
+});
+
+describe('hachures paramétrées (lot 3.2)', () => {
+  it('motif _USER à l’angle, au pas et à l’origine de l’objet, avec îlot', () => {
+    const objects: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'Dalle', kind: 'rect', x: 0, y: 0, w: 4000, h: 3000, hatch: 'cross', hatchParams: { angle: 30, spacing: 200, unit: 'modele' }, holes: ['OBJ-0002'] },
+      { ...base, id: 'OBJ-0002', name: 'Trémie', kind: 'circle', cx: 2000, cy: 1500, r: 400 },
+      { ...base, id: 'OBJ-0003', name: 'Mur', kind: 'rect', x: 0, y: 4000, w: 4000, h: 200, hatch: 'diagonal' },
+    ];
+    const { content, report } = exportDxf(objects, layers, [], { hatchPaperScale: 50 });
+    keepFixture('hachures-parametrees.dxf', content);
+    const hatch = entityPairs(content, 'HATCH');
+    const v = (code: number) => hatch.filter(([c]) => c === code).map(([, x]) => x);
+    expect(v(2)).toEqual(['_USER']);
+    expect(v(91)).toEqual(['2']);          // contour + îlot
+    expect(v(77)).toEqual(['1']);          // croisé (double)
+    expect(v(53)).toEqual(['30', '120']);
+    // Décalage perpendiculaire = pas réel de 200 mm.
+    const [ox, oy] = [Number(v(45)[0]), Number(v(46)[0])];
+    expect(Math.hypot(ox, oy)).toBeCloseTo(200, 6);
+    // Pas papier de 3 mm à l'échelle 1:50 → 150 mm réels pour le mur.
+    const lines = content.split('\n');
+    const pairs: [number, string][] = [];
+    for (let i = 0; i + 1 < lines.length; i += 2) pairs.push([Number(lines[i]), lines[i + 1]]);
+    const last = pairs.map(([c, x], i) => (c === 0 && x === 'HATCH' ? i : -1)).filter(i => i >= 0).pop()!;
+    const end = pairs.findIndex(([c], i) => i > last && c === 0);
+    const wall = pairs.slice(last, end);
+    const g = (code: number) => Number(wall.find(([c]) => c === code)![1]);
+    expect(Math.hypot(g(45), g(46))).toBeCloseTo(150, 6);
+    expect(report.transformed.join(' ')).toMatch(/pas papier : 1 → pas réel à l'échelle 1:50/);
   });
 });

@@ -16,6 +16,8 @@ const norm = (deg: number) => { const a = ((deg % 360) + 360) % 360; return a > 
 export function withDependencies(objects: CadObject[], selected: Iterable<string>): CadObject[] {
   const ids = new Set(selected);
   for (const o of objects) if (o.kind === 'dimension' && ids.has(o.id)) ids.add(o.targetId);
+  // Îlots de hachure : copiés avec le contour qui les désigne.
+  for (const o of objects) if (ids.has(o.id)) for (const h of o.holes ?? []) ids.add(h);
   return objects.filter(o => ids.has(o.id) || (o.kind === 'dimension' && ids.has(o.targetId)));
 }
 
@@ -100,6 +102,7 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
   const dims = sources.filter(o => o.kind === 'dimension');
   for (const place of placements) {
     const ids = new Map<string, string>();
+    const start = out.length;
     for (const o of shapes) {
       const patch = place(o);
       if (!patch) continue;
@@ -107,6 +110,14 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
       const id = `OBJ-${String(counter).padStart(4, '0')}`;
       ids.set(o.id, id);
       out.push({ ...o, ...patch, id, createdSeq: seq } as CadObject);
+    }
+    // Îlots de hachure : ils suivent la copie de leur contour, sinon ils sont abandonnés
+    // (seulement pour les copies de cette pose).
+    for (const c of out.slice(start)) {
+      if (c.holes) {
+        const holes = c.holes.map(h => ids.get(h)).filter((h): h is string => !!h);
+        if (holes.length) c.holes = holes; else delete c.holes;
+      }
     }
     for (const d of dims) {
       const target = d.kind === 'dimension' ? ids.get(d.targetId) : undefined;
