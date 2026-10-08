@@ -57,3 +57,17 @@ describe('historique compact (lot 8.1)', () => {
     expect(back).toStrictEqual(s);
   });
 });
+
+describe('historique compact chargé dans le magasin (lot 8.1)', () => {
+  it('la normalisation garde le partage des objets inchangés entre versions', async () => {
+    const { normalizeProjectState } = await import('@/store/project');
+    const s = workedProject();
+    const loaded = normalizeProjectState(decodeHistory(JSON.parse(JSON.stringify(encodeHistory(s)))));
+    const a = loaded.versions[1].objects, b = loaded.versions[2].objects;
+    expect(b.filter(o => a.includes(o)).length).toBeGreaterThan(190);
+    // Nombre d'objets distincts en mémoire : de l'ordre des objets créés ou modifiés, pas versions × objets.
+    const distinct = new Set(loaded.versions.flatMap(v => v.objects)).size;
+    expect(distinct).toBeLessThan(2000);
+    expect(loaded.versions.reduce((n, v) => n + v.objects.length, 0)).toBeGreaterThan(200_000);
+  });
+});
