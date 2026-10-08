@@ -10,6 +10,7 @@ import {
   type GeoConstraint,
   type PolylineObj,
   type Zone,
+  type Georef,
   type Branch,
   type Asset,
   type Layer,
@@ -49,6 +50,7 @@ import { isValidName, resolveParameters, type Parameter } from '@/lib/params/exp
 import { bindConstraintValues, constraintExprError, usesOf } from '@/lib/params/bind';
 import { isIfcClass, normalizePsets } from '@/lib/properties';
 import { isHexColor } from '@/lib/zones';
+import { georefError, normalizeGeoref } from '@/lib/georef';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
@@ -303,7 +305,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         const vRest: MicroVersion = { ...v };
         delete vRest.levels;
         // Collections relues par leur normalisation : la valeur brute ne passe jamais telle quelle.
-        for (const k of ['constraints', 'parameters', 'zones'] as const) delete (vRest as unknown as Record<string, unknown>)[k];
+        for (const k of ['constraints', 'parameters', 'zones', 'georef'] as const) delete (vRest as unknown as Record<string, unknown>)[k];
         return {
           ...vRest,
           ...(levels ? { levels } : {}),
@@ -319,6 +321,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
           ...(normalizeConstraints(v.constraints) ? { constraints: normalizeConstraints(v.constraints) } : {}),
           ...(normalizeParameters(v.parameters) ? { parameters: normalizeParameters(v.parameters) } : {}),
           ...(normalizeZones(v.zones) ? { zones: normalizeZones(v.zones) } : {}),
+          ...(normalizeGeoref(v.georef) ? { georef: normalizeGeoref(v.georef) } : {}),
           ...(typeof v.profileId === 'string' ? { profileId: v.profileId } : {}),
           ...(v.surfaceRule === 'carrez' || v.surfaceRule === 'sia-416' ? { surfaceRule: v.surfaceRule } : {}),
         };
@@ -419,6 +422,8 @@ interface SnapshotPatch {
   constraints?: GeoConstraint[];
   parameters?: Parameter[];
   zones?: Zone[];
+  /** `null` retire le géoréférencement (lot 17.3). */
+  georef?: Georef | null;
   layers?: Layer[];
   blocks?: BlockDef[];
   counter?: number;
@@ -567,6 +572,7 @@ export function useProject() {
         ...(constraints?.length ? { constraints } : {}),
         ...(parameters?.length ? { parameters } : {}),
         ...((patch.zones ?? cur.zones)?.length ? { zones: patch.zones ?? cur.zones } : {}),
+        ...(patch.georef === null ? {} : (patch.georef ?? cur.georef) ? { georef: patch.georef ?? cur.georef } : {}),
       };
       return {
         ...s,
@@ -876,6 +882,13 @@ export function useProject() {
     });
     return null;
   }, [allObjects, commit]);
+
+  /** Géoréférencement (lot 17.3) : point de base, système, nord ; `null` le retire. */
+  const setGeoref = useCallback((g: Georef | null) => {
+    if (g) { const err = georefError(g); if (err) return err; }
+    commit(g ? `Géoréférencement ${g.crs}` : 'Retirer le géoréférencement', { georef: g });
+    return null;
+  }, [commit]);
 
   /** Solides importés (lot 17.2), sur le calque actif, en une seule version. */
   const addSolids = useCallback((items: { name: string; recipe: SolidRecipe }[], label: string) => {
@@ -1540,7 +1553,7 @@ export function useProject() {
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations, makePart, addOccurrence, setMate, addSolids,
+    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations, makePart, addOccurrence, setMate, addSolids, setGeoref, georef: current.georef,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,

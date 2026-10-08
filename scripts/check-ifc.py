@@ -16,6 +16,7 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.geom
 import ifcopenshell.util.element as element
+import ifcopenshell.util.geolocation as geolocation
 import ifcopenshell.util.shape as shape
 
 TOL = 1e-6
@@ -99,6 +100,16 @@ def check(path: Path):
         if q is None or abs(geo - q) > TOL * max(abs(q), 1e-9):
             fail(f"{path.name} : {tag} surface au sol lue {geo:.9f} m², quantité {qname} = {q}")
         print(f"  {tag} IfcSpace : surface au sol lue {geo:.6f} m² = {qname} {q:.6f} m²")
+    if "georef" in exp:
+        crs = f.by_type("IfcProjectedCRS")
+        if len(crs) != 1 or crs[0].Name != exp["georef"]["crs"]:
+            fail(f"{path.name} : système projeté {[c.Name for c in crs]}, attendu {exp['georef']['crs']}")
+        for pt in exp["georef"]["points"]:
+            # Conversion faite par IfcOpenShell à partir de l'IfcMapConversion du fichier (mètres).
+            e, n, h = geolocation.auto_xyz2enh(f, *pt["local"])
+            if max(abs(e - pt["enh"][0]), abs(n - pt["enh"][1]), abs(h - pt["enh"][2])) > 1e-6:
+                fail(f"{path.name} : point {pt['local']} lu en ({e}, {n}, {h}), attendu {pt['enh']}")
+            print(f"  point {pt['local']} mm → E {e:.6f} N {n:.6f} H {h:.6f} m")
     print(f"{path.name} : relu par IfcOpenShell {ifcopenshell.version}, {len(list(f))} entités, quantités retrouvées")
 
 

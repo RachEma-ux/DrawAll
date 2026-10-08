@@ -4,7 +4,8 @@
 // espaces (pièces) ; jeux de propriétés et quantités de base. Mêmes éléments et mêmes hauteurs que la
 // vue 3D (§8.11) : rien n'est inventé ; ce qui ne peut pas être exporté est dit dans le rapport.
 // Repère : X du plan → X, Y du plan (vers le bas) → −Y (IFC : Y vers le nord), altitude → Z ; mm.
-import type { CadObject, Level, OpeningObj, WallObj } from '@/types/cad';
+import type { CadObject, Georef, Level, OpeningObj, WallObj } from '@/types/cad';
+import { gridNorthLocal, ifcMapConversion } from './georef';
 import { building3d, roofFaces } from './building3d';
 import { levelIdOf, levelsOf, onLevel } from './levels';
 import { ifcClassOf, type PropertySet } from './properties';
@@ -70,9 +71,9 @@ const list = (xs: string[]) => `(${xs.join(',')})`;
 
 // ——— Export ———
 
-export interface IfcInput { objects: CadObject[]; levels: Level[] | undefined; projectName: string; date: Date }
+export interface IfcInput { objects: CadObject[]; levels: Level[] | undefined; projectName: string; date: Date; georef?: Georef }
 
-export function exportIfc({ objects, levels: levelList, projectName, date }: IfcInput): { content: string; report: IfcReport } {
+export function exportIfc({ objects, levels: levelList, projectName, date, georef }: IfcInput): { content: string; report: IfcReport } {
   const s = new Step();
   const report: IfcReport = { exported: {}, notExported: [] };
   const count = (cls: string) => { report.exported[cls] = (report.exported[cls] ?? 0) + 1; };
@@ -88,7 +89,16 @@ export function exportIfc({ objects, levels: levelList, projectName, date }: Ifc
     s.add('IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)'), s.add('IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.)'),
     s.add('IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.)'), s.add('IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.)'),
   ])})`);
-  const context = s.add(`IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,${axis3([0, 0, 0])},$)`);
+  // Nord du quadrillage (lot 17.3) dans le repère local, si le projet est géoréférencé.
+  const trueNorth = georef ? s.add(`IFCDIRECTION(${list(gridNorthLocal(georef).map(stepReal))})`) : '$';
+  const context = s.add(`IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,${axis3([0, 0, 0])},${trueNorth})`);
+  if (georef) {
+    // Système projeté déclaré et conversion du repère du projet (mm) vers la carte (m).
+    const metre = s.add('IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)');
+    const crs = s.add(`IFCPROJECTEDCRS(${stepString(georef.crs)},$,$,$,$,$,${metre})`);
+    const m = ifcMapConversion(georef);
+    s.add(`IFCMAPCONVERSION(${context},${crs},${[m.eastings, m.northings, m.orthogonalHeight, m.xAxisAbscissa, m.xAxisOrdinate, m.scale].map(stepReal).join(',')})`);
+  }
   const body = s.add(`IFCGEOMETRICREPRESENTATIONSUBCONTEXT('Body','Model',*,*,*,*,${context},$,.MODEL_VIEW.,$)`);
   const project = s.add(`IFCPROJECT(${guid('projet')},$,${stepString(projectName)},$,$,$,$,(${context}),${units})`);
   const sitePl = s.add(`IFCLOCALPLACEMENT($,${axis3([0, 0, 0])})`);

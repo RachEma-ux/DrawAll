@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CadObject, Level } from '@/types/cad';
 import { exportIfc, ifcGuid, stepReal, stepString } from './ifc';
+import { modelToMap } from './georef';
+import type { Georef } from '@/types/cad';
 
 const base = { classification: 'architecture' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const wall = (id: string, x1: number, y1: number, x2: number, y2: number, extra: Record<string, unknown> = {}) =>
@@ -71,6 +73,23 @@ describe('export IFC 4.3 (lot 17.1)', () => {
       // Volume lu par IfcOpenShell (baies déduites) = quantité exportée (m³), à 10⁻⁶ près.
       volumes: { 'OBJ-0001': 'NetVolume', 'OBJ-0002': 'NetVolume', 'OBJ-0004': 'NetVolume', 'OBJ-0007': 'GrossVolume', 'OBJ-0010': 'GrossVolume', 'OBJ-0011': 'GrossVolume', 'OBJ-0012': 'GrossVolume' },
       areas: { 'Séjour': 'NetFloorArea' },
+    }, null, 2));
+  });
+
+  it('géoréférencement transmis : système projeté, conversion, nord ; fichier de référence géoréférencé', () => {
+    const georef: Georef = { crs: 'EPSG:2056', e: 2600000, n: 1200000, h: 432.5, north: 30 };
+    const geo = exportIfc({ objects: referenceProject(), levels, projectName: 'Maison géoréférencée', date: new Date('2026-10-08T12:00:00Z'), georef }).content;
+    expect(geo).toMatch(/IFCPROJECTEDCRS\('EPSG:2056',\$,\$,\$,\$,\$,#\d+\)/);
+    expect(geo).toMatch(/IFCMAPCONVERSION\(#\d+,#\d+,2600000\.,1200000\.,432\.5,0\.866025404,0\.5,0\.001\)/);
+    expect(content).not.toContain('IFCMAPCONVERSION');
+    const dir = process.env.IFC_FIXTURES_DIR;
+    if (!dir) return;
+    // Points du modèle (repère du plan, mm) et leurs coordonnées attendues sur la carte (m).
+    const pts = [{ x: 0, y: 0, z: 0 }, { x: 5000, y: 0, z: 0 }, { x: 5000, y: 4000, z: 3000 }];
+    writeFileSync(join(dir, 'maison-georef.ifc'), geo);
+    writeFileSync(join(dir, 'maison-georef.ifc.expected.json'), JSON.stringify({
+      schema: 'IFC4X3_ADD2', counts: { IfcBuildingStorey: 2, IfcWall: 4 }, storeys: levels.map(l => ({ name: l.name, elevation: l.elevation })),
+      georef: { crs: 'EPSG:2056', points: pts.map(p => { const m = modelToMap(p, georef); return { local: [p.x, -p.y, p.z], enh: [m.E, m.N, m.H] }; }) },
     }, null, 2));
   });
 });

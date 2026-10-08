@@ -559,7 +559,15 @@ export interface MicroVersion {
   constraints?: GeoConstraint[]; // contraintes géométriques (lot 12.1) ; absent = aucune
   parameters?: Parameter[];      // paramètres nommés (lot 12.2) ; absent = aucun
   zones?: Zone[];                // zones (lot 13.3) ; absent = aucune
+  georef?: Georef;               // géoréférencement (lot 17.3) ; absent = repère local seul
 }
+
+/**
+ * Géoréférencement (lot 17.3) : le point (0 ; 0 ; 0) du modèle est en (E, N) mètres du système `crs`
+ * (code EPSG déclaré), à l'altitude `h` mètres ; `north` : angle du nord du quadrillage depuis le haut
+ * du plan, en degrés, sens horaire.
+ */
+export interface Georef { e: number; n: number; h: number; crs: string; north: number }
 
 /**
  * Branche (variante, lot 14.1) rangée pendant qu'une autre est active : son historique complet, sa

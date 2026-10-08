@@ -33,6 +33,8 @@ import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
 import SolidsPanel from '@/components/SolidsPanel';
 import FacadesPanel from '@/components/FacadesPanel';
+import GeorefPanel from '@/components/GeorefPanel';
+import { formatGeoref } from '@/lib/georef';
 import MergePanel from '@/components/MergePanel';
 import PublicationsPanel from '@/components/PublicationsPanel';
 import type { Change } from '@/lib/merge';
@@ -359,7 +361,7 @@ function Workbench() {
 
   // Export IFC 4.3 (lot 17.1) : tout le projet, tous niveaux, rapport de ce qui n'est pas exporté.
   const exportIfcFile = useCallback(() => {
-    const { content, report } = exportIfc({ objects: project.allObjects, levels: project.levels, projectName: cloudName.trim() || 'drawall-projet', date: new Date() });
+    const { content, report } = exportIfc({ objects: project.allObjects, levels: project.levels, projectName: cloudName.trim() || 'drawall-projet', date: new Date(), ...(project.georef ? { georef: project.georef } : {}) });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([content], { type: 'application/x-step' }));
     a.download = `${cloudName.trim() || 'drawall-projet'}.ifc`;
@@ -372,7 +374,7 @@ function Workbench() {
       ...(report.notExported.length ? ['Non exporté ou exporté sans volume :', ...report.notExported.map(t => `– ${t}`)] : []),
     ];
     window.setTimeout(() => window.alert(lines.join('\n')), 0);
-  }, [project.allObjects, project.levels, cloudName]);
+  }, [project.allObjects, project.levels, project.georef, cloudName]);
 
   // STEP AP242 édition 3 (lot 17.2) : solides et occurrences, à l'altitude de leur niveau.
   const exportStepFile = useCallback(async () => {
@@ -845,6 +847,7 @@ function Workbench() {
   const [view3dOpen, setView3dOpen] = useState(false);
   const [solidsOpen, setSolidsOpen] = useState(false);
   const [facadesOpen, setFacadesOpen] = useState(false);
+  const [georefOpen, setGeorefOpen] = useState(false);
   // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
   const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
   const deleteWithImpact = useCallback((ids: string[]) => {
@@ -1146,6 +1149,7 @@ function Workbench() {
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
     { id: 'publish', title: 'Publier le dossier / dossiers publiés', hint: 'Version nommée + PDF des feuilles, figés ; état publié ou modifié depuis', keywords: ['publier', 'publication', 'dossier', 'diffusion', 'emission', 'pdf', 'fige'], run: () => setPublishOpen(true) },
     { id: 'merge', title: 'Comparer et fusionner des variantes', hint: 'Changements d’une autre variante en surimpression, fusion à trois voies, conflits tranchés', keywords: ['fusion', 'fusionner', 'merge', 'comparer', 'variante', 'branche', 'differences', 'conflit'], run: () => setMergeOpen(true) },
+    { id: 'georef', title: 'Géoréférencement', hint: 'Point de base (E, N, altitude), système de coordonnées (EPSG), nord du quadrillage ; transmis à l’IFC', keywords: ['georeferencement', 'coordonnees', 'epsg', 'nord', 'point de base', 'carte', 'sig', 'lambert', 'altitude'], run: () => setGeorefOpen(true) },
     { id: 'facades', title: 'Façades et coupes', hint: 'Générées depuis le modèle 3D du bâtiment, posées sur les feuilles', keywords: ['facade', 'facades', 'elevation', 'coupe', 'coupes', 'batiment', 'feuille', 'nord', 'sud', 'est', 'ouest'], run: () => setFacadesOpen(true) },
     { id: 'solids', title: 'Solides 3D', hint: 'Extrusion, révolution, union, différence, intersection, perçage (noyau OCCT)', keywords: ['solide', 'extrusion', 'extruder', 'revolution', 'booleen', 'union', 'difference', 'intersection', 'percage', 'percer', 'trou', '3d', 'volume'], run: () => setSolidsOpen(true) },
     { id: 'view3d', title: 'Vue 3D', hint: 'Maquette en volume dérivée du plan : murs, dalles, poteaux, poutres, toitures ; orbite et cadrage', keywords: ['3d', 'volume', 'maquette', 'perspective', 'orbite', 'webgl'], run: () => setView3dOpen(true) },
@@ -2045,7 +2049,7 @@ function Workbench() {
               <span>v{project.current.seq}{project.current.named ? ` · ${project.current.named}` : ''}</span>
               <span>zoom {(zoom * 100).toFixed(0)} %</span>
               <span>{orthoEnabled ? 'ORTHO' : 'libre'} · {snapEnabled ? 'SNAP objet' : 'SNAP grille'}</span>
-              <span className="ml-auto hidden lg:inline">modèle en millimètres · affichage en {displayUnit} · référentiel : local projet · DXF : Y ascendant</span>
+              <span className="ml-auto hidden lg:inline">modèle en millimètres · affichage en {displayUnit} · référentiel : {project.georef ? formatGeoref(project.georef) : 'local projet'} · DXF : Y ascendant</span>
             </div>
           </main>
 
@@ -2158,6 +2162,7 @@ function Workbench() {
       {mergeOpen && (
         <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />
       )}
+      {georefOpen && <GeorefPanel georef={project.georef} onSave={project.setGeoref} onClose={() => setGeorefOpen(false)} />}
       {facadesOpen && (
         <FacadesPanel objects={project.allObjects} sheets={project.sheets} onGenerate={project.addElevations}
           onPlace={(sheetId, e, center, scale, name) => project.addViewport(sheetId, { center, scale, name, ...(e.levelId ? { levelId: e.levelId } : {}) })}

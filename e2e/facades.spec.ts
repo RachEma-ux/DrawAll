@@ -79,3 +79,37 @@ test('lot 17.1 — export IFC 4.3 depuis la palette : fichier et rapport', async
   expect(report).toContain('OBJ-0005 : fenêtre sans hauteur de baie saisie');
   expect(errors).toEqual([]);
 });
+
+test('lot 17.3 — géoréférencement saisi, affiché et transmis à l’IFC', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [wall('OBJ-0001', 0, 0, 5000, 0)]);
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('géoréférencement');
+  await page.getByText('Géoréférencement', { exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Géoréférencement' });
+  // Rien n'est proposé : sans système déclaré, l'enregistrement est impossible.
+  await expect(panel.getByRole('button', { name: 'Enregistrer' })).toBeDisabled();
+  await panel.getByLabel('Système de coordonnées').fill('EPSG:2056');
+  await panel.getByLabel('Est (E) du point de base').fill('2600000');
+  await panel.getByLabel('Nord (N) du point de base').fill('1200000');
+  await panel.getByLabel('Altitude du point de base').fill('432,5');
+  await panel.getByLabel('Nord du quadrillage').fill('90');
+  // Nord à droite du plan : le point (10 m ; 0) du dessin est 10 m au nord du point de base.
+  await expect(panel.getByTestId('georef-exemple')).toContainText(/E 2\s600\s000 · N 1\s200\s010/);
+  await panel.getByRole('button', { name: 'Enregistrer' }).click();
+  await expect(panel.getByTestId('georef-message')).toContainText('Géoréférencé : EPSG:2056');
+  await panel.getByRole('button', { name: 'Fermer le géoréférencement' }).click();
+  await page.reload();
+  const state = await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return s.versions[s.pointer].georef; });
+  expect(state).toEqual({ crs: 'EPSG:2056', e: 2600000, n: 1200000, h: 432.5, north: 90 });
+  page.on('dialog', d => { d.accept().catch(() => {}); });
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('ifc');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByText('Exporter en IFC 4.3', { exact: true }).click()]);
+  const { readFileSync } = await import('node:fs');
+  const ifc = readFileSync((await download.path())!, 'utf8');
+  expect(ifc).toContain("IFCPROJECTEDCRS('EPSG:2056'");
+  expect(ifc).toMatch(/IFCMAPCONVERSION\(#\d+,#\d+,2600000\.,1200000\.,432\.5,/);
+  expect(errors).toEqual([]);
+});

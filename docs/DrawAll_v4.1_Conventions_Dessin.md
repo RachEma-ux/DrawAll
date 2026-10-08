@@ -445,6 +445,15 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Import** : commande « Importer des solides STEP » (AP203, AP214 ou AP242). Chaque solide transféré devient un solide du projet, au calque actif. Sa recette garde le fichier du seul solide, avec son encombrement et sa trace de dessus relevés à l'import. Il se déplace, tourne, se perce et se combine comme les autres. Les pertes sont rapportées (lot 11.4).
 - **Preuve** : en CI, le fichier de référence est relu par un lecteur tiers, gmsh 4.15.2. Le schéma déclaré doit être celui de l'édition 3 (une édition antérieure est refusée) et chaque volume lu doit égaler celui du noyau DrawAll à 10⁻⁶ près.
 
+### 7.7 Géoréférencement (règle, lot 17.3)
+
+- **Saisie** (palette « Géoréférencement ») : système de coordonnées projeté déclaré par son code EPSG, et coordonnées du point de base : le point (0 ; 0) du dessin, à l'altitude 0, se trouve en E et N (m) à l'altitude H (m). S'y ajoute l'angle du nord du quadrillage, mesuré depuis le haut du plan dans le sens horaire. Aucune valeur n'est proposée : sans système déclaré, rien n'est enregistré.
+- **Repères séparés** : le modèle reste en millimètres, dans son repère local. La conversion vers la carte est explicite (`modelToMap`, `mapToModel`), jamais appliquée au modèle ; l'aller-retour est exact à 10⁻⁶ mm.
+- **Affichage** : la barre d'état indique le système, le point de base et le nord. Le panneau montre un point de contrôle : où tombe sur la carte le point (10 m ; 0) du dessin.
+- **IFC** : `IfcProjectedCRS` (nom = code EPSG, unité de carte : le mètre). `IfcMapConversion` relie le contexte du projet au système : E, N, H, axe X du projet sur la carte, échelle 0,001 de mm à m. Le nord du quadrillage est porté par le `TrueNorth` du contexte.
+- **Historique** : le géoréférencement est versionné avec le projet et conservé par le paquet et par les variantes.
+- **Preuve** : en CI, IfcOpenShell recalcule les coordonnées de carte de points du modèle à partir de la conversion lue dans le fichier, et retrouve celles de DrawAll à 10⁻⁶ m.
+
 ### 7.4 À décider
 
 - Version DXF visée par défaut (R2000 retenue pour sa compatibilité ; R2018 possible).
