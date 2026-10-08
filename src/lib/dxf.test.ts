@@ -209,10 +209,10 @@ describe('import DXF — courbes', () => {
   });
 
   it('signale les entités non prises en charge', () => {
-    const parsed = parseDxf(dxf(['0', 'SPLINE', '8', '0', '10', '0', '20', '0']), options);
+    const parsed = parseDxf(dxf(['0', 'POINT', '8', '0', '10', '0', '20', '0']), options);
     expect(parsed.objects).toHaveLength(0);
-    expect(parsed.warnings.join(' ')).toContain('SPLINE');
-    expect(parsed.report.lost.join(' ')).toContain('SPLINE');
+    expect(parsed.warnings.join(' ')).toContain('POINT');
+    expect(parsed.report.lost.join(' ')).toContain('POINT');
   });
 });
 
