@@ -16,3 +16,15 @@ test('lot 6.1 — importer un DXF de référence : blocs conservés et éclatés
   expect(state.objects.filter((o: { kind: string; blockId?: string }) => o.kind === 'blockRef' && o.blockId === vis.id)).toHaveLength(2);
   expect(errors).toEqual([]);
 });
+
+test('lot 6.3 — un fichier DWG est reconnu et refusé avec la marche à suivre (décision §7 en attente)', async ({ page }) => {
+  await openAtelier(page);
+  const before = await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return s.versions[s.pointer].objects.length; });
+  let message = '';
+  page.on('dialog', d => { message = d.message(); void d.accept(); });
+  await page.locator('input[type="file"][accept*=".dwg"]').setInputFiles({ name: 'plan.dwg', mimeType: 'application/octet-stream', buffer: Buffer.from('AC1032' + '\0'.repeat(200), 'latin1') });
+  await expect.poll(() => message).toContain('fichier DWG (AutoCAD 2018');
+  expect(message).toContain('DXF');
+  const after = await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return s.versions[s.pointer].objects.length; });
+  expect(after).toBe(before);
+});

@@ -26,6 +26,7 @@ import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { assetRoom, calibrate, fitEncoding, fitPixels, imageSizeMm, pdfPageSizeMm } from '@/lib/underlay';
+import { detectDwg, dwgRefusal } from '@/lib/dwg';
 import { measurePolygon, type Measure } from '@/lib/area';
 import { PROFILES, withProfile, withProfileBlocks, type ViewContext } from '@/lib/materials';
 import { openingFits, positionOnWall } from '@/lib/opening';
@@ -314,6 +315,9 @@ function Workbench() {
   }, [cloudName, shownObjects, shownBlocks, project.layers, project.sheets, project.levels, project.activeLevelId]);
 
   const importDxfFile = useCallback(async (file: File) => {
+    // DWG : reconnu à sa signature et refusé avec la marche à suivre (convertisseur à décider, §7).
+    const dwg = detectDwg(new Uint8Array(await file.slice(0, 6).arrayBuffer()));
+    if (dwg) { window.alert(dwgRefusal(file.name, dwg)); return; }
     const text = await file.text();
     const options = {
       objectStart: project.state.counter,
@@ -1472,7 +1476,7 @@ function Workbench() {
       <input
         ref={dxfInputRef}
         type="file"
-        accept=".dxf,text/plain"
+        accept=".dxf,.dwg,text/plain"
         className="hidden"
         onChange={e => {
           const file = e.target.files?.[0];
