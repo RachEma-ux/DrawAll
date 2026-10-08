@@ -58,6 +58,8 @@ interface Props {
   gridSize: number;
   /** Change quand le projet est remplacé (réinitialisation, chargement) : oublie tracé et dernier point. */
   projectKey?: number;
+  /** Niveau affiché : en changer abandonne le tracé en cours et oublie le dernier point. */
+  levelKey?: string;
   /** Types d'accrochage objet actifs. */
   snapTypes: readonly ObjectSnapType[];
   colorMode: ColorMode;
@@ -159,6 +161,7 @@ export default function CanvasView({
   onMoveMany,
   gridSize,
   projectKey,
+  levelKey,
   snapTypes,
   colorMode,
   displayUnit,
@@ -173,6 +176,9 @@ export default function CanvasView({
   useEffect(() => { cornerPick.current = null; }, [tool, objects]);
   const [tf, setTf] = useState({ x: 60, y: 40, k: 1 });
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Un tracé commencé sur un niveau ne se termine pas sur un autre (état réinitialisé au rendu).
+  const [draftLevel, setDraftLevel] = useState(levelKey);
+  if (draftLevel !== levelKey) { setDraftLevel(levelKey); setDraft(null); }
   const activeDraft = draft && (
     (draft.kind === 'polyline' && (draft.origin ?? 'polyline') === tool) ||
     (draft.kind === 'measure' && tool === 'measure') ||
@@ -183,7 +189,7 @@ export default function CanvasView({
   const [pointError, setPointError] = useState<string | null>(null);
   /** Dernier point posé (souris, doigt ou saisie) : origine des saisies relatives @. */
   const lastPlaced = useRef<Point | null>(null);
-  useEffect(() => { lastPlaced.current = null; }, [projectKey]);
+  useEffect(() => { lastPlaced.current = null; }, [projectKey, levelKey]);
   const applyPointRef = useRef<(text: string) => void>(() => {});
   const [pointFocused, setPointFocused] = useState(false);
   /** Longueur affichée dans l'unité choisie. */

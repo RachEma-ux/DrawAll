@@ -2,7 +2,7 @@
 // de la feuille, sans dépendance. Les fenêtres sont découpées (chemin de découpe) ; traits, motifs
 // et annotations sont à leurs tailles papier. Impression monochrome (noir), usage du dessin technique.
 // Repère PDF : origine en bas à gauche, Y vers le haut, unités en points (1 pt = 25,4 / 72 mm).
-import type { BlockDef, CadObject, Layer, MicroVersion, OpeningObj, PrimitiveObject, Sheet, TextObj, Viewport, WallObj } from '@/types/cad';
+import type { BlockDef, CadObject, Layer, Level, MicroVersion, OpeningObj, PrimitiveObject, Sheet, TextObj, Viewport, WallObj } from '@/types/cad';
 import { dimensionValue, isClosedPolyline } from '@/types/cad';
 import { dimensionGeometry, primitiveBounds } from '@/lib/geometry';
 import { arcSweep } from '@/lib/arc';
@@ -17,7 +17,7 @@ import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetS
 import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
 import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import { occurrencePrimitives, profileById, withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
-import { levelIdOf, onLevel } from '@/lib/levels';
+import { onLevel, viewportLevelId } from '@/lib/levels';
 
 export const MM_TO_PT = 72 / 25.4;
 
@@ -26,6 +26,8 @@ export interface PdfInput {
   objects: CadObject[];
   layers: Layer[];
   blocks: BlockDef[];
+  /** Niveaux du projet : une fenêtre sans niveau valide montre le premier. */
+  levels?: Level[];
   versions: MicroVersion[];
   pointer: number;
   /** Date de création inscrite dans le fichier (pour des sorties reproductibles en test). */
@@ -181,7 +183,7 @@ export function sheetToPdf(input: PdfInput): string {
 
   function drawViewport(vp: Viewport) {
     const k = scaleRatio(vp.scale);
-    const objects = withProfile(onLevel(input.objects, levelIdOf(vp)), profile, vp.context ?? 'coupe', blocks);
+    const objects = withProfile(onLevel(input.objects, viewportLevelId(vp, input.levels)), profile, vp.context ?? 'coupe', blocks);
     const vpBlocks = withProfileBlocks(blocks, profile, vp.context ?? 'coupe');
     const toPdf = (q: P) => pt(modelToPaper(vp, q));
     out('q');

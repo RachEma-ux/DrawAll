@@ -118,7 +118,7 @@ function Workbench() {
   const levelUnder = levelBelow(project.levels, project.activeLevelId);
   const underlayObjects = useMemo(
     () => (underlayOn && levelUnder ? withProfile(onLevel(project.allObjects, levelUnder.id), project.profile, viewContext, project.blocks) : undefined),
-    [underlayOn, levelUnder, project.allObjects, project.profile, viewContext],
+    [underlayOn, levelUnder, project.allObjects, project.profile, viewContext, project.blocks],
   );
   const shownBlocks = useMemo(() => withProfileBlocks(project.blocks, project.profile, viewContext), [project.blocks, project.profile, viewContext]);
   // Incrémenté quand le projet est remplacé : le canevas oublie alors son dernier point posé.
@@ -774,6 +774,7 @@ function Workbench() {
           sheets={project.sheets}
           objects={project.allObjects}
           levels={project.levels}
+          activeLevelId={project.activeLevelId}
           profile={project.profile}
           layers={project.layers}
           blocks={project.blocks}
@@ -1022,6 +1023,7 @@ function Workbench() {
                 pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
                 gridSize={gridSize}
                 projectKey={projectKey}
+                levelKey={project.activeLevelId}
                 snapTypes={snapTypes}
                 colorMode={colorMode}
                 displayUnit={displayUnit}

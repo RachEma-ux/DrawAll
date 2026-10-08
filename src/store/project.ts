@@ -733,10 +733,12 @@ export function useProject() {
       scale: vp.scale ?? STANDARD_SCALES.find(s => s.paper === 1 && s.model === 50)!,
       center: vp.center ?? { x: 0, y: 0 },
       hiddenLayerIds: vp.hiddenLayerIds ?? [],
+      // Une fenêtre désigne toujours un niveau existant (par défaut, le niveau affiché).
+      levelId: vp.levelId && levels.some(l => l.id === vp.levelId) ? vp.levelId : activeLevelId,
     };
     commit(`Créer fenêtre ${id} sur ${sheetId}`, { sheets: sheets.map(sh => (sh.id === sheetId ? { ...sh, viewports: [...sh.viewports, viewport] } : sh)) });
     return id;
-  }, [sheets, allViewportIds, commit]);
+  }, [sheets, allViewportIds, levels, activeLevelId, commit]);
 
   const updateViewport = useCallback((sheetId: string, id: string, patch: Partial<Omit<Viewport, 'id'>>, label = 'Modifier fenêtre') => {
     const sheet = sheets.find(sh => sh.id === sheetId);

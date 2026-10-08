@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject } from '@/types/cad';
-import { DEFAULT_LEVEL, copyLevelObjects, formatElevation, levelBelow, levelsOf, onLevel } from './levels';
+import { DEFAULT_LEVEL, copyLevelObjects, formatElevation, levelBelow, levelsOf, onLevel, viewportLevelId } from './levels';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const objects: CadObject[] = [
@@ -38,5 +38,15 @@ describe('niveaux', () => {
     expect(formatElevation(2800)).toBe('+2,80 m');
     expect(formatElevation(-2500)).toBe('−2,50 m');
     expect(formatElevation(0)).toBe('±0,00 m');
+  });
+});
+
+describe('niveau montré par une fenêtre', () => {
+  const levels = [{ id: 'NIV-0002', name: 'Étage 1', elevation: 2800 }, { id: 'NIV-0003', name: 'Sous-sol', elevation: -2600 }];
+  it('le niveau désigné s’il existe, sinon le plus bas', () => {
+    expect(viewportLevelId({ levelId: 'NIV-0002' }, levels)).toBe('NIV-0002');
+    expect(viewportLevelId({}, levels)).toBe('NIV-0003');
+    expect(viewportLevelId({ levelId: 'NIV-0009' }, levels)).toBe('NIV-0003');
+    expect(viewportLevelId({}, [])).toBe(DEFAULT_LEVEL.id);
   });
 });

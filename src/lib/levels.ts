@@ -12,6 +12,16 @@ export function levelsOf(levels: Level[] | undefined): Level[] {
 
 export const levelIdOf = (o: Pick<CadObject, 'levelId'>) => o.levelId ?? DEFAULT_LEVEL.id;
 
+/**
+ * Niveau montré par une fenêtre de feuille : celui qu'elle désigne s'il existe, sinon le premier
+ * niveau du projet (même règle pour l'aperçu, le PDF et le SVG).
+ */
+export function viewportLevelId(vp: Pick<CadObject, 'levelId'>, levels: Level[] | undefined): string {
+  const list = levelsOf(levels);
+  const id = levelIdOf(vp);
+  return list.some(l => l.id === id) ? id : list[0].id;
+}
+
 /** Objets d'un niveau. */
 export const onLevel = <T extends Pick<CadObject, 'levelId'>>(objects: T[], levelId: string) => objects.filter(o => levelIdOf(o) === levelId);
 
