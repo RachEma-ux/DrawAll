@@ -10,7 +10,7 @@ import { effectiveStyle, lineTypeDef } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dimensionTextPosition } from '@/lib/annotation';
 import { pdimGeometry } from '@/lib/pdim';
 import { hatchAngles, hatchParamsOf, hatchSegments, loopOf } from '@/lib/hatch';
-import { wallsGeometry } from '@/lib/wall';
+import { wallHatchShape, wallsGeometry } from '@/lib/wall';
 import { openingGeometry } from '@/lib/opening';
 import { primitiveBounds } from '@/lib/geometry';
 import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetSize } from '@/lib/sheet';
@@ -212,8 +212,8 @@ export function sheetToPdf(input: PdfInput): string {
       if (o.kind === 'wall') {
         const g = walls.get(o.id);
         if (!g) continue;
-        const pseudo = { ...o, kind: 'polyline', points: [...g.quad.flatMap(q => [q.x, q.y]), g.quad[0].x, g.quad[0].y] } as unknown as PrimitiveObject;
-        if (pseudo.hatch && pseudo.hatch !== 'none') drawHatch(pathOf(pseudo).path, pseudo, []);
+        const { outline: pseudo, islands } = wallHatchShape(o, g.quad, g.bays);
+        if (pseudo.hatch && pseudo.hatch !== 'none') drawHatch(pathOf(pseudo).path, pseudo, islands);
         const st = effectiveStyle(o, layer);
         setStroke(o.lineWeight ?? layer?.lineWeight ?? 0.5, lineTypeDef(st.lineType).pattern.map(v => Math.abs(v) * st.lineWeight));
         for (const [a, b] of g.edges) {

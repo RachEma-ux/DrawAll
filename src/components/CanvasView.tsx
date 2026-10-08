@@ -40,7 +40,7 @@ import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, p
 import { pdimGeometry } from '@/lib/pdim';
 import { occurrencePrimitives } from '@/lib/materials';
 import { hatchParamsOf, pointInLoop } from '@/lib/hatch';
-import { wallQuad, wallsGeometry, type WallGeometry } from '@/lib/wall';
+import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/lib/wall';
 import { openingGeometry, swingPath } from '@/lib/opening';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
@@ -1060,11 +1060,11 @@ function WallShape({ obj, geom, view, selected, zoom, layer, colorMode, paperSca
   const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
   const sw = paperScale ? Math.max(strokeInModel(weight, paperScale), 0.5 / zoom) : (screenWidth(weight) + (selected ? 1 : 0)) / zoom;
   const edges = geom?.edges ?? quad.map((p, i) => [p, quad[(i + 1) % 4]] as [{ x: number; y: number }, { x: number; y: number }]);
-  // Le quadrilatère comme polyligne fermée : remplissage et hachures du rendu commun.
-  const pseudo = { ...obj, kind: 'polyline', points: [...quad.flatMap(q => [q.x, q.y]), quad[0].x, quad[0].y] } as unknown as PrimitiveObject;
+  // Le quadrilatère comme polyligne fermée, baies en îlots : remplissage et hachures du rendu commun.
+  const { outline: pseudo, islands } = wallHatchShape(obj, quad, geom?.bays);
   return (
     <g data-mur={obj.id}>
-      <PrimitiveShape obj={pseudo} view={view} selected={selected} zoom={zoom} showLabel={false} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} noStroke />
+      <PrimitiveShape obj={pseudo} view={view} selected={selected} zoom={zoom} showLabel={false} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} noStroke />
       {edges.map(([a, b], i) => <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={sw} strokeLinecap="square" />)}
     </g>
   );
@@ -1367,7 +1367,9 @@ function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, pa
   );
 }
 
-function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: BlockDef[], x: number, y: number, tol: number): CadObject | null {
+function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], x: number, y: number, tol: number): CadObject | null {
+  // Une ouverture est entièrement dans l'épaisseur de son mur : elle est testée avant lui.
+  const candidates = [...all.filter(o => o.kind !== 'opening'), ...all.filter(o => o.kind === 'opening')];
   for (let i = candidates.length - 1; i >= 0; i--) {
     const o = candidates[i];
     if (o.kind === 'line' && distanceSegment(x, y, o.x1, o.y1, o.x2, o.y2) <= tol) return o;

@@ -9,16 +9,22 @@ export type Placement = (o: CadObject) => Partial<CadObject> | null;
 
 const norm = (deg: number) => { const a = ((deg % 360) + 360) % 360; return a > 360 - 1e-9 ? 0 : a; };
 
+/** Objet dont la copie dépend d'un autre : la cote de sa cible, l'ouverture de son mur. */
+const parentOf = (o: CadObject): string | null => (o.kind === 'dimension' ? o.targetId : o.kind === 'opening' ? o.hostId : null);
+const withParent = (o: CadObject, parent: string): CadObject =>
+  (o.kind === 'dimension' ? { ...o, targetId: parent } : o.kind === 'opening' ? { ...o, hostId: parent } : o) as CadObject;
+
 /**
- * Objets à copier pour une sélection : les objets choisis, les cotes qui les suivent et la cible
- * de chaque cote choisie (une cote seule ne peut pas être copiée sans ce qu'elle mesure).
+ * Objets à copier pour une sélection : les objets choisis, les cotes et ouvertures qui les suivent,
+ * la cible de chaque cote choisie et le mur de chaque ouverture choisie (une cote ne peut pas être
+ * copiée sans ce qu'elle mesure, ni une ouverture sans le mur qui la porte).
  */
 export function withDependencies(objects: CadObject[], selected: Iterable<string>): CadObject[] {
   const ids = new Set(selected);
-  for (const o of objects) if (o.kind === 'dimension' && ids.has(o.id)) ids.add(o.targetId);
+  for (const o of objects) { const parent = parentOf(o); if (parent && ids.has(o.id)) ids.add(parent); }
   // Îlots de hachure : copiés avec le contour qui les désigne.
   for (const o of objects) if (ids.has(o.id)) for (const h of o.holes ?? []) ids.add(h);
-  return objects.filter(o => ids.has(o.id) || (o.kind === 'dimension' && ids.has(o.targetId)));
+  return objects.filter(o => { const parent = parentOf(o); return ids.has(o.id) || (!!parent && ids.has(parent)); });
 }
 
 /** Au-delà, l'opération est refusée (protection de l'atelier). */
@@ -93,13 +99,13 @@ export function polarArray(count: number, total: number, cx: number, cy: number,
 
 /**
  * Crée les copies de `sources` pour chaque pose, avec des identifiants neufs tirés du compteur.
- * Une cote suit sa cible : elle est copiée seulement si sa cible l'est aussi, et pointe alors
- * vers la copie de la cible. Les objets qu'une pose ne sait pas transformer sont omis.
+ * Une cote suit sa cible et une ouverture son mur : elle est copiée seulement si sa cible ou son
+ * mur l'est aussi, et pointe alors vers cette copie. Les objets qu'une pose ne sait pas transformer sont omis.
  */
 export function cloneAll(sources: CadObject[], placements: Placement[], counter: number, seq: number): { objects: CadObject[]; counter: number } {
   const out: CadObject[] = [];
-  const shapes = sources.filter(o => o.kind !== 'dimension');
-  const dims = sources.filter(o => o.kind === 'dimension');
+  const shapes = sources.filter(o => !parentOf(o));
+  const dependents = sources.filter(o => parentOf(o));
   for (const place of placements) {
     const ids = new Map<string, string>();
     const start = out.length;
@@ -119,11 +125,12 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
         if (holes.length) c.holes = holes; else delete c.holes;
       }
     }
-    for (const d of dims) {
-      const target = d.kind === 'dimension' ? ids.get(d.targetId) : undefined;
-      if (!target) continue;
+    // Cotes et ouvertures : copiées seulement avec leur cible ou leur mur, rattachées à sa copie.
+    for (const d of dependents) {
+      const parent = ids.get(parentOf(d)!);
+      if (!parent) continue;
       counter += 1;
-      out.push({ ...d, id: `OBJ-${String(counter).padStart(4, '0')}`, targetId: target, createdSeq: seq } as CadObject);
+      out.push({ ...withParent(d, parent), id: `OBJ-${String(counter).padStart(4, '0')}`, createdSeq: seq } as CadObject);
     }
   }
   return { objects: out, counter };

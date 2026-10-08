@@ -13,7 +13,7 @@ import { norm360 } from '@/lib/arc';
 import { dimensionGeometry, dimensionText } from '@/lib/geometry';
 import { pdimGeometry } from '@/lib/pdim';
 import { PAPER_DIMENSION_STYLE, arrowHead } from '@/lib/annotation';
-import { wallsGeometry } from '@/lib/wall';
+import { wallHatchShape, wallsGeometry } from '@/lib/wall';
 import { openingGeometry } from '@/lib/opening';
 import { hatchAngles, hatchParamsOf } from '@/lib/hatch';
 import { primitiveBounds } from '@/lib/geometry';
@@ -271,8 +271,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
         push(10, n(a.x)); push(20, n(-a.y)); push(30, 0);
         push(11, n(b.x)); push(21, n(-b.y)); push(31, 0);
       }
-      const pseudo = { ...object, kind: 'polyline', points: [...g.quad.flatMap(q => [q.x, q.y]), g.quad[0].x, g.quad[0].y] } as unknown as PrimitiveObject;
-      if (pseudo.hatch && pseudo.hatch !== 'none' && writeHatch(entityHeader, push, pseudo, layer, [], hatchScale)) counts.hatch++;
+      const { outline: pseudo, islands } = wallHatchShape(object, g.quad, g.bays);
+      if (pseudo.hatch && pseudo.hatch !== 'none' && writeHatch(entityHeader, push, pseudo, layer, islands, hatchScale)) counts.hatch++;
       continue;
     }
     writeOne(object, layer);

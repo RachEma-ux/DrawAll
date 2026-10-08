@@ -42,3 +42,13 @@ test('lot 4.2 — ouverture trop large refusée avec un message', async ({ page 
   await expect(page.getByRole('status')).toContainText('dépasse du mur');
   expect(await currentObjects(page)).toHaveLength(1);
 });
+
+test('lot 4.2 — une fenêtre se sélectionne dans l’épaisseur de son mur', async ({ page }, info) => {
+  await openAtelier(page);
+  // Ordre quelconque des objets (ici l'ouverture avant son mur) : l'ouverture reste prioritaire.
+  await loadObjects(page, [{ id: 'OBJ-0002', kind: 'opening', hostId: 'OBJ-0001', type: 'fenetre', position: 2500, width: 1200, hinge: 'debut', side: 'gauche' }, wall]);
+  await chooseTool(page, /^Sélection/);
+  await tapModel(page, info, 2500, 0);
+  await expect(page.getByTestId('canvas').locator('g[data-ouverture="fenetre"] polygon')).toHaveAttribute('fill', 'rgba(34,211,238,0.12)');
+  await expect(page.getByTestId('canvas').locator('g[data-mur] line').first()).not.toHaveAttribute('stroke', '#22d3ee');
+});

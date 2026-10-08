@@ -20,7 +20,7 @@ import {
   supportedDimensionStyles,
 } from '@/types/cad';
 import { arcBounds } from '@/lib/arc';
-import { cloneAll, translation, type Placement } from '@/lib/array';
+import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
 import { LINE_TYPES } from '@/lib/linestyle';
 import { profileById } from '@/lib/materials';
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
@@ -366,10 +366,7 @@ export function useProject() {
 
   /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
   const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
-    const sources = ids
-      .map(id => objects.find(o => o.id === id))
-      .filter((o): o is CadObject => !!o);
-    return addCopies(sources, [translation(dx, dy)], 'Dupliquer');
+    return addCopies(withDependencies(objects, ids), [translation(dx, dy)], 'Dupliquer');
   }, [objects, addCopies]);
 
   /**

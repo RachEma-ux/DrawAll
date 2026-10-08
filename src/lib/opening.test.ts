@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { OpeningObj, WallObj } from '@/types/cad';
+import type { Layer, OpeningObj, WallObj } from '@/types/cad';
 import { openingFits, openingGeometry, positionOnWall } from './opening';
 import { wallsGeometry } from './wall';
 import { moveObject, rotateObject } from './geometry';
+import { exportDxf } from './dxf';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0, name: 'o' };
 const wall: WallObj = { ...base, id: 'M', kind: 'wall', x1: 0, y1: 0, x2: 5000, y2: 0, thickness: 200, justification: 'axe' };
@@ -50,5 +51,23 @@ describe('ouvertures', () => {
     expect(openingFits({ position: 300, width: 900 }, wall)).toMatch(/dépasse/);
     expect(positionOnWall(wall, { x: 2200, y: 80 })).toBe(2200);
     expect(positionOnWall(wall, { x: -50, y: 0 })).toBe(0);
+  });
+});
+
+describe('baie vide dans le remplissage du mur', () => {
+  it('la baie de chaque ouverture est un îlot du mur', () => {
+    const g = wallsGeometry([wall], [door]).get('M')!;
+    expect(g.bays).toHaveLength(1);
+    const xs = g.bays[0].map(p => p.x), ys = g.bays[0].map(p => p.y);
+    expect([Math.min(...xs), Math.max(...xs)]).toEqual([1050, 1950]);
+    expect([Math.min(...ys), Math.max(...ys)]).toEqual([-100, 100]);
+  });
+
+  it('DXF : la hachure du mur porte la baie comme contour intérieur', () => {
+    const layers: Layer[] = [{ id: 'LAY-0001', name: 'Murs', color: '#ffffff', visible: true, locked: false }];
+    const { content } = exportDxf([{ ...wall, hatch: 'solid' }, door], layers, []);
+    const hatch = content.slice(content.indexOf('\nHATCH\n'));
+    const lines = hatch.split('\n').map(l => l.trim());
+    expect(lines[lines.indexOf('91') + 1]).toBe('2');
   });
 });
