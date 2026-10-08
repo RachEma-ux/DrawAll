@@ -31,6 +31,8 @@ import { beamError, columnError } from '@/lib/structure';
 import { SCHEDULE_TITLE } from '@/lib/schedules';
 import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
+import MergePanel from '@/components/MergePanel';
+import type { Change } from '@/lib/merge';
 import { zoneColors as zoneColorsOf } from '@/lib/zones';
 import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
@@ -767,6 +769,20 @@ function Workbench() {
   // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
   const [paramsOpen, setParamsOpen] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
+  // Comparaison et fusion de variantes (lot 14.2).
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [overlay, setOverlay] = useState<{ changes: Change[]; otherId: string } | null>(null);
+  const diffOverlay = useMemo(() => {
+    if (!overlay) return undefined;
+    const other = project.state.branches?.find(b => b.id === overlay.otherId);
+    const theirs = other ? other.versions[other.pointer].objects : [];
+    return overlay.changes.flatMap(c => {
+      const src = c.kind === 'supprimé' ? project.allObjects : theirs;
+      const o = src.find(x => x.id === c.id);
+      const b = o ? objectBounds(o, project.blocks, src) : null;
+      return b ? [{ id: c.id, kind: c.kind, ...b }] : [];
+    });
+  }, [overlay, project.state.branches, project.allObjects, project.blocks]);
   const zoneColors = useMemo(() => zoneColorsOf(project.objects, project.zones), [project.objects, project.zones]);
   const [constraintType, setConstraintType] = useState<GeoConstraint['type']>('horizontal');
   const [constraintValue, setConstraintValue] = useState('');
@@ -1044,6 +1060,7 @@ function Workbench() {
     { id: 'redo', title: 'Rétablir', hint: 'Revenir à la microversion suivante', keywords: ['retablir', 'redo'], run: project.redo },
     { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
+    { id: 'merge', title: 'Comparer et fusionner des variantes', hint: 'Changements d’une autre variante en surimpression, fusion à trois voies, conflits tranchés', keywords: ['fusion', 'fusionner', 'merge', 'comparer', 'variante', 'branche', 'differences', 'conflit'], run: () => setMergeOpen(true) },
     { id: 'zones', title: 'Zones', hint: 'Regrouper des pièces : nom, couleur, surface cumulée', keywords: ['zone', 'zones', 'regrouper', 'pieces', 'surface cumulee', 'logement', 'lot', 'secteur'], run: () => setZonesOpen(true) },
     { id: 'parameters', title: 'Paramètres du projet', hint: 'Table des paramètres nommés (nom, expression, unité) ; les cotes de contrainte peuvent les citer', keywords: ['parametre', 'parametres', 'variable', 'expression', 'formule', 'cote pilotante'], run: () => setParamsOpen(true) },
     { id: 'kernel-trial', title: 'Essai du noyau 3D (P0)', hint: 'Charge OCCT (≈ 7 Mo compressés, une fois) et calcule un pavé percé', keywords: ['noyau', '3d', 'occt', 'essai', 'volume', 'p0'], run: () => { void kernelTrial(); } },
@@ -1194,6 +1211,7 @@ function Workbench() {
       onCreateVariant={name => project.createVariant(name)}
       onSwitchVariant={project.switchVariant}
       onRemoveVariant={project.removeVariant}
+      onCompareVariants={() => setMergeOpen(true)}
       compact={level === 'essentiel'}
       syncLabel={SYNC_META[syncStatus].label}
       syncColor={SYNC_META[syncStatus].color}
@@ -1508,6 +1526,7 @@ function Workbench() {
                 onAddColumn={addColumn}
                 onAddBeam={addBeam}
                 zoneColors={zoneColors}
+                diffOverlay={diffOverlay}
                 constraintMarks={constraintMarks}
                 constraintPicks={constraintPicks.map(p => p.at)}
                 onMeasureArea={measureArea}
@@ -2018,6 +2037,9 @@ function Workbench() {
       {snapPanelOpen && <SnapSettings active={snapTypes} onChange={setSnapTypes} onClose={() => setSnapPanelOpen(false)} />}
       {arrayMode && (
         <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
+      )}
+      {mergeOpen && (
+        <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />
       )}
       {zonesOpen && (
         <ZonesPanel zones={project.zones} objects={project.allObjects} selectedRoomIds={project.selectedIds.filter(id => project.objects.find(o => o.id === id)?.kind === 'room')}

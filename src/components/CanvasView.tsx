@@ -117,6 +117,8 @@ interface Props {
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
   /** Décaler (lot 10.4) : objet désigné puis côté désigné. */
   onOffset?: (id: string, side: { x: number; y: number }) => void;
+  /** Surimpression des changements d'une autre variante (lot 14.2). */
+  diffOverlay?: { id: string; kind: 'ajouté' | 'modifié' | 'supprimé'; minX: number; minY: number; maxX: number; maxY: number }[];
   /** Couleur de zone des pièces (lot 13.3). */
   zoneColors?: Map<string, string>;
   /** Dalle (lot 13.1) : depuis la pièce sous le point, ou contour tracé point par point. */
@@ -221,6 +223,7 @@ export default function CanvasView({
   onAddRoof,
   onAddColumn,
   onAddBeam,
+  diffOverlay,
   zoneColors,
   constraintMarks,
   constraintPicks,
@@ -1275,6 +1278,17 @@ export default function CanvasView({
               fill={m.state === 'conflit' ? '#f87171' : m.state === 'à réparer' ? '#fb923c' : m.state === 'redondante' ? '#94a3b8' : '#a78bfa'}
               fontFamily="ui-monospace, monospace" style={{ pointerEvents: 'none' }}>{m.glyph}</text>
           )))}
+          {diffOverlay?.map(d => {
+            // Ajouté vert, modifié ambre, supprimé rouge en pointillé ; marge de 4 px écran.
+            const m = 4 / tf.k, color = d.kind === 'ajouté' ? '#34d399' : d.kind === 'modifié' ? '#fbbf24' : '#f87171';
+            return (
+              <g key={`diff-${d.id}`} data-surimpression={d.kind} data-surimpression-id={d.id} style={{ pointerEvents: 'none' }}>
+                <rect x={d.minX - m} y={d.minY - m} width={d.maxX - d.minX + 2 * m} height={d.maxY - d.minY + 2 * m} fill={color} fillOpacity={0.08}
+                  stroke={color} strokeWidth={1.5 / tf.k} strokeDasharray={d.kind === 'supprimé' ? `${5 / tf.k} ${3 / tf.k}` : undefined} />
+                <text x={d.minX - m} y={d.minY - m - 3 / tf.k} fontSize={10 / tf.k} fill={color} fontFamily="ui-monospace, monospace">{d.kind}</text>
+              </g>
+            );
+          })}
           {constraintPicks?.map((p, i) => <circle key={`pick-${i}`} data-designe cx={p.x} cy={p.y} r={5 / tf.k} fill="none" stroke="#a78bfa" strokeWidth={1.5 / tf.k} />)}
           {freehand && freehand.length > 1 && (
             <polyline data-apercu-main-levee points={freehand.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeLinejoin="round" strokeLinecap="round" />

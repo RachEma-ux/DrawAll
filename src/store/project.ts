@@ -50,6 +50,7 @@ import { isIfcClass, normalizePsets } from '@/lib/properties';
 import { isHexColor } from '@/lib/zones';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
+import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -1373,8 +1374,22 @@ export function useProject() {
   const switchVariant = useCallback((id: string) => apply(switchBranch(state, id)), [state, apply]);
   const removeVariant = useCallback((id: string) => apply(removeBranch(state, id)), [state, apply]);
 
+  /**
+   * Fusion de la variante `otherId` dans l'active (lot 14.2) : nouvelle microversion de la variante
+   * active ; chaque conflit doit être tranché. Renvoie un message d'erreur, ou null.
+   */
+  const mergeVariant = useCallback((otherId: string, choices: Record<string, Choice>): string | null => {
+    const inputs = mergeInputs(state, otherId);
+    if ('error' in inputs) return inputs.error;
+    const out = resolve(merge3(inputs.base, inputs.ours, inputs.theirs), choices);
+    if ('error' in out) return out.error;
+    const name = state.branches?.find(b => b.id === otherId)?.name ?? otherId;
+    commit(`Fusion de la variante « ${name} »`, out as SnapshotPatch);
+    return null;
+  }, [state, commit]);
+
   return {
-    branches, createVariant, switchVariant, removeVariant,
+    branches, createVariant, switchVariant, removeVariant, mergeVariant,
     zones, addZone, updateZone, removeZone, setRoomZone,
     constraints, addConstraint, removeConstraint, setConstraintExpr,
     parameters, addParameter, updateParameter, removeParameter,

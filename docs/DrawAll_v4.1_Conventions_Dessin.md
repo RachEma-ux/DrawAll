@@ -606,6 +606,19 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Enregistrement** : les branches sont enregistrées (historique par différences, §10.1) et conservées par le paquet natif (aller-retour octet pour octet).
 - Se placer sur une version antérieure puis modifier abandonne les versions en avance de la branche, et le diagnostic le rappelle. Pour les garder, créer d'abord une variante.
 
+### 10.6 Comparaison et fusion de variantes (règle, lot 14.2)
+
+- **Ancêtre commun.**
+  - Pour une variante et la branche dont elle est partie : la version de départ.
+  - Pour deux variantes sœurs : la plus ancienne de leurs versions de départ.
+  - Sinon, la fusion est refusée et la raison est donnée.
+- **Comparaison** (palette, ou « Comparer et fusionner… » dans l'historique) : nombre d'éléments ajoutés, modifiés et supprimés de chaque côté depuis l'ancêtre commun. En surimpression sur le dessin, les changements de l'autre variante sont encadrés : ajouté en vert, modifié en ambre, supprimé en rouge pointillé.
+- **Fusion à trois voies**, par identifiant, sur les objets, calques, blocs, feuilles, niveaux, contraintes, paramètres et zones, ainsi que sur le profil de dessin et la règle de surface.
+  - Un changement fait d'un seul côté est repris.
+  - Un même changement fait des deux côtés est accepté.
+  - Des changements différents d'un même élément (modifié des deux côtés, supprimé d'un côté et modifié de l'autre) sont un **conflit**. Le panneau les liste, et chacun doit être tranché (« garder » l'une ou l'autre variante) avant de fusionner. Rien n'est tranché en silence.
+- **Résultat** : la fusion crée une microversion de la variante active, « Fusion de la variante « … » ». Elle s'annule comme toute modification ; l'autre variante reste intacte.
+
 ## 11. Références
 
 | Sujet | Référence |
