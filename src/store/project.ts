@@ -6,6 +6,8 @@ import {
   type BlockDef,
   type CadObject,
   type DimensionStyle,
+  type GeoConstraint,
+  type PolylineObj,
   type Asset,
   type Layer,
   type Level,
@@ -39,6 +41,7 @@ import { nextIndexLetter } from '@/lib/titleblock';
 import { cutView } from '@/lib/cuts';
 import { objectBounds, projectBounds, reanchorNote } from '@/lib/geometry';
 import { linkedViews } from '@/lib/views';
+import { enforceConstraints, pruneConstraints } from '@/lib/constraints/model';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -177,6 +180,22 @@ function normalizeBlocks(raw: unknown, layers: Layer[]): BlockDef[] {
     }));
 }
 
+const CONSTRAINT_TYPES = new Set(['coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular', 'equal', 'distance', 'length', 'radius', 'tangent', 'fixed']);
+
+/** Contraintes (lot 12.1) : entrées de forme reconnue seulement ; valeurs numériques finies. */
+export function normalizeConstraints(raw: unknown): GeoConstraint[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const isRef = (r: unknown) => !!r && typeof r === 'object' && typeof (r as { obj?: unknown }).obj === 'string';
+  const out = raw.filter((k): k is GeoConstraint => {
+    if (!k || typeof k !== 'object' || typeof k.id !== 'string' || !CONSTRAINT_TYPES.has(k.type)) return false;
+    const refs = ['a', 'b', 'seg', 's1', 's2', 'curve', 'p'].filter(f => f in k);
+    if (!refs.length || !refs.every(f => isRef(k[f]))) return false;
+    for (const f of ['value', 'x', 'y']) if (f in k && !Number.isFinite(k[f])) return false;
+    return !('value' in k) || k.value > 0;
+  });
+  return out.length ? out : undefined;
+}
+
 export function normalizeProjectState(raw: unknown): ProjectState {
   const p = raw as Partial<ProjectState> | null;
   if (p && Array.isArray(p.versions) && p.versions.length > 0) {
@@ -222,6 +241,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
             ...sh,
             viewports: sh.viewports.map(vp => (known.some(l => l.id === levelIdOf(vp)) ? vp : { ...vp, levelId: known[0].id })),
           })),
+          ...(normalizeConstraints(v.constraints) ? { constraints: normalizeConstraints(v.constraints) } : {}),
           ...(typeof v.profileId === 'string' ? { profileId: v.profileId } : {}),
           ...(v.surfaceRule === 'carrez' || v.surfaceRule === 'sia-416' ? { surfaceRule: v.surfaceRule } : {}),
         };
@@ -302,6 +322,7 @@ interface SnapshotPatch {
   levels?: Level[];
   activeLevelId?: string;
   objects?: CadObject[];
+  constraints?: GeoConstraint[];
   layers?: Layer[];
   blocks?: BlockDef[];
   counter?: number;
@@ -427,17 +448,23 @@ export function useProject() {
     setState(s => {
       const cur = s.versions[s.pointer];
       const seq = s.versions[s.versions.length - 1].seq + 1;
+      // Contraintes (lot 12.1) : toute modification des objets ou des contraintes re-résout ; une
+      // contrainte dont un objet a été supprimé part avec lui.
+      let objects = patch.objects ?? cur.objects;
+      const constraints = pruneConstraints(objects, patch.constraints ?? cur.constraints);
+      if (constraints?.length && (objects !== cur.objects || constraints !== cur.constraints)) objects = enforceConstraints(cur.objects, objects, constraints).objects;
       const mv: MicroVersion = {
         seq,
         label,
         time: Date.now(),
-        objects: patch.objects ?? cur.objects,
+        objects,
         layers: patch.layers ?? cur.layers,
         blocks: patch.blocks ?? cur.blocks,
         sheets: patch.sheets ?? cur.sheets ?? [],
         ...((patch.profileId ?? cur.profileId) ? { profileId: patch.profileId ?? cur.profileId } : {}),
         ...((patch.surfaceRule ?? cur.surfaceRule) ? { surfaceRule: patch.surfaceRule ?? cur.surfaceRule } : {}),
         ...((patch.levels ?? cur.levels) ? { levels: patch.levels ?? cur.levels } : {}),
+        ...(constraints?.length ? { constraints } : {}),
       };
       return {
         ...s,
@@ -1114,7 +1141,36 @@ export function useProject() {
     return id;
   }, [levels, allLevelIds, allObjects, state.counter, current.seq, commit, setSelectedIds]);
 
+  // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
+  const constraints = useMemo(() => current.constraints ?? [], [current.constraints]);
+  const allConstraintIds = useMemo(() => versions.flatMap(v => (v.constraints ?? []).map(k => k.id)), [versions]);
+
+  /**
+   * Ajoute une contrainte (son identifiant est attribué ici) ; `polylines` : polylignes munies
+   * d'identifiants de sommets à cette occasion.
+   */
+  const addConstraint = useCallback((made: GeoConstraint, label: string, polylines?: Map<string, PolylineObj>) => {
+    const id = nextId('CTR', allConstraintIds);
+    const k = { ...made, id };
+    const objects = polylines?.size ? allObjects.map(o => polylines.get(o.id) ?? o) : allObjects;
+    commit(`Contrainte ${label.toLowerCase()} ${id}`, { objects, constraints: [...constraints, k] });
+    return id;
+  }, [allConstraintIds, allObjects, constraints, commit]);
+
+  const removeConstraint = useCallback((id: string) => {
+    if (!constraints.some(k => k.id === id)) return;
+    commit(`Retirer contrainte ${id}`, { constraints: constraints.filter(k => k.id !== id) });
+  }, [constraints, commit]);
+
+  /** Nouvelle valeur d'une contrainte cotée (distance, longueur, rayon) : la géométrie suit. */
+  const setConstraintValue = useCallback((id: string, value: number) => {
+    const k = constraints.find(c => c.id === id);
+    if (!k || !('value' in k) || !(value > 0) || !Number.isFinite(value) || k.value === value) return;
+    commit(`Valeur de ${id} : ${value}`, { constraints: constraints.map(c => (c.id === id ? { ...c, value } as GeoConstraint : c)) });
+  }, [constraints, commit]);
+
   return {
+    constraints, addConstraint, removeConstraint, setConstraintValue,
     levels, activeLevelId, setActiveLevelId, addLevel, updateLevel, removeLevel, copyLevel, allObjects,
     profile, setProfileId, surfaceRule, setSurfaceRule,
     state, objects, layers, blocks, activeLayerId, sheets,

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type {
   BlockDef,
   CadObject,
+  PolylineObj,
   Classification,
   DimensionObj,
   DrawingScale,
@@ -47,6 +48,7 @@ import { distanceToSpline, splinePath, withoutRepeatedPoints } from '@/lib/splin
 import { stretchAll, stretchPreview, windowOf } from '@/lib/stretch';
 import { expandToGroups } from '@/lib/groups';
 import { simplifyPath } from '@/lib/freehand';
+import { pickElement, type Pick } from '@/lib/constraints/model';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -65,7 +67,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'freehand' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'freehand' | 'constraint' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -112,6 +114,11 @@ interface Props {
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
   /** Décaler (lot 10.4) : objet désigné puis côté désigné. */
   onOffset?: (id: string, side: { x: number; y: number }) => void;
+  /** Contrainte (lot 12.1) : élément désigné (sommet, segment, cercle) ; polylignes munies d'identifiants. */
+  onConstraintPick?: (pick: Pick, polylines: Map<string, PolylineObj>) => void;
+  /** Symboles des contraintes et éléments déjà désignés pour la contrainte en cours. */
+  constraintMarks?: { id: string; glyph: string; at: { x: number; y: number }[]; state: string }[];
+  constraintPicks?: { x: number; y: number }[];
   /** Étirer (lot 10.3) : modifications calculées sur les objets modifiables. */
   onStretch?: (patches: { id: string; patch: Partial<CadObject> }[]) => void;
   /** Outil Aire : contour désigné par points (aucun objet créé). */
@@ -193,6 +200,9 @@ export default function CanvasView({
   onCorner,
   onStretch,
   onOffset,
+  onConstraintPick,
+  constraintMarks,
+  constraintPicks,
   onMeasureArea,
   onAddPointDimension,
   onAddWall,
@@ -530,6 +540,13 @@ export default function CanvasView({
       // Ouverture : désigner le mur hôte ; la baie est centrée sur la projection du point.
       const host = editableObjects.find(o => o.kind === 'wall' && hitTest([o], objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k));
       if (host) onAddOpening?.(host.id, w.x, w.y);
+      return;
+    }
+    if (tool === 'constraint') {
+      // Contrainte : un sommet d'abord, sinon un segment, sinon un cercle ou un arc.
+      const polylines = new Map<string, PolylineObj>();
+      const pick = pickElement(editableObjects, w, (coarse.current ? 14 : 6) / tf.k, polylines);
+      if (pick) onConstraintPick?.(pick, polylines);
       return;
     }
     if (tool === 'offset') {
@@ -1186,6 +1203,14 @@ export default function CanvasView({
               </g>
             );
           })()}
+          {constraintMarks?.map(m => m.at.map((p, i) => (
+            // Symboles de contrainte : décalés d'un coin, à taille d'écran constante ; rouge en conflit,
+            // orange à réparer, gris si redondante.
+            <text key={`${m.id}-${i}`} data-contrainte={m.id} data-etat={m.state} x={p.x + 6 / tf.k} y={p.y - 6 / tf.k} fontSize={11 / tf.k}
+              fill={m.state === 'conflit' ? '#f87171' : m.state === 'à réparer' ? '#fb923c' : m.state === 'redondante' ? '#94a3b8' : '#a78bfa'}
+              fontFamily="ui-monospace, monospace" style={{ pointerEvents: 'none' }}>{m.glyph}</text>
+          )))}
+          {constraintPicks?.map((p, i) => <circle key={`pick-${i}`} data-designe cx={p.x} cy={p.y} r={5 / tf.k} fill="none" stroke="#a78bfa" strokeWidth={1.5 / tf.k} />)}
           {freehand && freehand.length > 1 && (
             <polyline data-apercu-main-levee points={freehand.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeLinejoin="round" strokeLinecap="round" />
           )}

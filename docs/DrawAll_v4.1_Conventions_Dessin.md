@@ -103,6 +103,37 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
 - Au relâcher, le tracé est simplifié par l'algorithme de Douglas–Peucker : aucun point du geste ne s'écarte de plus de 1,5 pixel d'écran de la polyligne gardée (tolérance en millimètres = 1,5 px ÷ zoom). Le résultat est une polyligne ordinaire (modifiable, étirable, décalable, exportée en LWPOLYLINE).
 - Un geste plus court que 3 pixels ne crée rien ; un calque verrouillé ne reçoit rien.
 
+### 1.13 Contraintes géométriques (règle, lot 12.1)
+
+- Outil « Contrainte » (niveaux contextuel et complet, palette).
+  - On choisit le type, puis on désigne les éléments.
+  - Un sommet, une extrémité de ligne ou un centre est retenu en priorité. Sinon c'est un segment (ligne ou côté de polyligne), sinon un cercle ou un arc.
+  - Types :
+    - coïncidence : deux points ;
+    - horizontale, verticale : un segment ;
+    - parallèle, perpendiculaire, égalité de longueur : deux segments ;
+    - distance : deux points ;
+    - longueur : un segment ;
+    - rayon : un cercle ou un arc ;
+    - tangence : un segment puis un cercle ;
+    - fixe : un point, tenu à sa position au moment de la contrainte.
+  - Les contraintes cotées prennent la valeur saisie, sinon la mesure actuelle. La valeur se modifie ensuite dans la liste du panneau.
+- **Solveur** : celui écrit pour DrawAll (note de décision P0, lot 11.5).
+  - Toute modification des objets ou des contraintes re-résout.
+  - Les points que l'on vient de déplacer sont tenus. Si c'est impossible, la forme est ramenée au plus près de la modification.
+- **Conflit** (aucune solution).
+  - Le dessin reste tel que l'utilisateur l'a laissé.
+  - Le panneau nomme les contraintes en cause : pour chaque conflit, celles dont le retrait le lève, plusieurs conflits indépendants compris. La barre d'état l'indique.
+  - Les symboles des contraintes en conflit sont en rouge.
+- **Sur-contrainte cohérente** : la contrainte qui n'ajoute rien est signalée « redondante » (symbole gris) ; elle n'empêche rien.
+- **Sommets de polyligne.**
+  - Contraindre une polyligne donne à chacun de ses sommets un identifiant permanent.
+  - Une opération qui change le nombre de sommets (par exemple « Ajuster » sur une polyligne) rend les contraintes qui la visent « à réparer » (symbole orange) : elles ne sont jamais reportées sur un autre sommet.
+  - Une contrainte dont un objet est supprimé part avec lui.
+- Le panneau affiche les degrés de liberté restants (0 : entièrement contraint).
+- Les contraintes sont enregistrées avec la version (historique, annulation, paquet natif). Elles ne sont pas exportées en DXF.
+- Non couvert à ce lot : les extrémités d'arc (seuls le centre et le rayon), les ellipses, les splines et les rectangles (convertir en polyligne pour les contraindre).
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)
