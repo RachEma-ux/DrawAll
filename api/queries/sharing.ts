@@ -29,7 +29,7 @@ export async function findProjectAccess(id: number, userId: number): Promise<{ p
   return role ? { project, role } : undefined;
 }
 
-/** Lien d'invitation : jeton secret (192 bits), valable sept jours. */
+/** Lien d'invitation : jeton secret (192 bits), à usage unique, valable sept jours. */
 export async function createInvite(projectId: number, role: "lecture" | "ecriture", now = new Date()): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(24).toString("base64url");
   const expiresAt = new Date(now.getTime() + INVITE_TTL_MS);
@@ -39,19 +39,22 @@ export async function createInvite(projectId: number, role: "lecture" | "ecritur
 
 /**
  * Accepter une invitation : l'utilisateur devient membre (ou voit son droit relevé à l'écriture) ;
- * le propriétaire n'est pas ajouté. Jeton inconnu ou expiré : undefined.
+ * le propriétaire n'est pas ajouté. Le jeton est à usage unique : consommé à l'acceptation, il ne
+ * peut pas rendre l'accès à un membre retiré. Jeton inconnu, déjà utilisé ou expiré : undefined.
  */
 export async function acceptInvite(token: string, userId: number, now = new Date()): Promise<{ projectId: number; role: ProjectRole } | undefined> {
-  const db = getDb();
-  const invite = (await db.select().from(projectInvites).where(and(eq(projectInvites.token, token), gt(projectInvites.expiresAt, now))).limit(1)).at(0);
-  if (!invite) return undefined;
-  const project = (await db.select().from(projects).where(eq(projects.id, invite.projectId)).limit(1)).at(0);
-  if (!project) return undefined;
-  if (project.ownerId === userId) return { projectId: project.id, role: "proprietaire" };
-  const member = (await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, project.id), eq(projectMembers.userId, userId))).limit(1)).at(0);
-  if (!member) await db.insert(projectMembers).values({ projectId: project.id, userId, role: invite.role });
-  else if (member.role === "lecture" && invite.role === "ecriture") await db.update(projectMembers).set({ role: "ecriture" }).where(eq(projectMembers.id, member.id));
-  return { projectId: project.id, role: member?.role === "ecriture" ? "ecriture" : invite.role };
+  return getDb().transaction(async (tx) => {
+    const invite = (await tx.select().from(projectInvites).where(and(eq(projectInvites.token, token), gt(projectInvites.expiresAt, now))).limit(1).for("update")).at(0);
+    if (!invite) return undefined;
+    await tx.delete(projectInvites).where(eq(projectInvites.token, token));
+    const project = (await tx.select().from(projects).where(eq(projects.id, invite.projectId)).limit(1)).at(0);
+    if (!project) return undefined;
+    if (project.ownerId === userId) return { projectId: project.id, role: "proprietaire" as const };
+    const member = (await tx.select().from(projectMembers).where(and(eq(projectMembers.projectId, project.id), eq(projectMembers.userId, userId))).limit(1)).at(0);
+    if (!member) await tx.insert(projectMembers).values({ projectId: project.id, userId, role: invite.role });
+    else if (member.role === "lecture" && invite.role === "ecriture") await tx.update(projectMembers).set({ role: "ecriture" }).where(eq(projectMembers.id, member.id));
+    return { projectId: project.id, role: member?.role === "ecriture" ? "ecriture" as const : invite.role };
+  });
 }
 
 export async function listMembers(projectId: number) {

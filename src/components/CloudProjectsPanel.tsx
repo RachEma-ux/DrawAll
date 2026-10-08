@@ -68,7 +68,7 @@ function SharePanel({ projectId, role, userId, onLeft }: { projectId: number; ro
               <input readOnly aria-label="Lien d'invitation" value={link.url} onFocus={e => e.currentTarget.select()}
                 className="w-full rounded-sm border border-input bg-background px-2 py-1 font-mono text-[10px]" />
               <p className="mt-1 font-mono text-[9px] text-muted-foreground">
-                Droit {ROLE_LABEL[link.role].toLowerCase()} · valable jusqu’au {link.expiresAt.toLocaleDateString('fr-FR')} · à transmettre à la personne invitée.
+                Droit {ROLE_LABEL[link.role].toLowerCase()} · valable jusqu’au {link.expiresAt.toLocaleDateString('fr-FR')} · à usage unique : un lien par personne invitée.
               </p>
             </div>
           )}
@@ -195,7 +195,7 @@ export default function CloudProjectsPanel(p: Props) {
               </div>
 
               {p.currentId !== null && p.currentRole && (
-                <SharePanel projectId={p.currentId} role={p.currentRole} userId={p.userId} onLeft={() => p.onLeave?.()} />
+                <SharePanel key={p.currentId} projectId={p.currentId} role={p.currentRole} userId={p.userId} onLeft={() => p.onLeave?.()} />
               )}
 
               {p.status === 'conflict' && p.conflictServer && (

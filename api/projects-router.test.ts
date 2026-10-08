@@ -1,5 +1,6 @@
 // Partage et commentaires (lot 8.4) : deux comptes, droits lecture / écriture, commentaires.
 // La base est simulée en mémoire (pas de MySQL dans la recette) ; le routeur et les droits sont réels.
+// Le double reproduit le contrat des requêtes (jeton d'invitation à usage unique compris).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { User } from '@db/schema';
 import { can, roleOf } from './lib/access';
@@ -56,6 +57,7 @@ vi.mock('./queries/sharing', () => {
     acceptInvite: async (token: string, userId: number) => {
       const inv = db.invites.find(i => i.token === token && i.expiresAt > new Date());
       if (!inv) return undefined;
+      db.invites = db.invites.filter(i => i !== inv);
       const existing = access(inv.projectId, userId);
       if (existing?.role === 'proprietaire') return { projectId: inv.projectId, role: 'proprietaire' };
       const m = db.members.find(x => x.projectId === inv.projectId && x.userId === userId);
@@ -171,5 +173,15 @@ describe('deux comptes (lot 8.4)', () => {
     await alice.projects.removeMember({ id: p.id, userId: 2 });
     expect(await code(bruno.projects.get({ id: p.id }))).toBe('NOT_FOUND');
     expect(await code(bruno.projects.join({ token: 'jeton-inconnu-0123456789' }))).toBe('NOT_FOUND');
+  });
+
+  it('un lien est à usage unique : un membre retiré ne revient pas avec, un tiers non plus', async () => {
+    const p = await alice.projects.create({ name: 'Maison', data: {} });
+    const { token } = await alice.projects.share({ id: p.id, role: 'ecriture' });
+    await bruno.projects.join({ token });
+    await alice.projects.removeMember({ id: p.id, userId: 2 });
+    expect(await code(bruno.projects.join({ token }))).toBe('NOT_FOUND');
+    expect(await code(chloe.projects.join({ token }))).toBe('NOT_FOUND');
+    expect(await code(bruno.projects.get({ id: p.id }))).toBe('NOT_FOUND');
   });
 });

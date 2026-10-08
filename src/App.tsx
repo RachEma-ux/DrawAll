@@ -795,10 +795,19 @@ function Workbench() {
     }
     const token = pendingShare;
     setPendingShare(null);
-    try { sessionStorage.removeItem(PENDING_SHARE_KEY); } catch { /* jeton non conservé */ }
+    // Le jeton n'est oublié qu'une fois l'invitation acceptée ou refusée par le serveur ; une panne
+    // (réseau, serveur) le garde pour l'onglet, et un rechargement réessaie.
+    const forget = () => { try { sessionStorage.removeItem(PENDING_SHARE_KEY); } catch { /* jeton non conservé */ } };
     joinSharedProject.mutateAsync({ token }).then(
-      joined => { void utils.projects.list.invalidate(); return loadCloudProject(joined.projectId); },
-      () => flash('Invitation inconnue ou expirée : demandez un nouveau lien.'),
+      joined => { forget(); void utils.projects.list.invalidate(); return loadCloudProject(joined.projectId); },
+      (e: { data?: { code?: string } | null }) => {
+        if (e?.data?.code === 'NOT_FOUND') {
+          forget();
+          flash('Invitation inconnue, déjà utilisée ou expirée : demandez un nouveau lien.');
+        } else {
+          flash('Invitation non acceptée pour l’instant (réseau ou serveur) : rechargez la page pour réessayer.');
+        }
+      },
     );
   }, [pendingShare, auth.isLoading, auth.isAuthenticated, project.hydrated, flash, joinSharedProject, loadCloudProject, utils.projects.list]);
 
