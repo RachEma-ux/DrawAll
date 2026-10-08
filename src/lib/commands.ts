@@ -94,7 +94,7 @@ const SPECS: Record<string, Spec> = {
   blockRef: { nums: ['x', 'y', 'scale'], strs: ['blockId'] },
   text: { nums: ['x', 'y', 'rotation'], pos: ['height'], strs: ['content'], enums: { align: ['left', 'center', 'right'] } },
   wall: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['thickness'], enums: { justification: ['axe', 'gauche', 'droite'] } },
-  opening: { nums: ['position'], pos: ['width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] }, extra: o => (o.height !== undefined && !positive(o.height) ? 'ouverture : hauteur positive attendue' : o.sill !== undefined && !(finite(o.sill) && (o.sill as number) >= 0) ? 'ouverture : allège positive ou nulle attendue' : null) },
+  opening: { nums: ['position'], pos: ['width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] }, extra: o => (o.type === 'porte' && !(['debut', 'fin'].includes(o.hinge as string) && ['gauche', 'droite'].includes(o.side as string)) ? 'porte : charnière (debut, fin) et côté (gauche, droite) attendus' : o.height !== undefined && !positive(o.height) ? 'ouverture : hauteur positive attendue' : o.sill !== undefined && !(finite(o.sill) && (o.sill as number) >= 0) ? 'ouverture : allège positive ou nulle attendue' : null) },
   room: { nums: ['x', 'y'] },
   slab: { pos: ['thickness'], points: 3 },
   roof: { nums: ['x', 'y', 'pitch', 'overhang'], pos: ['w', 'h'], enums: { roofType: ['un-pan', 'deux-pans', 'quatre-pans'], axis: ['x', 'y'] }, extra: o => (o.highSide !== undefined && o.highSide !== 'min' && o.highSide !== 'max' ? 'toiture : côté haut min ou max attendu' : roofError(roofInput(o as unknown as RoofObj))) },
@@ -167,7 +167,7 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
 /** Type attendu de l'objet désigné, pour les références typées (ouverture → mur, occurrence → pièce…). */
 const REF_KIND: Partial<Record<string, string>> = { opening: 'wall', occurrence: 'solid', projection: 'solid' };
 
-type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string> };
+type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; lockedLayerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string> };
 
 /**
  * Références d'un objet : niveau, définition de bloc, objets désignés (parent, repère de coupe, cible
@@ -247,7 +247,7 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
   addLevel: ([name, elevation]) => (str(name) && finite(elevation) ? null : 'nom et altitude attendus'),
   goTo: ([index]) => (Number.isInteger(index) && (index as number) >= 0 ? null : 'rang de version attendu'),
   // Calque et niveau désignés : existants (le changement serait sinon ignoré sans le dire).
-  setActiveLayerId: ([id], { layerIds }) => (!str(id) ? 'identifiant de calque attendu' : layerIds && !layerIds.has(id as string) ? `calque ${String(id)} absent` : null),
+  setActiveLayerId: ([id], { layerIds, lockedLayerIds }) => (!str(id) ? 'identifiant de calque attendu' : layerIds && !layerIds.has(id as string) ? `calque ${String(id)} absent` : lockedLayerIds?.has(id as string) ? `calque ${String(id)} verrouillé` : null),
   setActiveLevelId: ([id], { levelIds }) => (!str(id) ? 'identifiant de niveau attendu' : levelIds && !levelIds.has(id as string) ? `niveau ${String(id)} absent` : null),
   nameVersion: ([name]) => (str(name) ? null : 'nom de version attendu'),
   undo: args => (args.length === 0 ? null : 'annuler : sans argument'),
@@ -314,11 +314,11 @@ export function decodeArgs(v: unknown): unknown {
 }
 
 /** Une commande est-elle valide (arguments journalisables et cohérents avec le projet) ? */
-export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: Pick<Layer, 'id'>[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[] }): string | null {
+export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[] }): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];
   const ids = (l: { id: string }[] | undefined) => (l ? new Set(l.map(x => x.id)) : undefined);
-  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones) }) : null;
+  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), lockedLayerIds: layers ? new Set(layers.filter(l => l.locked).map(l => l.id)) : undefined, levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones) }) : null;
 }
 
 /** Empreinte comparable d'une version : contenu du projet, sans horodatage ni libellé. */

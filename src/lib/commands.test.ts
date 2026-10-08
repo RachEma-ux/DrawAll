@@ -74,7 +74,9 @@ describe('API de commandes (lot 18.1)', () => {
     const occ = { kind: 'occurrence', x: 0, y: 0, z: 0, angle: 0 };
     expect(add({ ...occ, sourceId: 'OBJ-0404' })).toBe('occurrence : objet désigné OBJ-0404 absent');
     expect(add({ ...occ, sourceId: 'OBJ-0001' })).toBe('occurrence : OBJ-0001 n’est pas un objet de type solid');
-    expect(add({ kind: 'opening', position: 100, width: 900, type: 'porte', hostId: 'OBJ-0001' })).toBe('opening : OBJ-0001 n’est pas un objet de type wall');
+    expect(add({ kind: 'opening', position: 100, width: 900, type: 'porte', hinge: 'debut', side: 'gauche', hostId: 'OBJ-0001' })).toBe('opening : OBJ-0001 n’est pas un objet de type wall');
+    // Porte : charnière et côté requis.
+    expect(add({ kind: 'opening', position: 100, width: 900, type: 'porte', hostId: 'OBJ-0001' })).toBe('porte : charnière (debut, fin) et côté (gauche, droite) attendus');
     // Ouverture : hauteur positive et allège positive ou nulle, si présentes.
     const wallW = { ...line, id: 'WW', kind: 'wall', thickness: 200, justification: 'axe' } as unknown as CadObject;
     const op = { kind: 'opening', position: 100, width: 900, type: 'fenetre', hostId: 'WW' };
@@ -159,6 +161,8 @@ describe('API de commandes (lot 18.1)', () => {
   it('scripts : seules les commandes entièrement validées sont ouvertes', () => {
     // Calque et niveau actifs : existants.
     expect(validateCommand('setActiveLayerId', ['LAY-0009'], [], [{ id: 'LAY-0001' }])).toBe('calque LAY-0009 absent');
+    expect(validateCommand('setActiveLayerId', ['LAY-0002'], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBe('calque LAY-0002 verrouillé');
+    expect(validateCommand('setActiveLayerId', ['LAY-0001'], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBeNull();
     expect(validateCommand('setActiveLevelId', ['NIV-0009'], [], [], { levels: [{ id: 'NIV-0001' }] })).toBe('niveau NIV-0009 absent');
     expect(validateCommand('setActiveLevelId', ['NIV-0001'], [], [], { levels: [{ id: 'NIV-0001' }] })).toBeNull();
     expect(scriptCommandError('addObject')).toBeNull();

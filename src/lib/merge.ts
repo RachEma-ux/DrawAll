@@ -2,6 +2,7 @@
 // supprimé, modifié) et fusion à trois voies par identifiant : une modification faite d'un seul côté
 // est reprise, des modifications différentes d'un même élément sont un conflit, listé puis tranché
 // (garder l'une ou l'autre). Rien n'est tranché en silence. Fonctions pures.
+import { parse, references, type Parameter } from './params/expr';
 import { parentsOf, withoutDanglingMates, type CadObject, type MicroVersion, type ProjectState, type Sheet } from '@/types/cad';
 import { constraintObjects } from './constraints/model';
 import { activeBranch } from './branches';
@@ -174,6 +175,33 @@ function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: Mic
         if (!present.has(id)) { merged.objects = [...((merged.objects as CadObject[]) ?? []), kept]; added = true; }
       }
       if (!added) break;
+    }
+    // Paramètres cités par une expression (contrainte cotée ou autre paramètre), dans le résultat ou dans
+    // l'une des deux valeurs d'un élément en conflit : un paramètre cité supprimé devient un conflit.
+    const params = (merged.parameters as Parameter[] | undefined) ?? [];
+    const named = new Set(params.map(p => p.name));
+    const cite = (expr: unknown): string[] => { if (typeof expr !== 'string' || !expr.trim()) return []; try { return [...references(parse(expr))]; } catch { return []; } };
+    const exprUsers: { id: string; expr: unknown }[] = [
+      ...params.map(p => ({ id: p.id, expr: p.expr })),
+      ...((merged.constraints as { id: string; expr?: unknown }[] | undefined) ?? []).map(k => ({ id: k.id, expr: k.expr })),
+      ...conflicts.filter(c => c.where === 'parameters' || c.where === 'constraints')
+        .flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is { id: string; expr?: unknown } => !!v).map(v => ({ id: v.id, expr: v.expr }))),
+    ];
+    const missing = new Map<string, string[]>();
+    for (const u of exprUsers) for (const n of cite(u.expr)) if (!named.has(n) && !missing.get(n)?.includes(u.id)) missing.set(n, [...(missing.get(n) ?? []), u.id]);
+    for (const [name, dependents] of missing) {
+      const find = (v: MicroVersion) => (v.parameters ?? []).find(x => x.name === name) ?? null;
+      const kept = find(ours) ?? find(theirs) ?? find(base);
+      if (!kept) continue; // nom jamais défini : expression déjà en erreur des deux côtés
+      const byId = (v: MicroVersion) => (v.parameters ?? []).find(x => x.id === kept.id) ?? null;
+      const o = byId(ours), t = byId(theirs), b = byId(base);
+      const existing = conflicts.find(c => c.where === 'parameters' && c.id === kept.id);
+      if (existing) existing.dependents = dependents;
+      else {
+        const kind = (v: unknown): ChangeKind => (v === null ? 'supprimé' : b ? 'modifié' : 'ajouté');
+        conflicts.push({ where: 'parameters', id: kept.id, ours: kind(o), theirs: kind(t), oursValue: o, theirsValue: t, dependents });
+      }
+      if (!params.some(p => p.id === kept.id)) merged.parameters = [...((merged.parameters as Parameter[] | undefined) ?? []), kept];
     }
     if (conflicts.length + ((merged.objects as unknown[] | undefined)?.length ?? 0) === mark) break;
   }

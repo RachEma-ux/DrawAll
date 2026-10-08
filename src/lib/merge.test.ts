@@ -221,6 +221,21 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect(out.objects!.every(o => ids.has(o.layerId))).toBe(true);
   });
 
+  it('paramètre supprimé chez nous, encore cité par la contrainte modifiée chez eux → conflit sur le paramètre', () => {
+    const L = line('L', 100);
+    type K = NonNullable<MicroVersion['constraints']>[number];
+    const P = { id: 'PAR-0001', name: 'a', expr: '100', unit: 'mm' } as NonNullable<MicroVersion['parameters']>[number];
+    const C = { id: 'CTR-0001', type: 'length', seg: { obj: 'L' }, value: 100, expr: 'a' } as unknown as K;
+    const base = v(0, [L], { constraints: [C], parameters: [P] });
+    const ours = v(1, [L], { constraints: [{ ...C, expr: undefined } as unknown as K], parameters: [] });
+    const theirs = v(1, [L], { constraints: [{ ...C, expr: 'a*2' } as unknown as K], parameters: [P] });
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts.map(c => `${c.where}:${c.id}`).sort()).toEqual(['constraints:CTR-0001', 'parameters:PAR-0001']);
+    const out = resolve(r, { 'constraints:CTR-0001': 'leur', 'parameters:PAR-0001': 'leur' });
+    if ('error' in out) throw new Error(out.error);
+    expect(out.parameters!.map(p => p.name)).toEqual(['a']);
+  });
+
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
     const base = v(0, [line('A', 1)]);
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);
