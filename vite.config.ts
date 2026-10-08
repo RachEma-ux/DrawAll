@@ -21,6 +21,8 @@ export default defineConfig({
       "db": path.resolve(__dirname, "./db"),
     },
   },
+  // Worker du noyau 3D (lot 11.2) : module ES (le chargeur OCCT est un module ES).
+  worker: { format: "es" },
   envDir: path.resolve(__dirname),
   build: {
     outDir: path.resolve(__dirname, "dist/public"),

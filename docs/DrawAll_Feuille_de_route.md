@@ -126,7 +126,7 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 
 Établie après la clôture de J0–J8. Elle couvre la faisabilité (P0) et ce qui manque à l'étape P1 du Concept (§12). Les modules des étapes P2 et P3 (structure détaillée, bois, tôlerie, réseaux, électricité, électronique, simulation, fabrication, relevés 3D) **n'en font pas partie** : ils feront l'objet d'une feuille de route propre. Mêmes règles de découpage (§2) : un lot = une demande de fusion, tests unitaires, recette navigateur, documentation.
 
-**Ordre et porte P0.** Conformément au Concept (§12 : P0 valide les choix techniques avant P1), aucun lot P1 qui dépend d'un choix de P0 (solveur de contraintes, noyau 3D, références topologiques) ne commence avant la clôture de J11. Seul J10 précède P0 : il complète le dessin 2D existant sans dépendre d'aucun de ces choix. Les lots de J11 qui exigent le noyau OCCT attendent en outre la décision de licence, **bloquante avant P0** (Exigences, annexe D.3) : aucune valeur par défaut ne s'y substitue.
+**Ordre et porte P0.** Conformément au Concept (§12 : P0 valide les choix techniques avant P1), aucun lot P1 qui dépend d'un choix de P0 (solveur de contraintes, noyau 3D, références topologiques) ne commence avant la clôture de J11. Seul J10 précède P0 : il complète le dessin 2D existant sans dépendre d'aucun de ces choix. Les lots de J11 qui exigent le noyau OCCT attendaient la décision de licence, bloquante avant P0 (Exigences, annexe D.3) : elle a été prise le 8 octobre 2026 (LGPL, module séparé ; §7).
 
 ### J10 — Compléments 2D (indépendant de P0)
 
@@ -255,7 +255,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 10.5 Groupes | Fait | #52 |
 | 10.6 Main levée | Fait | #53 |
 | 11.1 Solveur de contraintes (essai P0) | Fait (compte rendu `docs/p0/11.1-solveur.md` ; choix proposé : solveur DrawAll, planegcs gardé en oracle de test) | #54 |
-| 11.2 Noyau : chargement, mémoire, cas difficiles | À faire | — |
+| 11.2 Noyau : chargement, mémoire, cas difficiles | Fait (compte rendu `docs/p0/11.2-noyau.md`) | #55 |
 | 11.3 Références topologiques | À faire | — |
 | 11.4 Import de référence | À faire | — |
 | 11.5 Note de décision P0 | À faire | — |
@@ -317,6 +317,6 @@ Une étape échappe à la recette navigateur : le partage et les commentaires, f
 | Référentiel de surfaces (SIA 416, loi Carrez, autre) | SIA 416 | 4.3 |
 | Convertisseur DWG (bibliothèque, licence) | Aucun : DWG refusé avec message | 6.3 |
 | Hébergement durable et comptes (au-delà du tunnel temporaire) | Tunnel de démonstration | 7.2, 8.4 |
-| Licence du noyau OCCT (LGPL avec paquet séparé substituable, ou licence commerciale) — **bloquante avant P0** (Exigences D.3) | Aucune : les lots qui exigent OCCT attendent la décision | 11.2–11.5, J15–J17 |
+| Licence du noyau OCCT (LGPL avec paquet séparé substituable, ou licence commerciale) — bloquante avant P0 (Exigences D.3) | **Décidé le 8 octobre 2026 : LGPL, module WebAssembly séparé, chargé à la demande et remplaçable** (`docs/licences.md`) | 11.2–11.5, J15–J17 |
 | Système de coordonnées de référence par défaut | Aucun : origine locale, système à déclarer par projet | 17.3 |
 | Fournisseur du modèle de langage de l'assistant (coût, données envoyées) | Aucun : l'assistant fonctionne avec un générateur local de démonstration, aucun envoi externe | 18.3 |
