@@ -4,11 +4,11 @@ import { createDefaultLayers, dimensionOf } from '@/types/cad';
 import { measureObject } from './area';
 import { exportToDxf } from './dxf';
 import { loopOf } from './hatch';
-import { moveObject } from './geometry';
+import { moveObject, scaleObject } from './geometry';
 import { defaultIfcClass } from './properties';
 import { roomPolygons } from './rooms';
 import { pointInPolygon, polygonArea, slabAsPolyline, slabContour, slabQuantities } from './slab';
-import { stretchObject } from './stretch';
+import { stretchObject, stretchPreview } from './stretch';
 
 const base = { classification: 'architecture' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const slab = (points: number[], thickness = 200): SlabObj => ({ ...base, id: 'OBJ-0010', name: 'Dalle', kind: 'slab', points, thickness });
@@ -55,5 +55,14 @@ describe('dalles et planchers (lot 13.1)', () => {
     expect(dimensionOf(s)).toBe('Dalle ép. 250 mm · 6 m²');
     const dxf = exportToDxf([s], createDefaultLayers(), []);
     expect(dxf).toContain('LWPOLYLINE');
+  });
+
+  it('homothétie en volume (épaisseur comprise) ; aperçu d’étirement des sommets capturés', () => {
+    const s = slab([0, 0, 5000, 0, 5000, 4000, 0, 4000], 200);
+    const doubled = { ...s, ...scaleObject(s, 0, 0, 2) } as SlabObj;
+    expect(doubled.thickness).toBe(400);
+    expect(slabQuantities(doubled).volumeM3).toBe(8 * slabQuantities(s).volumeM3);
+    // Côté droit capturé et déplacé de 1 m : l'aperçu montre les deux sommets à leur place finale.
+    expect(stretchPreview([s], { minX: 4900, minY: -100, maxX: 5100, maxY: 4100 }, 1000, 0)).toEqual([{ x: 6000, y: 0 }, { x: 6000, y: 4000 }]);
   });
 });

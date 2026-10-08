@@ -956,7 +956,8 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'arc': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'ellipse': return { cx: s(object.cx, cx), cy: s(object.cy, cy), rx: round(object.rx * factor), ry: round(object.ry * factor) };
     case 'spline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
-    case 'slab':
+    // Dalle : homothétie en volume, l'épaisseur suit le contour.
+    case 'slab': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)), thickness: round(object.thickness * factor) };
     case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
     case 'blockRef': return { x: s(object.x, cx), y: s(object.y, cy), scale: round(object.scale * factor) };
     case 'dimension': return { offset: round(object.offset * factor) };
