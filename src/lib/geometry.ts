@@ -7,6 +7,7 @@ import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } fr
 import { pdimGeometry, pdimPoints, transformPdim } from '@/lib/pdim';
 import { hatchParamsOf } from '@/lib/hatch';
 import { wallQuad } from '@/lib/wall';
+import { openingGeometry } from '@/lib/opening';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -452,6 +453,12 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
   switch (object.kind) {
     case 'line': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'wall': { const q = wallQuad(object); return q ? boundsOfPoints(q) : boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]); }
+    case 'opening': {
+      const host = objects.find(o => o.id === object.hostId);
+      const g = host?.kind === 'wall' ? openingGeometry(object, host) : null;
+      if (!g) return null;
+      return boundsOfPoints([...g.rect, ...(g.leaf ?? [])]);
+    }
     case 'rect': return { minX: object.x, minY: object.y, maxX: object.x + object.w, maxY: object.y + object.h };
     case 'circle': return { minX: object.cx - object.r, minY: object.cy - object.r, maxX: object.cx + object.r, maxY: object.cy + object.r };
     case 'arc': return arcBounds(object);
@@ -617,6 +624,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
   switch (object.kind) {
     case 'line': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'wall': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
+    case 'opening': return {}; // l'ouverture suit son mur
     case 'rect': return { x: object.x + dx, y: object.y + dy };
     case 'circle': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'arc': return { cx: object.cx + dx, cy: object.cy + dy };
@@ -712,6 +720,8 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
       return null; // cote associative : elle suit sa cible
     case 'pdim':
       return transformPdim(object, q => rotatePoint(q.x, q.y, cx, cy, rad), { rotation: angleDeg });
+    case 'opening':
+      return {};
     case 'text': {
       // angleDeg > 0 tourne dans le sens horaire à l'écran ; la rotation du texte est trigonométrique (repère DXF).
       const p = rotatePoint(object.x, object.y, cx, cy, rad);
@@ -759,6 +769,8 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
       return { offset: -object.offset };
     case 'pdim':
       return transformPdim(object, q => (axis === 'x' ? { x: mx(q.x), y: q.y } : { x: q.x, y: mx(q.y) })) ?? {};
+    case 'opening':
+      return {};
     case 'text':
       // Le texte reste lisible (pas de lettres en miroir) : seul son point d'insertion est symétrisé.
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
@@ -784,6 +796,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'blockRef': return { x: s(object.x, cx), y: s(object.y, cy), scale: round(object.scale * factor) };
     case 'dimension': return { offset: round(object.offset * factor) };
     case 'pdim': return transformPdim(object, q => ({ x: s(q.x, cx), y: s(q.y, cy) }), { factor });
+    case 'opening': return { position: round(object.position * factor), width: round(object.width * factor) };
     case 'text': return { x: s(object.x, cx), y: s(object.y, cy), height: round(object.height * factor) };
   }
 }
@@ -819,6 +832,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'blockRef':
     case 'text':
     case 'wall':
+    case 'opening':
       return null;
   }
 }

@@ -253,6 +253,14 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - Contour vu fort par défaut (0,5 mm), matériau et hachures comme tout contour fermé ; les faces servent d'arêtes pour Ajuster / Prolonger et d'accrochages (coins).
 - DXF : traits visibles (LINE) et hachures ; le mur n'est plus éditable comme tel (rapport « transformé »).
 
+### 8.2 Ouvertures (règle, lot 4.2)
+
+- Une porte ou une fenêtre est **hébergée** par un mur : sa position est la distance du centre de la baie au début du mur, sa largeur est saisie ; elle suit le mur (déplacement, rotation, étirement) et disparaît avec lui.
+- Outil « Ouverture » : toucher un mur à l'endroit du centre ; une baie qui dépasse du mur est refusée avec un message.
+- Porte : charnière au début ou à la fin de la baie, ouverture à gauche ou à droite du mur ; vantail (trait 0,35 mm) et débattement en quart de cercle. Fenêtre : appuis sur les faces et vitrage au milieu.
+- Les faces du mur sont coupées sur la largeur de la baie et des tableaux ferment l'épaisseur.
+- DXF : traits et arc ; le lien au mur est perdu (rapport « transformé »).
+
 ## 9. Références
 
 | Sujet | Référence |

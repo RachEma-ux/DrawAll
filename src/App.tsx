@@ -16,7 +16,7 @@ import NotFound from '@/pages/NotFound';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { useProject } from '@/store/project';
-import type { CadObject, DisplayLevel, PointDimensionMode, PointDimensionObj, ViewReading, WallObj } from '@/types/cad';
+import type { CadObject, DisplayLevel, OpeningObj, PointDimensionMode, PointDimensionObj, ViewReading, WallObj } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
@@ -27,6 +27,7 @@ import { polarArray, rectangularArray, translation, withDependencies } from '@/l
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { measurePolygon, type Measure } from '@/lib/area';
 import { PROFILES, withProfile, withProfileBlocks, type ViewContext } from '@/lib/materials';
+import { openingFits, positionOnWall } from '@/lib/opening';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
@@ -48,6 +49,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'arc', label: 'Arc 3 points', short: 'Arc', key: 'A', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Début, point de passage, fin' },
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
+  { id: 'opening', label: 'Ouverture', key: 'O', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez un mur : porte ou fenêtre centrée sur ce point' },
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'area', label: 'Aire', key: 'Q', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points du contour, puis Terminer : aire et périmètre (rien n’est créé)' },
@@ -374,6 +376,25 @@ function Workbench() {
     project.addObject({ kind: 'wall', classification: 'architecture', layerId: layer.id, hatch: 'none', x1, y1, x2, y2, thickness: t, justification: wallParams.justification });
   }, [project, wallParams, flash]);
 
+  // Outil Ouverture : type, largeur, charnière et côté d'ouverture.
+  const [openingParams, setOpeningParams] = useState<{ type: OpeningObj['type']; width: string; hinge: OpeningObj['hinge']; side: OpeningObj['side'] }>(
+    { type: 'porte', width: '900', hinge: 'debut', side: 'droite' },
+  );
+  const addOpening = useCallback((wallId: string, x: number, y: number) => {
+    const wall = project.objects.find(o => o.id === wallId);
+    if (wall?.kind !== 'wall') return;
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!layer || layer.locked) { flash('Calque actif verrouillé : ouverture non créée.'); return; }
+    const width = Number(openingParams.width.replace(',', '.'));
+    const position = positionOnWall(wall, { x, y });
+    const problem = openingFits({ position, width }, wall);
+    if (problem) { flash(problem); return; }
+    project.addObject({
+      kind: 'opening', classification: 'architecture', layerId: layer.id, hatch: 'none',
+      hostId: wall.id, type: openingParams.type, position, width, hinge: openingParams.hinge, side: openingParams.side,
+    });
+  }, [project, openingParams, flash]);
+
   // Outil Cote par points : paramètres saisis dans le panneau de l'outil.
   const [pdimParams, setPdimParams] = useState<{ mode: PointDimensionMode; axis: PointDimensionObj['axis']; offset: string; reference: string }>(
     { mode: 'chain', axis: 'horizontal', offset: '500', reference: '0' },
@@ -554,6 +575,7 @@ function Workbench() {
         arc: ['arc', 'courbe', 'trois points', 'cintre'],
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
+        opening: ['porte', 'fenetre', 'baie', 'ouverture', 'door', 'window'],
         wall: ['mur', 'cloison', 'paroi', 'wall', 'batiment'],
         pdim: ['cote', 'serie', 'chainee', 'cumulee', 'angulaire', 'angle', 'niveau', 'altitude', 'dimension'],
         area: ['aire', 'surface', 'perimetre', 'area', 'mesurer'],
@@ -845,6 +867,7 @@ function Workbench() {
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
                  tool === 'trim' ? 'Ajuster : cliquez la portion à retirer, entre deux arêtes' :
                  tool === 'extend' ? 'Prolonger : cliquez près de l’extrémité à prolonger' :
+                 tool === 'opening' ? 'Ouverture : touchez un mur à l’endroit du centre de la baie' :
                  tool === 'wall' ? 'Mur : cliquez les points successifs (un mur par segment), puis Entrée ou Terminer' :
                  tool === 'pdim' ? 'Cote par points : désignez les points (angulaire : sommet puis deux branches ; niveau : un point), puis Terminer' :
                  tool === 'area' ? 'Aire : cliquez les sommets du contour, puis Entrée ou Terminer' :
@@ -951,6 +974,7 @@ function Workbench() {
                 onMeasureArea={measureArea}
                 onAddPointDimension={addPointDimension}
                 onAddWall={addWall}
+                onAddOpening={addOpening}
                 pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
                 gridSize={gridSize}
                 projectKey={projectKey}
@@ -970,6 +994,34 @@ function Workbench() {
                   </div>
                   <div>Aire <span className="text-foreground">{areaResult.area !== undefined ? formatArea(areaResult.area, displayUnit, fmt) : areaResult.areaNote}</span></div>
                   <div>Périmètre <span className="text-foreground">{formatLength(areaResult.length, displayUnit, fmt)}</span></div>
+                </div>
+              )}
+              {tool === 'opening' && (
+                <div role="group" aria-label="Paramètres de l’ouverture" className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg sm:top-12">
+                  <select aria-label="Type d’ouverture" value={openingParams.type} onChange={e => setOpeningParams(p => ({ ...p, type: e.target.value as OpeningObj['type'] }))}
+                    className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                    <option value="porte">Porte</option>
+                    <option value="fenetre">Fenêtre</option>
+                  </select>
+                  <label className="flex items-center gap-1">Largeur
+                    <input aria-label="Largeur de l’ouverture (mm)" inputMode="decimal" value={openingParams.width}
+                      onChange={e => setOpeningParams(p => ({ ...p, width: e.target.value }))}
+                      className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                  </label>
+                  {openingParams.type === 'porte' && (
+                    <>
+                      <select aria-label="Charnière" value={openingParams.hinge} onChange={e => setOpeningParams(p => ({ ...p, hinge: e.target.value as OpeningObj['hinge'] }))}
+                        className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                        <option value="debut">Charnière au début</option>
+                        <option value="fin">Charnière à la fin</option>
+                      </select>
+                      <select aria-label="Côté d’ouverture" value={openingParams.side} onChange={e => setOpeningParams(p => ({ ...p, side: e.target.value as OpeningObj['side'] }))}
+                        className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                        <option value="droite">Ouvre à droite</option>
+                        <option value="gauche">Ouvre à gauche</option>
+                      </select>
+                    </>
+                  )}
                 </div>
               )}
               {tool === 'wall' && (

@@ -113,3 +113,21 @@ describe('îlots de hachure copiés', () => {
     expect(cloneAll([outer], [translation(5, 5)], 30, 0).objects[0].holes).toBeUndefined();
   });
 });
+
+describe('ouvertures copiées avec leur mur', () => {
+  const wall = { id: 'OBJ-0010', kind: 'wall', classification: 'non-classifie', layerId: 'L', hatch: 'none', createdSeq: 0, x1: 0, y1: 0, x2: 4000, y2: 0, thickness: 200, justification: 'axe' } as CadObject;
+  const door = { id: 'OBJ-0011', kind: 'opening', classification: 'non-classifie', layerId: 'L', hatch: 'none', createdSeq: 0, hostId: 'OBJ-0010', type: 'porte', position: 1000, width: 900, hinge: 'debut', side: 'gauche' } as CadObject;
+
+  it('une ouverture suit la copie de son mur, et seulement si le mur est copié', () => {
+    const { objects } = cloneAll([wall, door], [translation(0, 3000), translation(0, 6000)], 20, 0);
+    const walls = objects.filter(o => o.kind === 'wall');
+    const doors = objects.filter(o => o.kind === 'opening');
+    expect(doors.map(d => d.kind === 'opening' && d.hostId)).toEqual(walls.map(w => w.id));
+    expect(cloneAll([door], [translation(0, 3000)], 20, 0).objects).toEqual([]);
+  });
+
+  it('une ouverture choisie seule emporte son mur ; un mur emporte ses ouvertures', () => {
+    expect(withDependencies([wall, door], ['OBJ-0011']).map(o => o.id)).toEqual(['OBJ-0010', 'OBJ-0011']);
+    expect(withDependencies([wall, door], ['OBJ-0010']).map(o => o.id)).toEqual(['OBJ-0010', 'OBJ-0011']);
+  });
+});

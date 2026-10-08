@@ -9,6 +9,7 @@ import type {
   DrawingScale,
   PointDimensionObj,
   WallObj,
+  OpeningObj,
   Layer,
   NewCadObject,
   PrimitiveObject,
@@ -39,12 +40,13 @@ import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, p
 import { pdimGeometry } from '@/lib/pdim';
 import { occurrencePrimitives } from '@/lib/materials';
 import { hatchParamsOf, pointInLoop } from '@/lib/hatch';
-import { wallQuad, wallsGeometry, type WallGeometry } from '@/lib/wall';
+import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/lib/wall';
+import { openingGeometry, swingPath } from '@/lib/opening';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -87,6 +89,8 @@ interface Props {
   pdimAutoFinish?: number | null;
   /** Outil Mur : un mur de a vers b (les murs s'enchaînent point après point). */
   onAddWall?: (x1: number, y1: number, x2: number, y2: number) => void;
+  /** Outil Ouverture : mur désigné et point cliqué (centre de la baie). */
+  onAddOpening?: (wallId: string, x: number, y: number) => void;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -142,6 +146,7 @@ export default function CanvasView({
   onMeasureArea,
   onAddPointDimension,
   onAddWall,
+  onAddOpening,
   pdimAutoFinish = null,
   onMoveMany,
   gridSize,
@@ -202,8 +207,10 @@ export default function CanvasView({
   const visibleObjects = objects.filter(o => layerById.get(o.layerId)?.visible !== false);
   const editableObjects = visibleObjects.filter(o => layerById.get(o.layerId)?.locked !== true);
   // Murs visibles : jonctions calculées ensemble (L, T, croix).
-  const wallGeom = useMemo(() => wallsGeometry(objects.filter((o): o is WallObj =>
-    o.kind === 'wall' && layers.find(l => l.id === o.layerId)?.visible !== false)), [objects, layers]);
+  const wallGeom = useMemo(() => wallsGeometry(
+    objects.filter((o): o is WallObj => o.kind === 'wall' && layers.find(l => l.id === o.layerId)?.visible !== false),
+    objects.filter((o): o is OpeningObj => o.kind === 'opening'),
+  ), [objects, layers]);
 
   const toWorld = useCallback((e: { clientX: number; clientY: number }) => {
     const r = ref.current!.getBoundingClientRect();
@@ -363,6 +370,12 @@ export default function CanvasView({
       // Désigner la portion à retirer (ajuster) ou l'extrémité à prolonger.
       const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
       if (hit) onTrimExtend(tool, hit.id, w.x, w.y);
+      return;
+    }
+    if (tool === 'opening') {
+      // Ouverture : désigner le mur hôte ; la baie est centrée sur la projection du point.
+      const host = editableObjects.find(o => o.kind === 'wall' && hitTest([o], objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k));
+      if (host) onAddOpening?.(host.id, w.x, w.y);
       return;
     }
     if (tool === 'fillet' || tool === 'chamfer') {
@@ -1024,6 +1037,10 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'opening') {
+    const host = objects.find(o => o.id === obj.hostId);
+    return host?.kind === 'wall' ? <OpeningShape obj={obj} wall={host} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} /> : null;
+  }
   if (obj.kind === 'wall') return <WallShape obj={obj} geom={walls?.get(obj.id)} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   const islands = (obj.holes ?? []).map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
   return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} />;
@@ -1043,12 +1060,32 @@ function WallShape({ obj, geom, view, selected, zoom, layer, colorMode, paperSca
   const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
   const sw = paperScale ? Math.max(strokeInModel(weight, paperScale), 0.5 / zoom) : (screenWidth(weight) + (selected ? 1 : 0)) / zoom;
   const edges = geom?.edges ?? quad.map((p, i) => [p, quad[(i + 1) % 4]] as [{ x: number; y: number }, { x: number; y: number }]);
-  // Le quadrilatère comme polyligne fermée : remplissage et hachures du rendu commun.
-  const pseudo = { ...obj, kind: 'polyline', points: [...quad.flatMap(q => [q.x, q.y]), quad[0].x, quad[0].y] } as unknown as PrimitiveObject;
+  // Le quadrilatère comme polyligne fermée, baies en îlots : remplissage et hachures du rendu commun.
+  const { outline: pseudo, islands } = wallHatchShape(obj, quad, geom?.bays);
   return (
     <g data-mur={obj.id}>
-      <PrimitiveShape obj={pseudo} view={view} selected={selected} zoom={zoom} showLabel={false} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} noStroke />
+      <PrimitiveShape obj={pseudo} view={view} selected={selected} zoom={zoom} showLabel={false} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} noStroke />
       {edges.map(([a, b], i) => <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={sw} strokeLinecap="square" />)}
+    </g>
+  );
+}
+
+/** Ouverture : porte (vantail et débattement) ou fenêtre (appuis, vitrage). Les tableaux sont tracés avec le mur. */
+function OpeningShape({ obj, wall, selected, zoom, layer, colorMode, paperScale }: {
+  obj: OpeningObj; wall: WallObj; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale;
+}) {
+  const g = openingGeometry(obj, wall);
+  if (!g) return null;
+  const st = effectiveStyle(obj, layer);
+  const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
+  const thin = paperScale ? Math.max(strokeInModel(0.18, paperScale), 0.5 / zoom) : 1 / zoom;
+  const leafW = paperScale ? Math.max(strokeInModel(0.35, paperScale), 0.5 / zoom) : 1.6 / zoom;
+  return (
+    <g data-ouverture={obj.type}>
+      <polygon points={g.rect.map(p => `${p.x},${p.y}`).join(' ')} fill={selected ? 'rgba(34,211,238,0.12)' : 'transparent'} stroke="none" />
+      {g.glazing?.map(([a, b], i) => <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={thin} />)}
+      {g.leaf && <line x1={g.leaf[0].x} y1={g.leaf[0].y} x2={g.leaf[1].x} y2={g.leaf[1].y} stroke={color} strokeWidth={leafW} />}
+      {g.swing && <path d={swingPath(g.swing)} fill="none" stroke={color} strokeWidth={thin} strokeDasharray={paperScale ? undefined : `${4 / zoom} ${3 / zoom}`} />}
     </g>
   );
 }
@@ -1330,7 +1367,9 @@ function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, pa
   );
 }
 
-function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: BlockDef[], x: number, y: number, tol: number): CadObject | null {
+function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], x: number, y: number, tol: number): CadObject | null {
+  // Une ouverture est entièrement dans l'épaisseur de son mur : elle est testée avant lui.
+  const candidates = [...all.filter(o => o.kind !== 'opening'), ...all.filter(o => o.kind === 'opening')];
   for (let i = candidates.length - 1; i >= 0; i--) {
     const o = candidates[i];
     if (o.kind === 'line' && distanceSegment(x, y, o.x1, o.y1, o.x2, o.y2) <= tol) return o;
@@ -1353,6 +1392,11 @@ function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: Block
       if (geom && distanceSegment(x, y, geom.x1, geom.y1, geom.x2, geom.y2) <= tol) return o;
     }
     if (o.kind === 'text' && pointInText(o, x, y, tol)) return o;
+    if (o.kind === 'opening') {
+      const host = allObjects.find(h => h.id === o.hostId);
+      const g = host?.kind === 'wall' ? openingGeometry(o, host) : null;
+      if (g && (pointInLoop({ x, y }, g.rect) || (g.leaf && distanceSegment(x, y, g.leaf[0].x, g.leaf[0].y, g.leaf[1].x, g.leaf[1].y) <= tol))) return o;
+    }
     if (o.kind === 'wall') {
       const q = wallQuad(o);
       if (q && (pointInLoop({ x, y }, q) || q.some((p, i) => distanceSegment(x, y, p.x, p.y, q[(i + 1) % 4].x, q[(i + 1) % 4].y) <= tol))) return o;

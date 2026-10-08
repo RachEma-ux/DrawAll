@@ -2,7 +2,7 @@
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { WallObj, BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
+import type { OpeningObj, WallObj, BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
@@ -380,7 +380,10 @@ export default function SheetEditor(p: Props) {
               const visibleLayer = new Map(p.layers.map(l => [l.id, layerVisibleInViewport(v, l)]));
               const drawn = byContext[v.context ?? 'coupe'];
               // Jonctions calculées entre les seuls murs que la fenêtre dessine.
-              const walls = wallsGeometry(p.objects.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)));
+              const walls = wallsGeometry(
+                p.objects.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)),
+                p.objects.filter((o): o is OpeningObj => o.kind === 'opening'),
+              );
               const selected = v.id === vpId;
               return (
                 <g key={v.id} data-testid={`fenetre-${v.id}`}>

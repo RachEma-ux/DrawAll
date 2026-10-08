@@ -6,7 +6,8 @@
 // - T (extrémité sur un autre mur) : le mur est prolongé jusqu'à l'axe du mur porteur ;
 // - croix : rien à prolonger.
 // Puis toute portion de face ou d'about strictement à l'intérieur d'un autre mur est retirée.
-import type { WallObj } from '@/types/cad';
+import type { CadObject, OpeningObj, PrimitiveObject, WallObj } from '@/types/cad';
+import { openingGeometry } from '@/lib/opening';
 
 export interface Pt { x: number; y: number }
 type Seg = [Pt, Pt];
@@ -19,6 +20,8 @@ export interface WallGeometry {
   quad: [Pt, Pt, Pt, Pt];
   /** Traits visibles du mur, une fois les jonctions nettoyées. */
   edges: Seg[];
+  /** Baies des ouvertures du mur : vides, ni remplies ni hachurées. */
+  bays: Pt[][];
 }
 
 const sub = (a: Pt, b: Pt): Pt => ({ x: a.x - b.x, y: a.y - b.y });
@@ -61,7 +64,7 @@ function lineLine(p: Pt, d: Pt, q: Pt, e: Pt): Pt | null {
  * Géométrie de tous les murs, jonctions nettoyées. Les murs dégénérés (longueur ou épaisseur nulle)
  * sont ignorés.
  */
-export function wallsGeometry(walls: WallObj[]): Map<string, WallGeometry> {
+export function wallsGeometry(walls: WallObj[], openings: OpeningObj[] = []): Map<string, WallGeometry> {
   const frames = new Map<string, Frame>();
   for (const w of walls) { const f = frameOf(w); if (f) frames.set(w.id, f); }
   const ids = [...frames.keys()];
@@ -149,8 +152,33 @@ export function wallsGeometry(walls: WallObj[]): Map<string, WallGeometry> {
       const other = quads.get(oid)!;
       edges = edges.flatMap(s => clipOutside(s, other));
     }
-    out.set(id, { quad: q, edges: edges.filter(([a, b]) => dist(a, b) > EPS) });
+    // Ouvertures : faces coupées sur la largeur de la baie, tableaux ajoutés.
+    const w = walls.find(v => v.id === id)!;
+    const f = frames.get(id)!;
+    const bays: Pt[][] = [];
+    for (const op of openings.filter(o => o.hostId === id)) {
+      const g = openingGeometry(op, w);
+      if (!g) continue;
+      edges = edges.flatMap(s => cutAlong(s, f, g.from, g.to));
+      edges.push(...g.jambs);
+      bays.push(g.rect);
+    }
+    out.set(id, { quad: q, edges: edges.filter(([a, b]) => dist(a, b) > EPS), bays });
   }
+  return out;
+}
+
+/** Retire d'un trait parallèle au mur la portion comprise entre les abscisses t0 et t1 (le long du mur). */
+function cutAlong([a, b]: Seg, f: Frame, t0: number, t1: number): Seg[] {
+  const ta = dot(sub(a, f.a), f.u), tb = dot(sub(b, f.a), f.u);
+  // Trait en travers du mur (about) : inchangé.
+  if (Math.abs(ta - tb) < EPS) return [[a, b]];
+  const lo = Math.min(ta, tb), hi = Math.max(ta, tb);
+  if (t1 <= lo + EPS || t0 >= hi - EPS) return [[a, b]];
+  const at = (t: number) => add(a, mul(sub(b, a), (t - ta) / (tb - ta)));
+  const out: Seg[] = [];
+  if (t0 > lo + EPS) out.push(ta < tb ? [a, at(t0)] : [at(t0), b]);
+  if (t1 < hi - EPS) out.push(ta < tb ? [at(t1), b] : [a, at(t1)]);
   return out;
 }
 
@@ -207,4 +235,18 @@ export function wallQuad(w: WallObj): [Pt, Pt, Pt, Pt] | null {
   const L = (t: number) => add(add(f.a, mul(f.u, t)), mul(f.l, f.left));
   const R = (t: number) => add(add(f.a, mul(f.u, t)), mul(f.l, -f.right));
   return [L(0), L(f.len), R(f.len), R(0)];
+}
+
+const closedPolyline = (o: CadObject, pts: Pt[], id: string) =>
+  ({ ...o, id, kind: 'polyline', points: [...pts.flatMap(q => [q.x, q.y]), pts[0].x, pts[0].y], holes: undefined }) as unknown as PrimitiveObject;
+
+/**
+ * Surface hachurée d'un mur pour le rendu commun (écran, PDF, DXF) : son contour comme polyligne
+ * fermée, les baies de ses ouvertures comme îlots (laissées vides).
+ */
+export function wallHatchShape(wall: WallObj, quad: Pt[], bays: Pt[][] = []): { outline: PrimitiveObject; islands: CadObject[] } {
+  return {
+    outline: closedPolyline(wall, quad, wall.id),
+    islands: bays.map((b, i) => closedPolyline(wall, b, `${wall.id}-baie-${i + 1}`)),
+  };
 }

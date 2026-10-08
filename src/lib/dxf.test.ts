@@ -423,3 +423,22 @@ describe('murs (lot 4.1)', () => {
     expect(report.transformed.join(' ')).toMatch(/Murs : 2/);
   });
 });
+
+describe('ouvertures (lot 4.2)', () => {
+  it('baie coupée dans le mur, vantail et débattement exportés', () => {
+    const objs: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'M', kind: 'wall', x1: 0, y1: 0, x2: 5000, y2: 0, thickness: 200, justification: 'axe', hatch: 'diagonal' },
+      { ...base, id: 'OBJ-0002', name: 'P', kind: 'opening', hostId: 'OBJ-0001', type: 'porte', position: 1500, width: 900, hinge: 'debut', side: 'droite' },
+      { ...base, id: 'OBJ-0003', name: 'F', kind: 'opening', hostId: 'OBJ-0001', type: 'fenetre', position: 3500, width: 1200, hinge: 'debut', side: 'droite' },
+    ];
+    const { content, report } = exportDxf(objs, layers, []);
+    keepFixture('ouvertures.dxf', content);
+    expect(content.match(/\nARC\n/g)).toHaveLength(1);
+    // Mur : 2 faces coupées deux fois (3 morceaux chacune) + 2 abouts + 4 tableaux = 12 ; porte : 1 vantail ; fenêtre : 3 traits.
+    expect(content.match(/\nLINE\n/g)).toHaveLength(12 + 1 + 3);
+    expect(report.transformed.join(' ')).toMatch(/Ouvertures : 2/);
+    // Hachure du mur : contour et deux baies (îlots laissés vides).
+    const hatch = content.slice(content.indexOf('\nHATCH\n')).split('\n').map(l => l.trim());
+    expect(hatch[hatch.indexOf('91') + 1]).toBe('3');
+  });
+});
