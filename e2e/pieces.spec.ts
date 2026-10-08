@@ -33,3 +33,17 @@ test('lot 4.3 — un point hors de toute pièce fermée : message, rien de cré�
   await expect(page.getByRole('status')).toContainText('Aucune pièce fermée');
   expect(await currentObjects(page)).toHaveLength(3);
 });
+
+test('lot 4.3 — sur la feuille, la pièce se calcule avec les murs visibles dans la fenêtre', async ({ page }) => {
+  await openAtelier(page);
+  // Refend sur le calque « Repères » ; la pièce (à gauche du refend) mesure 2,40 × 4,00 m.
+  await loadObjects(page, [...box, { ...w('OBJ-0005', 2600, 0, 2600, 4200), layerId: 'LAY-0003' }, { id: 'OBJ-0006', kind: 'room', name: 'Chambre', x: 1300, y: 2100 }]);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  const label = page.getByTestId('fenetre-FEN-0001').locator('g[data-piece] text[data-surface]');
+  await expect(label).toHaveText('9,60 m²');
+  // Refend masqué dans la fenêtre : la pièce occupe tout le rectangle, comme dans le PDF.
+  await page.getByRole('checkbox', { name: 'Repères' }).uncheck();
+  await expect(label).toHaveText('20,00 m²');
+});
