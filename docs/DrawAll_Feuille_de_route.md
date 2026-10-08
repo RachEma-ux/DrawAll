@@ -42,7 +42,16 @@ Le parcours de preuve qui clôt la feuille de route (§6) vérifie ces cinq poin
 | J6 — Échanges étendus | Reprendre l'existant | DXF client complet (textes, blocs, cotes, hachures), fond de plan PDF/image calé |
 | J7 — Terrain et mobile | Relevé sur chantier | Relevé au doigt hors ligne avec photos jointes |
 | J8 — Collaboration et fiabilité | Travail d'équipe | Projet partagé, commenté, versionné, restaurable depuis le paquet natif |
-| J9 — 3D (P2) | Volumes et B-Rep | Hors périmètre immédiat ; décision D1 (occt-wasm) à rouvrir après J8 |
+| J9 — 3D (P2) | Volumes et B-Rep | Remplacé par J14–J16 (seconde feuille de route, §4 bis) |
+| J10 — Compléments 2D | Finir le socle 2D sans 3D | Ellipse, spline, étirer, décalage saisi, groupes, main levée |
+| J11 — Contraintes et paramètres | Dessin piloté | Un rectangle contraint suit son paramètre nommé ; sur-contrainte signalée |
+| J12 — Bâtiment complété | Plans d'architecture complets | Dalles, toitures, zones, poteaux et poutres, tableaux de quantités |
+| J13 — Versions et coordination | Maîtrise des modifications | Branche, fusion avec conflits, analyse d'impact, publication figée |
+| J14 — Noyau et vue 3D (P0) | Faisabilité 3D | Noyau OCCT chargé à la demande, vue 3D WebGL2, extrusion, révolution, booléens |
+| J15 — Vues, pièces et assemblages | Une géométrie, plusieurs lectures | Vues 2D projetées depuis la 3D, façades générées, assemblage et nomenclature |
+| J16 — Échanges 3D et BIM | Ouverture contrôlée | IFC 4.3 et STEP relus par des outils tiers, géoréférencement |
+| J17 — Automatisation | Commandes communes | API de commandes journalisée, scripts isolés, assistant à boucle contrôlée |
+| J18 — Démonstrateur de référence | Preuve du concept §10 | Atelier, mezzanine, support, armoire : modification suivie jusqu'au dossier publié |
 
 ## 4. Lots
 
@@ -112,6 +121,71 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 - **8.3 — Sécurité de la connexion.** `state` OAuth aléatoire vérifié, durée de session réduite. *Preuve : tests du gestionnaire de rappel.*
 - **8.4 — Partage et commentaires.** Projet partagé en lecture/écriture, commentaires ancrés sur un objet. *Preuve : recette à deux comptes.*
 
+## 4 bis. Seconde feuille de route — vers le socle universel (P0–P1 du Concept)
+
+Établie après la clôture de J0–J8. Elle couvre ce qui manque à l'étape P1 du Concept (§12) et la faisabilité 3D (P0). Les modules des étapes P2 et P3 (structure détaillée, bois, tôlerie, réseaux, électricité, électronique, simulation, fabrication, relevés 3D) **n'en font pas partie** : ils feront l'objet d'une feuille de route propre, une fois le démonstrateur J18 obtenu. Mêmes règles de découpage (§2) : un lot = une demande de fusion, tests unitaires, recette navigateur, documentation.
+
+### J10 — Compléments 2D
+
+- **10.1 — Ellipse native.** Objet ellipse (centre, demi-axes, rotation, arc partiel), outil centre–axe–axe, accrochages centre et quadrants, `ELLIPSE` natif à l'export et à l'import. *Preuve : tests (périmètre, point paramétrique, boîte) ; DXF relu par ezdxf.*
+- **10.2 — Spline native.** B-spline cubique par points de contrôle, outil, édition des points, `SPLINE` natif à l'export et à l'import (plus d'approximation par polyligne). *Preuve : tests d'évaluation (De Boor) ; DXF relu par ezdxf.*
+- **10.3 — Étirer.** Fenêtre de capture : les sommets intérieurs se déplacent, les autres restent ; les cotes associées suivent. *Preuve : tests par type d'objet ; recette.*
+- **10.4 — Décalage à distance saisie.** Outil « Décaler » : distance saisie, côté désigné, copie parallèle (ligne, polyligne, arc, cercle, rectangle, ellipse). *Preuve : tests (distance exacte à 10⁻⁶ mm, côté) ; recette.*
+- **10.5 — Groupes.** Grouper, dégrouper ; désigner un membre désigne le groupe ; groupes dans le navigateur et le paquet. *Preuve : tests ; recette.*
+- **10.6 — Main levée.** Tracé continu simplifié (Douglas–Peucker, tolérance en pixels écran) en polyligne. *Preuve : tests de simplification ; recette au doigt.*
+
+### J11 — Contraintes et paramètres
+
+- **11.1 — Solveur de contraintes 2D.** Bibliothèque pure : coïncidence, horizontale, verticale, parallèle, perpendiculaire, distance, longueur, rayon, égalité, tangence, fixe ; degrés de liberté et sur-contrainte détectés. *Preuve : tests de convergence (10⁻⁹ mm) et de diagnostic.*
+- **11.2 — Contraintes dans l'atelier.** Poser une contrainte sur la sélection, symboles sur le canevas, une modification re-résout ; un conflit est expliqué, rien n'est cassé. *Preuve : recette sur un rectangle contraint.*
+- **11.3 — Paramètres nommés et cotes pilotantes.** Table des paramètres (nom, expression, unité), évaluateur d'expressions sans `eval`, cotes pilotantes liées. *Preuve : changer `L` redimensionne la pièce ; expression circulaire refusée.*
+- **11.4 — Propriétés et classification.** Jeux de propriétés par objet (valeur, unité), classe IFC par type d'objet, éditables dans l'inspecteur. *Preuve : tests ; paquet aller-retour.*
+
+### J12 — Bâtiment complété
+
+- **12.1 — Dalles et planchers.** Contour, épaisseur, niveau ; création depuis une pièce. *Preuve : surface et volume de référence.*
+- **12.2 — Toitures.** Contour, pente, débord ; un, deux ou quatre pans sur contour rectangulaire ; faîtage, arêtiers et flèches de pente en plan. *Preuve : hauteur de faîtage et longueurs d'arêtiers de référence.*
+- **12.3 — Zones.** Regroupement de pièces, surface cumulée, couleur. *Preuve : somme exacte des surfaces.*
+- **12.4 — Poteaux et poutres.** Sections rectangulaires ou circulaires saisies (aucun catalogue inventé), poutre en traits interrompus au-dessus du plan de coupe. *Preuve : tests ; DXF.*
+- **12.5 — Tableaux de quantités.** Tableaux des pièces, ouvertures et murs, calculés depuis le modèle, posés sur une feuille, exportés en PDF et DXF. *Preuve : modifier un mur met à jour le tableau.*
+
+### J13 — Versions et coordination
+
+- **13.1 — Branches.** Variante créée depuis une version, bascule, historique par branche, conservées par le paquet. *Preuve : tests ; recette.*
+- **13.2 — Comparaison et fusion.** Différences (ajouté, supprimé, modifié) en surimpression, fusion à trois voies, conflits listés et tranchés. *Preuve : tests de fusion.*
+- **13.3 — Analyse d'impact.** Avant une suppression ou une modification : objets dépendants, vues et feuilles touchés ; feuilles « à recalculer » signalées. *Preuve : tests du graphe de dépendances ; recette.*
+- **13.4 — Publication.** Dossier figé (version nommée + PDF des feuilles), consultable, état « publié » / « modifié depuis ». *Preuve : le dossier publié ne change pas quand le projet évolue.*
+
+### J14 — Noyau et vue 3D (P0)
+
+- **14.1 — Noyau géométrique.** OCCT en WebAssembly (décision D1) chargé à la demande hors du fil principal ; contrat interne (extrusion, révolution, booléens, maillage, volume). Budget de démarrage mesuré (D6a). *Preuve : tests de volumes à 10⁻⁶ près ; temps de chargement consigné.*
+- **14.2 — Vue 3D.** Rendu WebGL2 (D2) : orbite, cadrage, murs, dalles, poteaux, poutres et toitures dérivés du plan. *Preuve : recette ; temps de trame mesuré.*
+- **14.3 — Solides.** Extrusion et révolution d'un contour fermé, union, différence, perçage. *Preuve : volumes de référence.*
+
+### J15 — Vues, pièces et assemblages
+
+- **15.1 — Vues projetées.** Vues 2D (dessus, face, côté) calculées depuis les solides, arêtes cachées en interrompu, associatives. *Preuve : modifier le solide met à jour la vue.*
+- **15.2 — Façades et coupes de bâtiment générées.** Depuis le modèle 3D, posées sur les feuilles. *Preuve : recette.*
+- **15.3 — Pièces et occurrences.** Définition de pièce, occurrences placées, numérotation. *Preuve : modifier la définition met à jour toutes les occurrences.*
+- **15.4 — Liaisons et nomenclature d'assemblage.** Liaisons fixe, coaxiale et appui plan ; nomenclature calculée depuis les occurrences ; vue éclatée. *Preuve : tests de placement ; quantités.*
+
+### J16 — Échanges 3D et BIM
+
+- **16.1 — Export IFC 4.3.** Étages, murs, dalles, ouvertures, portes, fenêtres, espaces, toitures, poteaux, poutres, propriétés (D5). *Preuve : fichier relu par IfcOpenShell ; quantités comparées.*
+- **16.2 — STEP.** Export et import des solides (AP214/AP242 selon le noyau). *Preuve : aller-retour, volume identique à 10⁻⁶ près.*
+- **16.3 — Géoréférencement.** Point de base (E, N, altitude), système de coordonnées déclaré, rotation vers le nord ; transmis à l'IFC. *Preuve : tests de conversion ; IFC relu.*
+
+### J17 — Automatisation
+
+- **17.1 — API de commandes.** Chaque opération est une commande typée validée et journalisée ; la palette, l'interface et les scripts passent par elle. *Preuve : rejouer le journal reproduit le projet.*
+- **17.2 — Scripts isolés.** Console de scripts exécutés dans un Worker, sans accès direct au stockage, via l'API seule. *Preuve : un script trace une grille de poteaux ; un script fautif n'abîme rien.*
+- **17.3 — Assistant à boucle contrôlée.** Séquence d'opérations proposée, validée par les moteurs, aperçue, exécutée après accord ; trois corrections au plus ; journal des hypothèses (D4). Le fournisseur du modèle de langage est une décision §7. *Preuve : tests avec un générateur simulé.*
+
+### J18 — Démonstrateur de référence
+
+- **18.1 — Parcours du Concept §10.** Atelier et mezzanine, support de machine et ancrages, armoire implantée, modification d'une dimension déterminante suivie jusqu'aux feuilles, nomenclature et dossier publié ; conflit entre variantes, coupure réseau, échange IFC. *Preuve : scénario de recette automatisé.*
+- **18.2 — Banc de mesure.** Temps de retour p95 et temps de trame sur un projet de référence déclaré (Concept §11). *Preuve : rapport de mesure versionné.*
+
 ## 5. Avancement
 
 | Lot | État | Demande de fusion |
@@ -159,6 +233,40 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 8.3 Sécurité de la connexion | Fait | #44 |
 | 8.4 Partage et commentaires | Fait (recette à deux comptes au niveau de l'API, base simulée ; essai avec deux vrais comptes dépendant de l'hébergement, §7 « Tunnel de démonstration ») | #45 |
 | Parcours de preuve final (§6) | Fait (partage et commentaires prouvés au niveau de l'API) | #46 |
+| 10.1 Ellipse native | À faire | — |
+| 10.2 Spline native | À faire | — |
+| 10.3 Étirer | À faire | — |
+| 10.4 Décalage à distance saisie | À faire | — |
+| 10.5 Groupes | À faire | — |
+| 10.6 Main levée | À faire | — |
+| 11.1 Solveur de contraintes 2D | À faire | — |
+| 11.2 Contraintes dans l'atelier | À faire | — |
+| 11.3 Paramètres nommés et cotes pilotantes | À faire | — |
+| 11.4 Propriétés et classification | À faire | — |
+| 12.1 Dalles et planchers | À faire | — |
+| 12.2 Toitures | À faire | — |
+| 12.3 Zones | À faire | — |
+| 12.4 Poteaux et poutres | À faire | — |
+| 12.5 Tableaux de quantités | À faire | — |
+| 13.1 Branches | À faire | — |
+| 13.2 Comparaison et fusion | À faire | — |
+| 13.3 Analyse d'impact | À faire | — |
+| 13.4 Publication | À faire | — |
+| 14.1 Noyau géométrique | À faire | — |
+| 14.2 Vue 3D | À faire | — |
+| 14.3 Solides | À faire | — |
+| 15.1 Vues projetées | À faire | — |
+| 15.2 Façades et coupes générées | À faire | — |
+| 15.3 Pièces et occurrences | À faire | — |
+| 15.4 Liaisons et nomenclature d'assemblage | À faire | — |
+| 16.1 Export IFC 4.3 | À faire | — |
+| 16.2 STEP | À faire | — |
+| 16.3 Géoréférencement | À faire | — |
+| 17.1 API de commandes | À faire | — |
+| 17.2 Scripts isolés | À faire | — |
+| 17.3 Assistant à boucle contrôlée | À faire | — |
+| 18.1 Démonstrateur de référence | À faire | — |
+| 18.2 Banc de mesure | À faire | — |
 
 ## 6. Parcours de preuve final
 
@@ -187,3 +295,6 @@ Une étape échappe à la recette navigateur : le partage et les commentaires, f
 | Référentiel de surfaces (SIA 416, loi Carrez, autre) | SIA 416 | 4.3 |
 | Convertisseur DWG (bibliothèque, licence) | Aucun : DWG refusé avec message | 6.3 |
 | Hébergement durable et comptes (au-delà du tunnel temporaire) | Tunnel de démonstration | 7.2, 8.4 |
+| Noyau géométrique 3D et licence (D1 : OCCT, LGPL) | OCCT en WebAssembly (paquet séparé, chargé à la demande) pour le prototype ; licence à confirmer avant engagement produit | 14.1–16.2 |
+| Système de coordonnées de référence par défaut | Aucun : origine locale, système à déclarer par projet | 16.3 |
+| Fournisseur du modèle de langage de l'assistant (coût, données envoyées) | Aucun : l'assistant fonctionne avec un générateur local de démonstration, aucun envoi externe | 17.3 |
