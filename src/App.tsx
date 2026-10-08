@@ -54,6 +54,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'circle', label: 'Cercle', key: 'C', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Centre puis rayon' },
   { id: 'arc', label: 'Arc 3 points', short: 'Arc', key: 'A', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Début, point de passage, fin' },
   { id: 'spline', label: 'Spline', key: 'S', levels: ['contextuel', 'complet'], hint: 'Points de contrôle, puis Terminer (Entrée ou double-clic) : courbe lisse de degré 3' },
+  { id: 'stretch', label: 'Étirer', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins de la fenêtre de capture, puis point de base et point d’arrivée : les sommets capturés se déplacent' },
   { id: 'ellipse', label: 'Ellipse', key: 'Z', levels: ['contextuel', 'complet'], hint: 'Centre, extrémité du premier axe, puis le second demi-axe' },
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
@@ -826,7 +827,7 @@ function Workbench() {
     ...TOOLS.map(t => ({
       id: `tool-${t.id}`,
       title: `Outil ${t.label}`,
-      hint: `${t.hint} · raccourci ${t.key}`,
+      hint: t.key ? `${t.hint} · raccourci ${t.key}` : t.hint,
       keywords: {
         select: ['selection', 'selectionner', 'fleche', 'move', 'deplacer'],
         line: ['ligne', 'trait', 'segment', 'line'],
@@ -838,6 +839,7 @@ function Workbench() {
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         ellipse: ['ellipse', 'ovale', 'axe', 'courbe'],
         spline: ['spline', 'courbe', 'lisse', 'bezier', 'nurbs'],
+        stretch: ['etirer', 'étirer', 'stretch', 'allonger', 'deformer'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
         room: ['piece', 'surface', 'local', 'room', 'sia', 'carrez'],
         note: ['note', 'photo', 'releve', 'terrain', 'chantier', 'commentaire', 'remarque'],
@@ -922,7 +924,7 @@ function Workbench() {
         );
         return;
       }
-      const t = TOOLS.find(t => t.key.toLowerCase() === e.key.toLowerCase());
+      const t = TOOLS.find(t => t.key && t.key.toLowerCase() === e.key.toLowerCase());
       if (t && t.levels.includes(level)) setTool(t.id);
     };
     window.addEventListener('keydown', onKey);
@@ -1114,7 +1116,7 @@ function Workbench() {
                 <button
                   key={t.id}
                   onClick={() => setTool(t.id)}
-                  title={`${t.hint} (${t.key})`}
+                  title={t.key ? `${t.hint} (${t.key})` : t.hint}
                   aria-label={t.label}
                   className={`shrink-0 whitespace-nowrap rounded-sm px-2 py-2 sm:px-2.5 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors lg:py-1 ${
                     tool === t.id ? 'bg-cyan-400 text-[#050810]' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -1176,6 +1178,7 @@ function Workbench() {
                  tool === 'block' ? (activeBlockId ? `Cliquez pour insérer ${activeBlockId}` : 'Choisissez un bloc dans le navigateur') :
                  tool === 'pan' ? 'Glissez pour déplacer la vue' :
                  tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
+                 tool === 'stretch' ? 'Étirer : deux coins de la fenêtre de capture, puis le point de base et le point d’arrivée' :
                  tool === 'spline' ? 'Spline : cliquez les points de contrôle, puis Terminer (Entrée ou double-clic)' :
                  tool === 'ellipse' ? 'Ellipse : cliquez le centre, l’extrémité du premier axe, puis un point du second axe' :
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
@@ -1290,6 +1293,7 @@ function Workbench() {
                 onEditText={editText}
                 onTrimExtend={trimExtend}
                 onCorner={corner}
+                onStretch={patches => project.applyPatches(patches, [], 'Étirer')}
                 onMeasureArea={measureArea}
                 onAddPointDimension={addPointDimension}
                 onAddWall={addWall}
