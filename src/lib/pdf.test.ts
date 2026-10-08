@@ -131,3 +131,22 @@ describe('symboles sur la feuille (lot 4.5)', () => {
     expect(pdfString('−0,45')).not.toContain('?');
   });
 });
+
+describe('ellipse dans le PDF (lot 10.1)', () => {
+  it('courbes de Bézier : l’ellipse 4 000 × 2 000 au 1:50 tient dans 80 × 40 mm papier, centrée', () => {
+    const el: CadObject[] = [{ ...base, id: 'OBJ-0021', kind: 'ellipse', cx: 2500, cy: 500, rx: 2000, ry: 1000, rotation: 0 }];
+    const out = sheetToPdf({ sheet, objects: el, layers, blocks: [], versions, pointer: 0, date: new Date(Date.UTC(2026, 9, 7, 12)) });
+    if (dir) writeFileSync(join(dir, 'ellipse.pdf'), pdfBytes(out));
+    // Le chemin : un « m » puis 8 « c » (portions de 45°) fermés par « h ».
+    const m = /(-?[\d.]+) (-?[\d.]+) m\n((?:(?:-?[\d.]+ ){6}c\n?){8}) h/.exec(out)!;
+    expect(m).not.toBeNull();
+    const nums = m[3].trim().split(/\s+/).filter(v => v !== 'c').map(Number);
+    // Points sur la courbe : fin de chaque portion (les deux derniers nombres de chaque « c »).
+    const ends = Array.from({ length: 8 }, (_, i) => [nums[i * 6 + 4], nums[i * 6 + 5]].map(v => v / MM_TO_PT));
+    const xs = ends.map(p => p[0]), ys = ends.map(p => p[1]);
+    // Extrémités des axes : largeur 80 mm, hauteur 40 mm, centrée sur le centre de la fenêtre (215 mm).
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(80, 3);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(40, 3);
+    expect((Math.max(...xs) + Math.min(...xs)) / 2).toBeCloseTo(215, 3);
+  });
+});

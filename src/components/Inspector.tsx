@@ -80,7 +80,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
   const bat = readingFor(obj, 'batiment');
   const ind = readingFor(obj, 'industrie');
   const layer = layers.find(l => l.id === obj.layerId);
-  const isPrimitive = obj.kind === 'line' || obj.kind === 'rect' || obj.kind === 'circle' || obj.kind === 'arc' || obj.kind === 'polyline';
+  const isPrimitive = obj.kind === 'line' || obj.kind === 'rect' || obj.kind === 'circle' || obj.kind === 'arc' || obj.kind === 'ellipse' || obj.kind === 'polyline';
 
   const num = (v: number, apply: (n: number) => Partial<CadObject>) => (
     <input
@@ -119,6 +119,14 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
       { label: 'Centre X (mm)', el: num(obj.cx, n => ({ cx: n })) },
       { label: 'Centre Y (mm)', el: num(obj.cy, n => ({ cy: n })) },
       { label: 'Rayon (mm)', el: num(obj.r, n => ({ r: n > 0 ? n : obj.r })) },
+    );
+  } else if (obj.kind === 'ellipse') {
+    fields.push(
+      { label: 'Centre X (mm)', el: num(obj.cx, n => ({ cx: n })) },
+      { label: 'Centre Y (mm)', el: num(obj.cy, n => ({ cy: n })) },
+      { label: 'Demi-axe 1 (mm)', el: num(obj.rx, n => ({ rx: n > 0 ? n : obj.rx })) },
+      { label: 'Demi-axe 2 (mm)', el: num(obj.ry, n => ({ ry: n > 0 ? n : obj.ry })) },
+      { label: 'Rotation (°)', el: num(obj.rotation, n => ({ rotation: n })) },
     );
   } else if (obj.kind === 'arc') {
     fields.push(

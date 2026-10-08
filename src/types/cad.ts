@@ -3,9 +3,9 @@
 
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
-export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
+export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
 
 /**
@@ -72,6 +72,12 @@ export interface CircleObj extends Base { kind: 'circle'; cx: number; cy: number
  * trigonométrique du repère DXF (Y vers le haut) — donc dans le sens antihoraire à l'écran.
  */
 export interface ArcObj extends Base { kind: 'arc'; cx: number; cy: number; r: number; start: number; end: number }
+/**
+ * Ellipse (lot 10.1) : centre, demi-axe `rx` porté par la direction `rotation` (degrés, repère DXF,
+ * sens trigonométrique), demi-axe `ry` perpendiculaire. Arc d'ellipse : paramètres `start` → `end`
+ * (degrés, sens trigonométrique du repère DXF) ; absents = ellipse entière.
+ */
+export interface EllipseObj extends Base { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number; rotation: number; start?: number; end?: number }
 export interface PolylineObj extends Base { kind: 'polyline'; points: number[] }
 
 /** Cote associative : la géométrie affichée dérive de l'objet cible. */
@@ -140,7 +146,7 @@ export interface BlockRefObj extends Base {
   scale: number;
 }
 
-export type PrimitiveObject = LineObj | RectObj | CircleObj | ArcObj | PolylineObj;
+export type PrimitiveObject = LineObj | RectObj | CircleObj | ArcObj | EllipseObj | PolylineObj;
 /**
  * Mur (lot 4.1) : trait de référence (x1, y1) → (x2, y2), épaisseur et justification : le trait est
  * l'axe du mur, ou sa face gauche / droite (côté vu à l'écran en parcourant le trait).
@@ -432,6 +438,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   line: 'Ligne',
   rect: 'Rectangle',
   circle: 'Cercle',
+  ellipse: 'Ellipse',
   arc: 'Arc',
   polyline: 'Polyligne',
   dimension: 'Cote',
@@ -517,6 +524,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'rect': return `${fmt(obj.w)} × ${fmt(obj.h)} mm`;
     case 'circle': return `Ø ${fmt(obj.r * 2)} mm`;
     case 'arc': return `R ${fmt(obj.r)} mm · ${fmt(((((obj.end - obj.start) % 360) + 360) % 360) || 360)}°`;
+    case 'ellipse': return `Ellipse ${fmt(obj.rx * 2)} × ${fmt(obj.ry * 2)} mm${obj.start !== undefined && obj.end !== undefined ? ' · arc' : ''}`;
     case 'polyline': {
       let d = 0;
       for (let i = 0; i + 3 < obj.points.length + 1 && i + 2 < obj.points.length; i += 2) {

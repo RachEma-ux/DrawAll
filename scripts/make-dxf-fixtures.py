@@ -110,3 +110,24 @@ sb.add_line((0, 0), (10, 0), dxfattribs={"color": 1})
 sb.add_line((0, 0), (0, 10))
 msp.add_blockref("STYLE", (0, 50))
 save(doc, "blocs-eclates.dxf")
+
+# 8. Ellipses dans des blocs (lot 10.1) : point de base non nul ; occurrence simple (bloc conservé),
+# tournée et à l'échelle, symétrique, à l'échelle non uniforme (éclatées : l'ellipse suit).
+doc, msp = new()
+ov = doc.blocks.new("OVALE", base_point=(10, 10))
+ov.add_ellipse((30, 10), major_axis=(20, 0), ratio=0.5)
+ov.add_ellipse((10, 40), major_axis=(0, 8), ratio=0.5, start_param=0, end_param=math.pi / 2)
+msp.add_blockref("OVALE", (100, 0))
+msp.add_blockref("OVALE", (200, 0), dxfattribs={"rotation": 90, "xscale": 2, "yscale": 2})
+msp.add_blockref("OVALE", (300, 0), dxfattribs={"xscale": -1})
+msp.add_blockref("OVALE", (400, 0), dxfattribs={"xscale": 2, "yscale": 1})
+save(doc, "blocs-ellipses.dxf")
+# Référence indépendante pour le test : ellipses transformées par ezdxf (virtual_entities), trois points
+# de la courbe puis les extrémités, repère DXF.
+import json  # noqa: E402
+ref = []
+for ins in msp.query("INSERT"):
+    for e in ins.virtual_entities():
+        if e.dxftype() == "ELLIPSE":
+            ref.append([[v.x, v.y] for v in e.vertices([0.3, 1.0, 1.4])] + [[e.start_point.x, e.start_point.y], [e.end_point.x, e.end_point.y]])
+(out / "blocs-ellipses.points.json").write_text(json.dumps(ref, indent=0))

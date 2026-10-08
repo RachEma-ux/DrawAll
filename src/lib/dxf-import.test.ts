@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { CadObject, Layer } from '@/types/cad';
+import type { CadObject, EllipseObj, Layer } from '@/types/cad';
+import { distanceToEllipse, ellipsePointAt } from './ellipse';
 import { ARC_TOLERANCE_MM, parseDxf } from './dxf';
 
 // Jeu de fichiers de référence (scripts/make-dxf-fixtures.py, écrits par ezdxf).
@@ -85,17 +86,41 @@ describe('import DXF complet (lot 6.1) — jeu de référence', () => {
     expect(hatch.hatchParams!.spacing).toBeCloseTo(6.35, 6);
   });
 
-  it('courbes : spline et ellipses approchées dans la tolérance ; ellipse circulaire exacte', () => {
+  it('courbes : ellipses natives (lot 10.1), spline approchée dans la tolérance, ellipse circulaire exacte', () => {
     const r = read('courbes.dxf');
-    expect(kinds(r.objects)).toEqual({ polyline: 3, circle: 1 });
-    const ellipse = r.objects[1];
-    if (ellipse.kind !== 'polyline') throw new Error('polyligne attendue');
-    // Sommets sur l'ellipse, à l'arrondi des coordonnées près (10⁻⁶ mm).
-    for (let i = 0; i + 1 < ellipse.points.length; i += 2) expect(((ellipse.points[i] - 100) / 20) ** 2 + (ellipse.points[i + 1] / 10) ** 2).toBeCloseTo(1, 6);
+    expect(kinds(r.objects)).toEqual({ polyline: 1, ellipse: 2, circle: 1 });
+    // Ellipse complète 40 × 20 : aucun paramètre ; arc d'ellipse au grand axe vertical (rotation 90°), demi-tour.
+    expect(r.objects[1]).toMatchObject({ kind: 'ellipse', cx: 100, cy: 0, rx: 20, ry: 10, rotation: 0 });
+    expect(r.objects[1]).not.toHaveProperty('start');
+    expect(r.objects[2]).toMatchObject({ kind: 'ellipse', cx: 150, cy: 0, rx: 15, ry: 6, rotation: 90, start: 0, end: 180 });
     expect(r.objects[3]).toMatchObject({ kind: 'circle', cx: 200, cy: 0, r: 10 });
+    expect(r.report.kept.join(' ')).toContain('Ellipses : 2 (ELLIPSE natif, sans approximation).');
     const curves = r.report.transformed.find(t => t.startsWith('Courbes : 1 spline'))!;
     const err = Number(curves.match(/écart maximal ([\d,]+) mm/)![1].replace(',', '.'));
     expect(err).toBeLessThanOrEqual(ARC_TOLERANCE_MM);
+  });
+
+  it('ellipses dans des blocs : point de base, rotation, échelle, symétrie, échelle non uniforme (référence ezdxf)', () => {
+    const r = read('blocs-ellipses.dxf');
+    // Ellipses du monde : celles des blocs conservés replacées à l'insertion, puis les éclatées.
+    const world: EllipseObj[] = [];
+    for (const o of r.objects) {
+      if (o.kind === 'ellipse') world.push(o);
+      if (o.kind === 'blockRef') {
+        for (const p of r.blocks.find(b => b.id === o.blockId)!.primitives) {
+          if (p.kind === 'ellipse') world.push({ ...p, cx: o.x + p.cx * o.scale, cy: o.y + p.cy * o.scale, rx: p.rx * o.scale, ry: p.ry * o.scale } as EllipseObj);
+        }
+      }
+    }
+    expect(world).toHaveLength(8);
+    // Référence indépendante : points des ellipses transformées par ezdxf (virtual_entities), repère DXF.
+    const ref: number[][][] = JSON.parse(fixture('blocs-ellipses.points.json'));
+    for (const pts of ref) {
+      const model = pts.map(([x, y]) => ({ x, y: -y }));
+      const match = world.find(e => model.every(p => distanceToEllipse(e, p) < 1e-5)
+        && (e.start === undefined || [ellipsePointAt(e, e.start), ellipsePointAt(e, e.end!)].every(q => model.slice(3).some(p => Math.hypot(p.x - q.x, p.y - q.y) < 1e-5))));
+      expect(match, JSON.stringify(pts)).toBeDefined();
+    }
   });
 
   it('textes : TEXT et MTEXT', () => {

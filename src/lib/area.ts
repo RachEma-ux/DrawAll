@@ -4,6 +4,7 @@
 import type { CadObject } from '@/types/cad';
 import { isClosedPolyline } from '@/types/cad';
 import { arcSweep } from '@/lib/arc';
+import { ellipseArea, ellipseLength, isFullEllipse } from '@/lib/ellipse';
 
 export interface Measure {
   closed: boolean;
@@ -90,6 +91,7 @@ export function measureObject(o: CadObject): Measure | null {
     case 'wall': { const l = Math.hypot(o.x2 - o.x1, o.y2 - o.y1); return { closed: false, length: l, area: l * o.thickness }; }
     case 'rect': return { closed: true, length: 2 * (Math.abs(o.w) + Math.abs(o.h)), area: Math.abs(o.w * o.h) };
     case 'circle': return { closed: true, length: 2 * Math.PI * o.r, area: Math.PI * o.r * o.r };
+    case 'ellipse': return isFullEllipse(o) ? { closed: true, length: ellipseLength(o), area: ellipseArea(o) } : { closed: false, length: ellipseLength(o) };
     case 'arc': {
       const t = (arcSweep(o) * Math.PI) / 180;
       return {
