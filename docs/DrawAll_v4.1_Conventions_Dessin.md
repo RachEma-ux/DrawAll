@@ -90,6 +90,13 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
 - Refusé avec un message : distance nulle, négative ou non numérique ; décalage intérieur plus grand que le rayon ou le demi-côté ; objet non décalable (texte, cote, bloc…). Les recoupements d'une polyligne décalée vers l'intérieur au-delà de ses rayons de courbure ne sont pas nettoyés.
 - Les commandes « Décaler la sélection (+10 mm / −10 mm) » de la palette restent disponibles (dilatation rapide).
 
+### 1.11 Groupes (règle, lot 10.5)
+
+- Grouper (Ctrl+G, barre d'édition, palette) : au moins deux objets désignés (et les autres membres de leurs groupes) forment un groupe neuf `GRP-0001`. Dégrouper (Ctrl+Maj+G) dissout les groupes touchés.
+- Sur le dessin, désigner un membre désigne tout le groupe (clic, doigt, sélection multiple) : déplacer, copier, tourner, supprimer s'appliquent au groupe. Le navigateur du projet, lui, désigne un membre seul (inspection d'un membre) et affiche le groupe de chaque objet.
+- Les copies d'un groupe (dupliquer, coller, réseaux) forment un groupe neuf par copie : elles ne rejoignent jamais le groupe d'origine. Un morceau issu d'« Ajuster » reste dans le groupe de l'objet coupé ; une copie parallèle (« Décaler ») est isolée.
+- L'appartenance est enregistrée avec l'objet : historique, paquet natif, annulation. Elle n'est pas exportée en DXF.
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)

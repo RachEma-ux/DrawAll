@@ -29,6 +29,7 @@ import { arcBounds } from '@/lib/arc';
 import { ellipseBounds } from '@/lib/ellipse';
 import { splineBounds } from '@/lib/spline';
 import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
+import { groupPatches, nextGroupId, ungroupIds } from '@/lib/groups';
 import { LINE_TYPES } from '@/lib/linestyle';
 import { profileById } from '@/lib/materials';
 import { libraryBlock, libraryItem } from '@/lib/library';
@@ -466,6 +467,26 @@ export function useProject() {
     commit(`${label} ${id}`, { objects: allObjects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)) });
   }, [allObjects, commit]);
 
+  /** Grouper (lot 10.5) : les objets désignés forment un groupe neuf, en une version. */
+  const groupObjects = useCallback((ids: string[]) => {
+    const g = groupPatches(allObjects, ids);
+    if (!g) return null;
+    const byId = new Map(g.patches.map(p => [p.id, p.patch]));
+    commit(`Grouper ${g.groupId} — ${g.patches.length} objets`, { objects: allObjects.map(o => (byId.has(o.id) ? ({ ...o, ...byId.get(o.id) } as CadObject) : o)) });
+    setSelectedIds(g.patches.map(p => p.id));
+    return g.groupId;
+  }, [allObjects, commit, setSelectedIds]);
+
+  /** Dégrouper : les groupes des objets désignés sont dissous ; les objets restent sélectionnés. */
+  const ungroupObjects = useCallback((ids: string[]) => {
+    const members = new Set(ungroupIds(allObjects, ids));
+    if (members.size === 0) return false;
+    commit(`Dégrouper — ${members.size} objets`, {
+      objects: allObjects.map(o => { if (!members.has(o.id)) return o; const { groupId: _g, ...rest } = o; void _g; return rest as CadObject; }),
+    });
+    return true;
+  }, [allObjects, commit]);
+
   const removeObjects = useCallback((ids: string[]) => {
     if (ids.length === 0) return;
     // Les objets associatifs (cotes, ouvertures, vues liées) partent avec leur parent.
@@ -514,7 +535,7 @@ export function useProject() {
       .map(o => (layers.some(l => l.id === o.layerId) || !active ? o : ({ ...o, layerId: active.id } as CadObject)))
       .filter(o => !layers.find(l => l.id === o.layerId)?.locked);
     if (usable.length === 0 || placements.length === 0) return [];
-    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks);
+    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks, taken => nextGroupId(allObjects, taken));
     const clones = cloned.map(stampLevel);
     if (clones.length === 0) return [];
     commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
@@ -1101,7 +1122,7 @@ export function useProject() {
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
     addObject, updateObject, removeObject, removeObjects,
-    transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
+    transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,

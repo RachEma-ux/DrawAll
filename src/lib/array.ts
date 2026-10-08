@@ -111,13 +111,26 @@ export function polarArray(count: number, total: number, cx: number, cy: number,
  * Une cote suit sa cible et une ouverture son mur : elle est copiée seulement si sa cible ou son
  * mur l'est aussi, et pointe alors vers cette copie. Les objets qu'une pose ne sait pas transformer sont omis.
  */
-export function cloneAll(sources: CadObject[], placements: Placement[], counter: number, seq: number, blocks: BlockDef[] = []): { objects: CadObject[]; counter: number } {
+/**
+ * `newGroupId` (lot 10.5) : identifiant de groupe libre ; les copies d'un groupe forment un groupe
+ * neuf par pose (elles ne rejoignent jamais le groupe d'origine). Absent : les copies sont isolées.
+ */
+export function cloneAll(sources: CadObject[], placements: Placement[], counter: number, seq: number, blocks: BlockDef[] = [], newGroupId?: (taken: string[]) => string): { objects: CadObject[]; counter: number } {
   const out: CadObject[] = [];
   // Objets associatifs (cote, ouverture, vues) : copiés après leur parent, rattachés à sa copie.
   const shapes = sources.filter(o => parentsOf(o).length === 0);
   const dependents = sources.filter(o => parentsOf(o).length > 0);
+  const takenGroups: string[] = [];
   for (const place of placements) {
     const ids = new Map<string, string>();
+    const groups = new Map<string, string>();
+    const regroup = <T extends CadObject>(o: T): T => {
+      if (!o.groupId) return o;
+      if (!newGroupId) { const { groupId: _g, ...rest } = o; void _g; return rest as T; }
+      let g = groups.get(o.groupId);
+      if (!g) { g = newGroupId(takenGroups); takenGroups.push(g); groups.set(o.groupId, g); }
+      return { ...o, groupId: g };
+    };
     const start = out.length;
     for (const o of shapes) {
       const patch = place(o);
@@ -125,7 +138,7 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
       counter += 1;
       const id = `OBJ-${String(counter).padStart(4, '0')}`;
       ids.set(o.id, id);
-      out.push({ ...o, ...patch, id, createdSeq: seq } as CadObject);
+      out.push(regroup({ ...o, ...patch, id, createdSeq: seq } as CadObject));
     }
     // Îlots de hachure : ils suivent la copie de leur contour, sinon ils sont abandonnés
     // (seulement pour les copies de cette pose).
@@ -155,7 +168,7 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
         counter += 1;
         const id = `OBJ-${String(counter).padStart(4, '0')}`;
         ids.set(d.id, id);
-        out.push({ ...attached, id, createdSeq: seq } as CadObject);
+        out.push(regroup({ ...attached, id, createdSeq: seq } as CadObject));
         progress = true;
       }
       pending = next;

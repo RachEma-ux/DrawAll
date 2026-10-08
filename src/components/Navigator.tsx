@@ -227,6 +227,11 @@ export default function Navigator(p: Props) {
               >
                 <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{o.id}</span>
                 <span className="truncate text-xs">{o.name}</span>
+                {o.groupId && (
+                  <span data-groupe={o.groupId} title="Membre d’un groupe (lot 10.5) : désigner un membre sur le dessin désigne le groupe" className="shrink-0 rounded-sm border border-amber-400/40 px-1 font-mono text-[9px] text-amber-300">
+                    {o.groupId}
+                  </span>
+                )}
                 <span className="ml-auto shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
                   {KIND_LABEL[o.kind]}
                 </span>

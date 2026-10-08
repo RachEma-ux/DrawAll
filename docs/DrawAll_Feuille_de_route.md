@@ -252,7 +252,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 10.2 Spline native | Fait | #49 |
 | 10.3 Étirer | Fait | #50 |
 | 10.4 Décalage à distance saisie | Fait | #51 |
-| 10.5 Groupes | À faire | — |
+| 10.5 Groupes | Fait | #52 |
 | 10.6 Main levée | À faire | — |
 | 11.1 Solveur de contraintes (essai P0) | À faire | — |
 | 11.2 Noyau : chargement, mémoire, cas difficiles | À faire | — |
