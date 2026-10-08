@@ -18,6 +18,8 @@ import type {
   ViewReading,
   ViewsObj,
   CutObj,
+  UnderlayObj,
+  Asset,
 } from '@/types/cad';
 import { CLASSIFICATION_META, dimensionValue, fmt, isClosedPolyline } from '@/types/cad';
 import {
@@ -50,12 +52,13 @@ import { areaM2, centroid, detectRoom, formatM2, roomPolygons } from '@/lib/room
 import { distanceToViews, linkedViews } from '@/lib/views';
 import { annotationBounds, annotationGeometry, isAnnotation, type AnnotationObject } from '@/lib/bom';
 import { cutView, distanceToCut } from '@/lib/cuts';
+import { onUnderlay } from '@/lib/underlay';
 import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -106,6 +109,10 @@ interface Props {
   onAddOpening?: (wallId: string, x: number, y: number) => void;
   /** Outil Pièce : point intérieur désigné. */
   onAddRoom?: (x: number, y: number) => void;
+  /** Images des fonds de plan (lot 6.2). */
+  assets?: Record<string, Asset>;
+  /** Outil Caler le fond : deux points désignés sur l'image (sans accrochage). */
+  onCalibrate?: (points: number[]) => void;
   /** Outil Symbole : points désignés (un pour le nord et la cote de niveau, deux pour un repère de coupe). */
   onAddSymbol?: (points: number[]) => void;
   symbolPoints?: number;
@@ -172,6 +179,8 @@ export default function CanvasView({
   onAddSymbol,
   symbolPoints = 1,
   symbolKind,
+  assets,
+  onCalibrate,
   pdimAutoFinish = null,
   onMoveMany,
   gridSize,
@@ -235,8 +244,10 @@ export default function CanvasView({
 
   const layerById = new Map(layers.map(l => [l.id, l]));
   const activeLayer = layerById.get(activeLayerId) ?? layers[0];
-  const visibleObjects = objects.filter(o => layerById.get(o.layerId)?.visible !== false);
-  const editableObjects = visibleObjects.filter(o => layerById.get(o.layerId)?.locked !== true);
+  // Fonds de plan dessinés en premier (sous le dessin) ; verrouillés, ils ne sont ni désignables ni modifiables.
+  const shownList = objects.filter(o => layerById.get(o.layerId)?.visible !== false);
+  const visibleObjects = [...shownList.filter(o => o.kind === 'underlay'), ...shownList.filter(o => o.kind !== 'underlay')];
+  const editableObjects = visibleObjects.filter(o => layerById.get(o.layerId)?.locked !== true && !(o.kind === 'underlay' && o.locked));
   // Murs visibles : jonctions calculées ensemble (L, T, croix).
   const roomPolys = useMemo(() => roomPolygons(objects.filter(o => layers.find(l => l.id === o.layerId)?.visible !== false)), [objects, layers]);
   const wallGeom = useMemo(() => wallsGeometry(
@@ -423,6 +434,14 @@ export default function CanvasView({
     }
     if (tool === 'room') {
       onAddRoom?.(w.x, w.y);
+      return;
+    }
+    if (tool === 'calibrate') {
+      // Calage du fond : points pris tels quels sur l'image (aucun accrochage à la grille).
+      const previous = activeDraft?.kind === 'polyline' && activeDraft.origin === 'calibrate' ? activeDraft.points : [];
+      const pts = [...previous, w.x, w.y];
+      if (pts.length >= 4) { setDraft(null); onCalibrate?.(pts); return; }
+      setDraft({ kind: 'polyline', sx: w.x, sy: w.y, cx: w.x, cy: w.y, points: pts, origin: 'calibrate' });
       return;
     }
     if (tool === 'opening') {
@@ -921,6 +940,7 @@ export default function CanvasView({
               unit={displayUnit}
               layer={layerById.get(o.layerId)}
               colorMode={colorMode}
+              assets={assets}
             />
           ))}
 
@@ -1091,8 +1111,10 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls, rooms }: {
+export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls, rooms, assets }: {
   obj: CadObject;
+  /** Images des fonds de plan (lot 6.2). */
+  assets?: Record<string, Asset>;
   /** Préfixe des motifs de hachure (une fenêtre de feuille définit les siens, au pas papier). */
   hatchPrefix?: string;
   /** Géométrie des murs, jonctions nettoyées (calculée une fois pour tous les murs affichés). */
@@ -1114,6 +1136,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'underlay') return <UnderlayShape obj={obj} asset={assets?.[obj.assetId]} selected={selected} zoom={zoom} />;
   if (obj.kind === 'cut') return <CutShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'views') return <ViewsShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (isAnnotation(obj)) return <SymbolShape obj={obj} objects={objects} blocks={blocks} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
@@ -1170,6 +1193,18 @@ function RoomShape({ obj, poly, selected, zoom, paperScale }: { obj: RoomObj; po
       <text x={c.x} y={c.y + size(13, 3.5) * 1.2} fontSize={size(11, 2.5)} fill={color} textAnchor="middle" fontFamily="JetBrains Mono, monospace" data-surface="">
         {formatM2(areaM2(poly))}
       </text>
+    </g>
+  );
+}
+
+/** Fond de plan : image étirée sur son emprise, opacité réglable ; cadre en pointillé s'il est sélectionné. */
+function UnderlayShape({ obj, asset, selected, zoom }: { obj: UnderlayObj; asset?: Asset; selected: boolean; zoom: number }) {
+  return (
+    <g data-fond={obj.id} pointerEvents="none">
+      {asset
+        ? <image href={asset.dataUrl} x={obj.x} y={obj.y} width={obj.w} height={obj.h} opacity={obj.opacity} preserveAspectRatio="none" />
+        : <text x={obj.x} y={obj.y + 12 / zoom} fontSize={11 / zoom} fill="#fb7185" fontFamily="JetBrains Mono, monospace">{obj.id} · image absente</text>}
+      {(selected || !asset) && <rect x={obj.x} y={obj.y} width={obj.w} height={obj.h} fill="none" stroke={selected ? '#22d3ee' : '#fb7185'} strokeWidth={1 / zoom} strokeDasharray={`${4 / zoom} ${3 / zoom}`} />}
     </g>
   );
 }
@@ -1550,7 +1585,18 @@ function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, pa
   );
 }
 
-function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], x: number, y: number, tol: number): CadObject | null {
+function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: BlockDef[], x: number, y: number, tol: number): CadObject | null {
+  const hit = hitDrawing(candidates.filter(o => o.kind !== 'underlay'), allObjects, blocks, x, y, tol);
+  if (hit) return hit;
+  // Un fond de plan non verrouillé ne se désigne qu'en l'absence de tout objet dessiné au point.
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const o = candidates[i];
+    if (o.kind === 'underlay' && !o.locked && onUnderlay(o, { x, y })) return o;
+  }
+  return null;
+}
+
+function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], x: number, y: number, tol: number): CadObject | null {
   // Une ouverture est entièrement dans l'épaisseur de son mur : elle est testée avant lui.
   const candidates = [...all.filter(o => o.kind !== 'opening'), ...all.filter(o => o.kind === 'opening')];
   for (let i = candidates.length - 1; i >= 0; i--) {

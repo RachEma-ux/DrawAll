@@ -304,7 +304,21 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | Texte sur plusieurs lignes | Conservé (MTEXT : mise en forme simplifiée en texte brut) | Conservé (MTEXT, point d'attache en haut) |
 | Autres entités (POINT, SOLID, 3DFACE, ATTRIB, POLYLINE ancienne…) | Ignorées et signalées | — |
 
-### 7.3 À décider
+### 7.3 Fond de plan (règle, lot 6.2)
+
+- Une image (PNG, JPEG…) ou la première page d'un PDF se place sous le dessin comme fond de plan. L'image est conservée une seule fois dans le projet (hors historique), réduite à 4 096 px de côté et à environ 2 Mo pour le stockage local.
+- Taille de départ :
+  - une page PDF prend sa taille réelle (points PDF → mm) ;
+  - une image, celle de ses pixels à 96 ppp, sans échelle connue.
+  - Dans les deux cas, l'échelle se fixe par calage.
+- Calage par deux points : l'outil « Caler le fond » prend deux points de l'image, sans accrochage, et la distance réelle qui les sépare (dans l'unité d'affichage). Le fond est mis à l'échelle autour du premier point, en gardant ses proportions. Recette : distance mesurée sur le fond = distance réelle ± 0,5 %.
+- Le fond est dessiné sous tous les objets, avec une opacité réglable (60 % par défaut). Il ne participe ni à l'accrochage ni aux sélections par fenêtre. Il ne se désigne qu'en l'absence de tout objet au point touché.
+- Verrouillé, il n'est ni désignable sur le canevas ni déplaçable ; il se déverrouille depuis le navigateur et l'inspecteur.
+- Échanges :
+  - le fond de plan est une référence de travail : il n'est exporté ni en PDF ni en DXF, et le rapport DXF le signale ;
+  - le paquet du projet contient les images.
+
+### 7.4 À décider
 
 - Version DXF visée par défaut (R2000 retenue pour sa compatibilité ; R2018 possible).
 
