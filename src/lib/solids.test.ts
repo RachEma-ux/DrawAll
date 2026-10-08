@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject, SolidObj } from '@/types/cad';
 import { createDefaultLayers, dimensionOf } from '@/types/cad';
-import { exportToDxf } from './dxf';
+import { exportDxf, exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
 import { defaultIfcClass } from './properties';
 import { contourOf, extrudeRecipe, holeRecipe, isRecipe, moveSolid, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace } from './solids';
@@ -80,6 +80,7 @@ describe('solides : recettes (lot 15.2)', () => {
     const dxf = exportToDxf([s as CadObject], createDefaultLayers(), []);
     expect(dxf).toContain('LWPOLYLINE');
     expect(dxf).toContain('\nCIRCLE\n');
+    expect(exportDxf([s as CadObject], createDefaultLayers(), []).report.transformed.some(t => t.startsWith('Solides : 1 →'))).toBe(true);
     expect(defaultIfcClass(s)).toBe('IfcBuildingElementProxy');
     expect(dimensionOf(s)).toBe('Encombrement 100 × 50 × 20 mm');
   });
