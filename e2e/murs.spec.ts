@@ -24,3 +24,36 @@ test('lot 4.1 — murs enchaînés, jonction en L nettoyée', async ({ page }) =
   expect(await page.getByTestId('canvas').locator('g[data-mur] line').count()).toBe(6);
   expect(errors).toEqual([]);
 });
+
+test('lot 4.1 — une longueur saisie crée le mur', async ({ page }) => {
+  const errors = await openAtelier(page);
+  await loadObjects(page, []);
+  await chooseTool(page, /^Mur/);
+  const point = page.getByLabel('Point précis');
+  await point.fill('0;0');
+  await point.press('Enter');
+  const length = page.getByLabel('Longueur ou point relatif');
+  await length.fill('4000');
+  await length.press('Enter');
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(1);
+  await page.getByRole('button', { name: 'Terminer' }).click();
+  const [wall] = await currentObjects(page);
+  expect(wall).toMatchObject({ kind: 'wall', x1: 0, y1: 0, x2: 4000, y2: 0 });
+  expect(errors).toEqual([]);
+});
+
+test('lot 4.1 — sur la feuille, un mur masqué dans la fenêtre ne coupe pas les autres', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, [
+    { id: 'OBJ-0001', kind: 'wall', x1: 0, y1: 0, x2: 5000, y2: 0, thickness: 200, justification: 'axe' },
+    { id: 'OBJ-0002', kind: 'wall', x1: 5000, y1: 0, x2: 5000, y2: 3000, thickness: 200, justification: 'axe', layerId: 'LAY-0003' },
+  ]);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  const lines = page.getByTestId('fenetre-FEN-0001').locator('g[data-mur] line');
+  await expect(lines).toHaveCount(6);
+  await page.getByRole('checkbox', { name: 'Repères' }).uncheck();
+  // Seul le premier mur reste : contour complet (deux faces, deux about), sans jonction.
+  await expect(lines).toHaveCount(4);
+});

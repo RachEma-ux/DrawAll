@@ -67,7 +67,6 @@ export default function SheetEditor(p: Props) {
     coupe: withProfile(p.objects, p.profile, 'coupe', p.blocks),
     vue: withProfile(p.objects, p.profile, 'vue', p.blocks),
   }), [p.objects, p.profile, p.blocks]);
-  const wallGeom = useMemo(() => wallsGeometry(p.objects.filter((o): o is WallObj => o.kind === 'wall')), [p.objects]);
   const blocksByContext = useMemo(() => ({
     coupe: withProfileBlocks(p.blocks, p.profile, 'coupe'),
     vue: withProfileBlocks(p.blocks, p.profile, 'vue'),
@@ -380,13 +379,15 @@ export default function SheetEditor(p: Props) {
               const zoom = pxPerMm * scaleRatio(v.scale);
               const visibleLayer = new Map(p.layers.map(l => [l.id, layerVisibleInViewport(v, l)]));
               const drawn = byContext[v.context ?? 'coupe'];
+              // Jonctions calculées entre les seuls murs que la fenêtre dessine.
+              const walls = wallsGeometry(p.objects.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)));
               const selected = v.id === vpId;
               return (
                 <g key={v.id} data-testid={`fenetre-${v.id}`}>
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
                     {drawn.filter(o => visibleLayer.get(o.layerId)).map(o => (
                       <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false}
-                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={wallGeom} />
+                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} />
                     ))}
                   </svg>
                   <rect
