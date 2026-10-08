@@ -82,6 +82,14 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
 - Cercle, arc, ellipse : déplacés entiers si leur centre est capturé. Texte, bloc, symboles, pièce, note libre : déplacés si leur point d'insertion l'est.
 - Les objets associés suivent leur hôte : cotes, ouvertures, vues liées, coupes. Une seule version « Étirer » est créée ; « Annuler » la défait entièrement. Les calques verrouillés et masqués ne sont pas touchés.
 
+### 1.10 Décalage à distance saisie (règle, lot 10.4)
+
+- Outil « Décaler » (palette et barre d'outils) : distance saisie en millimètres dans le panneau de l'outil, puis l'objet, puis un point du côté où poser la copie parallèle. La copie garde le calque, la classification et les propriétés de trait propres de l'objet ; l'outil reste actif pour le décalage suivant.
+- Exact : ligne (parallèle à la distance exacte), rectangle et cercle (vers l'extérieur ou l'intérieur selon le point), arc (même ouverture, rayon ± d), polyligne ouverte ou fermée (sommets raccordés en onglet ; côté du segment le plus proche pour une polyligne ouverte, intérieur ou extérieur pour une fermée, quel que soit le sens de parcours).
+- Approché : le décalé d'une ellipse ou d'une spline n'est ni une ellipse ni une spline ; il devient une polyligne à 0,01 mm de la courbe décalée, et un message le signale.
+- Refusé avec un message : distance nulle, négative ou non numérique ; décalage intérieur plus grand que le rayon ou le demi-côté ; objet non décalable (texte, cote, bloc…). Les recoupements d'une polyligne décalée vers l'intérieur au-delà de ses rayons de courbure ne sont pas nettoyés.
+- Les commandes « Décaler la sélection (+10 mm / −10 mm) » de la palette restent disponibles (dilatation rapide).
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)

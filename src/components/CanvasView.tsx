@@ -63,7 +63,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -108,6 +108,8 @@ interface Props {
   onTrimExtend: (mode: 'trim' | 'extend', id: string, x: number, y: number) => void;
   /** Congé ou chanfrein entre deux lignes, chacune désignée du côté à conserver. */
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
+  /** Décaler (lot 10.4) : objet désigné puis côté désigné. */
+  onOffset?: (id: string, side: { x: number; y: number }) => void;
   /** Étirer (lot 10.3) : modifications calculées sur les objets modifiables. */
   onStretch?: (patches: { id: string; patch: Partial<CadObject> }[]) => void;
   /** Outil Aire : contour désigné par points (aucun objet créé). */
@@ -186,6 +188,7 @@ export default function CanvasView({
   onTrimExtend,
   onCorner,
   onStretch,
+  onOffset,
   onMeasureArea,
   onAddPointDimension,
   onAddWall,
@@ -510,6 +513,20 @@ export default function CanvasView({
       // Ouverture : désigner le mur hôte ; la baie est centrée sur la projection du point.
       const host = editableObjects.find(o => o.kind === 'wall' && hitTest([o], objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k));
       if (host) onAddOpening?.(host.id, w.x, w.y);
+      return;
+    }
+    if (tool === 'offset') {
+      // Décaler : l'objet, puis un point du côté où poser la copie parallèle.
+      const first = cornerPick.current;
+      if (first?.tool === 'offset') {
+        cornerPick.current = null;
+        onOffset?.(first.id, { x: w.x, y: w.y });
+        return;
+      }
+      const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
+      if (!hit) return;
+      cornerPick.current = { tool, id: hit.id, x: w.x, y: w.y };
+      onSelectMany([hit.id]);
       return;
     }
     if (tool === 'fillet' || tool === 'chamfer') {
