@@ -1,11 +1,12 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
-import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ViewReading } from '@/types/cad';
+import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ViewReading, WallObj } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
 import { formatLevel, pdimValues } from '@/lib/pdim';
 import { containedContours, hatchParamsOf } from '@/lib/hatch';
 import { openingFits } from '@/lib/opening';
+import { SURFACE_RULES, areaM2, detectRoom, formatM2, type SurfaceRule } from '@/lib/rooms';
 import { MATERIALS, effectiveHatch, materialById, profileById, type DrawingProfile } from '@/lib/materials';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
 import {
@@ -38,9 +39,12 @@ interface Props {
   displayUnit?: DisplayUnit;
   /** Profil de dessin actif (motif des matériaux). */
   profile?: DrawingProfile;
+  /** Règle de surface des pièces du projet. */
+  surfaceRule?: SurfaceRule;
+  onSurfaceRule?: (rule: SurfaceRule) => void;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined) }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -365,6 +369,34 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             </div>
           </div>
         )}
+
+        {obj.kind === 'room' && (() => {
+          const walls = objects.filter((o): o is WallObj => o.kind === 'wall');
+          const poly = detectRoom(walls, obj);
+          const rule = SURFACE_RULES[surfaceRule];
+          return (
+            <div className="space-y-1.5">
+              <p className="ui-label mb-1.5">Pièce</p>
+              <label className="block text-[11px] text-muted-foreground">Nom
+                <input key={`${obj.id}-${obj.name}`} aria-label="Nom de la pièce" defaultValue={obj.name}
+                  onBlur={e => { const v = e.target.value.trim(); if (v && v !== obj.name) onUpdate(obj.id, { name: v }, 'Renommer la pièce'); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="mt-0.5 w-full rounded-sm border border-input bg-background px-2 py-1 text-xs" />
+              </label>
+              <p aria-label="Surface de la pièce" className="font-mono text-sm text-foreground">
+                {poly ? formatM2(areaM2(poly)) : 'non évaluée — pièce non fermée par des murs'}
+              </p>
+              <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                Règle (projet)
+                <select aria-label="Règle de surface" value={surfaceRule} onChange={e => onSurfaceRule?.(e.target.value as SurfaceRule)}
+                  className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs">
+                  {(Object.keys(SURFACE_RULES) as SurfaceRule[]).map(k => <option key={k} value={k}>{SURFACE_RULES[k].label}</option>)}
+                </select>
+              </label>
+              <p className="font-mono text-[9px] leading-relaxed text-muted-foreground">{rule.detail}</p>
+            </div>
+          );
+        })()}
 
         {obj.kind === 'opening' && (() => {
           const host = objects.find(o => o.id === obj.hostId);

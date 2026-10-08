@@ -9,6 +9,7 @@ import { projectBounds } from '@/lib/geometry';
 import { pdfBytes, sheetToPdf } from '@/lib/pdf';
 import { withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { wallsGeometry } from '@/lib/wall';
+import { roomPolygons } from '@/lib/rooms';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
   PAPER_FORMATS, STANDARD_SCALES, fitScale, formatScale, layerVisibleInViewport, parseScale, printableArea,
@@ -379,7 +380,8 @@ export default function SheetEditor(p: Props) {
               const zoom = pxPerMm * scaleRatio(v.scale);
               const visibleLayer = new Map(p.layers.map(l => [l.id, layerVisibleInViewport(v, l)]));
               const drawn = byContext[v.context ?? 'coupe'];
-              // Jonctions calculées entre les seuls murs que la fenêtre dessine.
+              // Jonctions et pièces calculées à partir des seuls objets que la fenêtre dessine (comme le PDF).
+              const rooms = roomPolygons(p.objects.filter(o => !!visibleLayer.get(o.layerId)));
               const walls = wallsGeometry(
                 p.objects.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)),
                 p.objects.filter((o): o is OpeningObj => o.kind === 'opening'),
@@ -390,7 +392,7 @@ export default function SheetEditor(p: Props) {
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
                     {drawn.filter(o => visibleLayer.get(o.layerId)).map(o => (
                       <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false}
-                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} />
+                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} rooms={rooms} />
                     ))}
                   </svg>
                   <rect

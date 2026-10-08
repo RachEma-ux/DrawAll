@@ -12,6 +12,7 @@ import { pdimGeometry } from '@/lib/pdim';
 import { hatchAngles, hatchParamsOf, hatchSegments, loopOf } from '@/lib/hatch';
 import { wallHatchShape, wallsGeometry } from '@/lib/wall';
 import { openingGeometry } from '@/lib/opening';
+import { areaM2, centroid, formatM2, roomPolygons } from '@/lib/rooms';
 import { primitiveBounds } from '@/lib/geometry';
 import { layerVisibleInViewport, modelToPaper, printableArea, scaleRatio, sheetSize } from '@/lib/sheet';
 import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
@@ -187,11 +188,20 @@ export function sheetToPdf(input: PdfInput): string {
     { const a = pt({ x: vp.x, y: vp.y + vp.h }); out(`${n(a.x)} ${n(a.y)} ${n(vp.w * MM_TO_PT)} ${n(vp.h * MM_TO_PT)} re W n`); }
     const visible = new Map(layers.map(l => [l.id, layerVisibleInViewport(vp, l)]));
     const walls = wallsGeometry(objects.filter((o): o is WallObj => o.kind === 'wall' && !!visible.get(o.layerId)), objects.filter((o): o is OpeningObj => o.kind === 'opening'));
+    const rooms = roomPolygons(objects.filter(o => !!visible.get(o.layerId)));
     for (const o of objects) {
       if (!visible.get(o.layerId)) continue;
       const layer = layers.find(l => l.id === o.layerId);
       if (o.kind === 'dimension') { drawDimension(o); continue; }
       if (o.kind === 'pdim') { drawPointDimension(o); continue; }
+      if (o.kind === 'room') {
+        const poly = rooms.get(o.id);
+        if (!poly) continue;
+        const c = modelToPaper(vp, centroid(poly));
+        text(o.name, c, 3.5, 0, 'center');
+        text(formatM2(areaM2(poly)), { x: c.x, y: c.y + 4.5 }, 2.5, 0, 'center');
+        continue;
+      }
       if (o.kind === 'opening') {
         const host = objects.find(h => h.id === o.hostId);
         const g = host?.kind === 'wall' ? openingGeometry(o, host) : null;

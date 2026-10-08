@@ -442,3 +442,20 @@ describe('ouvertures (lot 4.2)', () => {
     expect(hatch[hatch.indexOf('91') + 1]).toBe('3');
   });
 });
+
+describe('pièces (lot 4.3)', () => {
+  it('contour et étiquette nom + surface exportés, lisibles par ezdxf', () => {
+    const w = (id: string, x1: number, y1: number, x2: number, y2: number): CadObject =>
+      ({ ...base, id, name: id, kind: 'wall', x1, y1, x2, y2, thickness: 200, justification: 'axe' });
+    const objs: CadObject[] = [
+      w('OBJ-0001', 0, 0, 5200, 0), w('OBJ-0002', 5200, 0, 5200, 4200), w('OBJ-0003', 5200, 4200, 0, 4200), w('OBJ-0004', 0, 4200, 0, 0),
+      { ...base, id: 'OBJ-0005', name: 'Séjour', kind: 'room', x: 2600, y: 2100 },
+    ];
+    const { content, report } = exportDxf(objs, layers, []);
+    keepFixture('pieces.dxf', content);
+    expect(content).toContain('\nLWPOLYLINE\n');
+    expect(decodeDxfString(content)).toContain('Séjour');
+    expect(content).toMatch(/\n1\n20,00 m\\U\+00B2\n/);
+    expect(report.transformed.join(' ')).toMatch(/Pièces : 1/);
+  });
+});
