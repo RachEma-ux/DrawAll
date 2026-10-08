@@ -39,6 +39,7 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
       return p && { x1: p[0], y1: p[1], x2: p[2], y2: p[3] };
     }
     case 'polyline':
+    case 'slab':
     case 'spline':
     case 'pdim': {
       const p = stretchPoints(o.points, w, dx, dy);

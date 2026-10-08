@@ -1,6 +1,7 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
 import type { ReactNode } from 'react';
+import { slabQuantities } from '@/lib/slab';
 import PropertiesEditor from '@/components/PropertiesEditor';
 import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj, Asset } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
@@ -643,6 +644,29 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             </div>
           </div>
         )}
+
+        {obj.kind === 'slab' && (() => {
+          const q = slabQuantities(obj);
+          return (
+            <div data-testid="dalle">
+              <p className="ui-label mb-1.5">Dalle</p>
+              <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                Épaisseur
+                <span className="flex items-center gap-1">
+                  <input key={`${obj.id}-${obj.thickness}`} aria-label="Épaisseur de la dalle" defaultValue={String(obj.thickness).replace('.', ',')} inputMode="decimal"
+                    onBlur={e => { const v = Number(e.target.value.replace(',', '.')); if (v > 0 && v !== obj.thickness) onUpdate(obj.id, { thickness: v }, 'Épaisseur de la dalle'); else e.target.value = String(obj.thickness).replace('.', ','); }}
+                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+                </span>
+              </label>
+              <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                <dt className="text-muted-foreground">Surface</dt><dd data-testid="dalle-surface" className="text-right">{q.areaM2.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</dd>
+                <dt className="text-muted-foreground">Volume</dt><dd data-testid="dalle-volume" className="text-right">{q.volumeM3.toLocaleString('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} m³</dd>
+                {obj.roomId && <><dt className="text-muted-foreground">Contour repris de</dt><dd className="text-right">{obj.roomId}</dd></>}
+              </dl>
+            </div>
+          );
+        })()}
 
         {obj.kind === 'room' && (() => {
           const walls = objects.filter((o): o is WallObj => o.kind === 'wall');

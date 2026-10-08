@@ -49,6 +49,7 @@ import { stretchAll, stretchPreview, windowOf } from '@/lib/stretch';
 import { expandToGroups } from '@/lib/groups';
 import { simplifyPath } from '@/lib/freehand';
 import { pickElement, type Pick } from '@/lib/constraints/model';
+import { slabAsPolyline } from '@/lib/slab';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -67,7 +68,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'freehand' | 'constraint' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'freehand' | 'constraint' | 'slab' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -114,6 +115,10 @@ interface Props {
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
   /** Décaler (lot 10.4) : objet désigné puis côté désigné. */
   onOffset?: (id: string, side: { x: number; y: number }) => void;
+  /** Dalle (lot 13.1) : depuis la pièce sous le point, ou contour tracé point par point. */
+  slabMode?: 'piece' | 'contour';
+  onAddSlab?: (points: number[]) => void;
+  onAddSlabFromRoom?: (x: number, y: number) => void;
   /** Contrainte (lot 12.1) : élément désigné (sommet, segment, cercle) ; polylignes munies d'identifiants. */
   onConstraintPick?: (pick: Pick, polylines: Map<string, PolylineObj>) => void;
   /** Symboles des contraintes et éléments déjà désignés pour la contrainte en cours. */
@@ -201,6 +206,9 @@ export default function CanvasView({
   onStretch,
   onOffset,
   onConstraintPick,
+  slabMode,
+  onAddSlab,
+  onAddSlabFromRoom,
   constraintMarks,
   constraintPicks,
   onMeasureArea,
@@ -379,6 +387,11 @@ export default function CanvasView({
       setDraft(null);
       return;
     }
+    if (tool === 'slab') {
+      if (draft?.kind === 'polyline' && draft.origin === 'slab') onAddSlab?.(draft.points);
+      setDraft(null);
+      return;
+    }
     if (tool === 'wall') { setDraft(null); return; }
     if (tool === 'spline') {
       // Spline par points de contrôle : degré 3, ou moins s'il y a moins de quatre points.
@@ -398,7 +411,7 @@ export default function CanvasView({
       }
       return null;
     });
-  }, [activeLayer, onAdd, tool, draft, onMeasureArea, onAddPointDimension]);
+  }, [activeLayer, onAdd, tool, draft, onMeasureArea, onAddPointDimension, onAddSlab]);
 
   const startOrContinueDraft = useCallback((point: SnapPoint) => {
     // Mesurer ne crée rien : l'outil Aire ignore le verrouillage du calque. Étirer modifie les objets
@@ -437,7 +450,7 @@ export default function CanvasView({
       setDraft({ kind: 'polyline', sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts, origin: 'symbol' });
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'spline') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'spline' || tool === 'slab') {
       setDraft(d => {
         if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === tool) return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
         return { kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y], origin: tool };
@@ -534,6 +547,11 @@ export default function CanvasView({
       const pts = [...previous, w.x, w.y];
       if (pts.length >= 4) { setDraft(null); onCalibrate?.(pts); return; }
       setDraft({ kind: 'polyline', sx: w.x, sy: w.y, cx: w.x, cy: w.y, points: pts, origin: 'calibrate' });
+      return;
+    }
+    if (tool === 'slab' && slabMode === 'piece') {
+      // Dalle depuis une pièce (lot 13.1) : le point désigne la pièce, son contour est repris.
+      onAddSlabFromRoom?.(w.x, w.y);
       return;
     }
     if (tool === 'opening') {
@@ -822,7 +840,12 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'spline' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'stretch') {
+    if (tool === 'slab' && slabMode === 'piece') {
+      // Dalle depuis une pièce : le point désigne la pièce, son contour est repris.
+      onAddSlabFromRoom?.(x, y);
+      return;
+    }
+    if (tool === 'polyline' || tool === 'area' || tool === 'spline' || tool === 'slab' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'stretch') {
       startOrContinueDraft(point);
       return;
     }
@@ -1179,7 +1202,7 @@ export default function CanvasView({
             );
           })()}
           {activeDraft && activeDraft.kind === 'polyline' && tool !== 'spline' && (
-            tool === 'area'
+            tool === 'area' || tool === 'slab'
               ? <polygon points={[...activeDraft.points, activeDraft.cx, activeDraft.cy].join(',')} fill="#34d399" fillOpacity={0.12}
                   stroke="#34d399" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
               : <polyline points={[...activeDraft.points, activeDraft.cx, activeDraft.cy].join(',')} fill="none"
@@ -1291,7 +1314,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'stretch' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'stretch' || tool === 'polyline' || tool === 'area' || (tool === 'slab' && slabMode !== 'piece') || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
@@ -1399,7 +1422,8 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   }
   if (obj.kind === 'wall') return <WallShape obj={obj} geom={walls?.get(obj.id)} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   const islands = (obj.holes ?? []).map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
-  return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} />;
+  // Dalle (lot 13.1) : dessinée comme son contour fermé.
+  return <PrimitiveShape obj={obj.kind === 'slab' ? slabAsPolyline(obj) as PolylineObj : obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} />;
 }
 
 /**
@@ -1905,9 +1929,11 @@ function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[
     if (o.kind === 'arc' && distanceToArc(o, x, y) <= tol) return o;
     if (o.kind === 'ellipse' && distanceToEllipse(o, { x, y }) <= tol) return o;
     if (o.kind === 'spline' && distanceToSpline(o, { x, y }) <= tol) return o;
-    if (o.kind === 'polyline') {
-      for (let j = 0; j + 3 <= o.points.length; j += 2) {
-        if (distanceSegment(x, y, o.points[j], o.points[j + 1], o.points[j + 2], o.points[j + 3]) <= tol) return o;
+    if (o.kind === 'polyline' || o.kind === 'slab') {
+      // Dalle : contour fermé (côté de fermeture compris).
+      const p = o.kind === 'slab' ? slabAsPolyline(o).points : o.points;
+      for (let j = 0; j + 3 <= p.length; j += 2) {
+        if (distanceSegment(x, y, p[j], p[j + 1], p[j + 2], p[j + 3]) <= tol) return o;
       }
     }
     if (o.kind === 'dimension') {

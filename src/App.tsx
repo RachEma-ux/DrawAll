@@ -25,6 +25,7 @@ import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
+import { pointInPolygon, slabContour, slabQuantities } from '@/lib/slab';
 import ParametersPanel from '@/components/ParametersPanel';
 import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
@@ -40,7 +41,7 @@ import { detectDwg, dwgRefusal } from '@/lib/dwg';
 import { measurePolygon, type Measure } from '@/lib/area';
 import { PROFILES, withProfile, withProfileBlocks, type ViewContext } from '@/lib/materials';
 import { openingFits, positionOnWall } from '@/lib/opening';
-import { areaM2, detectRoom, formatM2 } from '@/lib/rooms';
+import { areaM2, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
@@ -67,6 +68,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'stretch', label: 'Étirer', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins de la fenêtre de capture, puis point de base et point d’arrivée : les sommets capturés se déplacent' },
   { id: 'ellipse', label: 'Ellipse', key: 'Z', levels: ['contextuel', 'complet'], hint: 'Centre, extrémité du premier axe, puis le second demi-axe' },
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
+  { id: 'slab', label: 'Dalle', key: '', levels: ['contextuel', 'complet'], hint: 'Touchez l’intérieur d’une pièce pour reprendre son contour, ou tracez le contour point par point puis Terminer' },
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
   { id: 'opening', label: 'Ouverture', key: 'O', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez un mur : porte ou fenêtre centrée sur ce point' },
   { id: 'room', label: 'Pièce', key: 'I', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez l’intérieur d’une pièce fermée par des murs : nom et surface' },
@@ -427,6 +429,31 @@ function Workbench() {
   }, [project, flash]);
 
   // Outil Mur : épaisseur et justification saisies dans le panneau de l'outil.
+  // Dalles (lot 13.1) : depuis une pièce ou par contour ; épaisseur saisie.
+  const [slabParams, setSlabParams] = useState<{ mode: 'piece' | 'contour'; thickness: string }>({ mode: 'piece', thickness: '200' });
+  const slabThickness = useCallback(() => {
+    const t = Number(slabParams.thickness.replace(',', '.'));
+    if (!(t > 0) || !Number.isFinite(t)) { flash('Dalle : épaisseur positive attendue (mm).'); return null; }
+    return t;
+  }, [slabParams.thickness, flash]);
+  const addSlab = useCallback((points: number[], roomId?: string) => {
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!layer || layer.locked) { flash('Calque actif verrouillé : déverrouillez-le pour créer une dalle.'); return; }
+    const contour = slabContour(points);
+    if (!contour) { flash('Dalle : contour fermé d’au moins trois sommets et d’aire non nulle attendu.'); return; }
+    const thickness = slabThickness();
+    if (thickness === null) return;
+    project.addObject({ kind: 'slab', classification: 'architecture', layerId: layer.id, hatch: 'none', points: contour, thickness, ...(roomId ? { roomId } : {}) });
+    const q = slabQuantities({ points: contour, thickness });
+    flash(`Dalle créée : ${formatM2(q.areaM2)}, ${q.volumeM3.toLocaleString('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} m³.`);
+  }, [project, flash, slabThickness]);
+  const addSlabFromRoom = useCallback((x: number, y: number) => {
+    const polygons = roomPolygons(project.objects);
+    for (const [roomId, poly] of polygons) {
+      if (poly && pointInPolygon(poly, { x, y })) { addSlab(poly.flatMap(p => [p.x, p.y]), roomId); return; }
+    }
+    flash(polygons.size ? 'Aucune pièce fermée à cet endroit : touchez l’intérieur d’une pièce, ou tracez le contour.' : 'Aucune pièce dans ce niveau : placez d’abord une pièce (outil Pièce), ou tracez le contour.');
+  }, [project.objects, addSlab, flash]);
   const [wallParams, setWallParams] = useState<{ thickness: string; justification: WallObj['justification'] }>({ thickness: '200', justification: 'axe' });
   const addWall = useCallback((x1: number, y1: number, x2: number, y2: number) => {
     const layer = project.layers.find(l => l.id === project.activeLayerId);
@@ -939,6 +966,7 @@ function Workbench() {
         note: ['note', 'photo', 'releve', 'terrain', 'chantier', 'commentaire', 'remarque'],
         opening: ['porte', 'fenetre', 'baie', 'ouverture', 'door', 'window'],
         wall: ['mur', 'cloison', 'paroi', 'wall', 'batiment'],
+        slab: ['dalle', 'plancher', 'chape', 'radier', 'slab', 'plancher bas', 'plancher haut'],
         pdim: ['cote', 'serie', 'chainee', 'cumulee', 'angulaire', 'angle', 'niveau', 'altitude', 'dimension'],
         area: ['aire', 'surface', 'perimetre', 'area', 'mesurer'],
         fillet: ['conge', 'raccord', 'arrondi', 'fillet', 'rayon'],
@@ -1279,6 +1307,7 @@ function Workbench() {
                  tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
                  tool === 'freehand' ? 'Main levée : tracez en maintenant appuyé ; la polyligne est simplifiée au relâcher' :
                  tool === 'offset' ? 'Décaler : touchez l’objet, puis un point du côté où poser la copie parallèle' :
+                 tool === 'slab' ? (slabParams.mode === 'piece' ? 'Dalle : touchez l’intérieur d’une pièce, son contour est repris' : 'Dalle : points du contour, puis Terminer (Entrée ou double-clic)') :
                  tool === 'constraint' ? `${CONSTRAINT_LABEL[constraintType]} : désignez ${CONSTRAINT_PICKS[constraintType].map(n => (n === 'point' ? 'un sommet' : n === 'seg' ? 'un segment' : 'un cercle')).join(' puis ')}` :
                  tool === 'stretch' ? 'Étirer : deux coins de la fenêtre de capture, puis le point de base et le point d’arrivée' :
                  tool === 'spline' ? 'Spline : cliquez les points de contrôle, puis Terminer (Entrée ou double-clic)' :
@@ -1400,6 +1429,9 @@ function Workbench() {
                 onStretch={patches => project.applyPatches(patches, [], 'Étirer')}
                 onOffset={offsetPicked}
                 onConstraintPick={pickForConstraint}
+                slabMode={slabParams.mode}
+                onAddSlab={points => addSlab(points)}
+                onAddSlabFromRoom={addSlabFromRoom}
                 constraintMarks={constraintMarks}
                 constraintPicks={constraintPicks.map(p => p.at)}
                 onMeasureArea={measureArea}
@@ -1561,6 +1593,20 @@ function Workbench() {
                         className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
                     </label>
                   )}
+                </div>
+              )}
+              {tool === 'slab' && (
+                <div className="absolute left-3 top-3 z-10 sm:top-12 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg">
+                  <select aria-label="Création de la dalle" value={slabParams.mode} onChange={e => setSlabParams(p => ({ ...p, mode: e.target.value as 'piece' | 'contour' }))}
+                    className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                    <option value="piece">Depuis une pièce</option>
+                    <option value="contour">Contour point par point</option>
+                  </select>
+                  <label className="flex items-center gap-1">Épaisseur
+                    <input aria-label="Épaisseur de la dalle (mm)" inputMode="decimal" value={slabParams.thickness}
+                      onChange={e => setSlabParams(p => ({ ...p, thickness: e.target.value }))}
+                      className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                  </label>
                 </div>
               )}
               {tool === 'constraint' && (

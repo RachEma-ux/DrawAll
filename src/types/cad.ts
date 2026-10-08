@@ -4,7 +4,7 @@ import type { Parameter } from '@/lib/params/expr';
 import type { PropertySet } from '@/lib/properties';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -199,6 +199,18 @@ export interface RoomObj extends Base {
   x: number; y: number;
 }
 
+/**
+ * Dalle ou plancher (lot 13.1) : contour fermé (sommets, sans répétition du premier), épaisseur (mm).
+ * Le dessus de la dalle est à l'altitude de son niveau ; `roomId` : pièce dont le contour a été repris
+ * à la création (copie, non associative).
+ */
+export interface SlabObj extends Base {
+  kind: 'slab';
+  points: number[];
+  thickness: number;
+  roomId?: string;
+}
+
 /** Nord (lot 4.5) : centre du symbole et direction du nord, en degrés antihoraires depuis le haut de l'écran. */
 export interface NorthObj extends Base {
   kind: 'north';
@@ -316,7 +328,7 @@ export interface Asset {
   source: 'image' | 'pdf';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
@@ -491,6 +503,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   wall: 'Mur',
   opening: 'Ouverture',
   room: 'Pièce',
+  slab: 'Dalle',
   north: 'Nord',
   section: 'Repère de coupe',
   levelMark: 'Cote de niveau',
@@ -581,6 +594,12 @@ export function dimensionOf(obj: CadObject): string {
     case 'wall': return `Mur ép. ${fmt(obj.thickness)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'opening': return `${obj.type === 'porte' ? 'Porte' : 'Fenêtre'} ${fmt(obj.width)} mm · ${obj.hostId}`;
     case 'room': return `Pièce « ${obj.name} »`;
+    case 'slab': {
+      let a = 0;
+      const n = obj.points.length / 2;
+      for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += obj.points[2 * i] * obj.points[2 * j + 1] - obj.points[2 * j] * obj.points[2 * i + 1]; }
+      return `Dalle ép. ${fmt(obj.thickness)} mm · ${fmt(Math.abs(a) / 2e6, 2)} m²`;
+    }
     case 'north': return `Nord à ${fmt(obj.rotation)}°`;
     case 'section': return `Coupe ${obj.label} · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'levelMark': return `Niveau ${fmt(obj.elevation / 1000)} m`;
