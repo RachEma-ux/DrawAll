@@ -20,7 +20,7 @@ test('lot 10.2 — spline par points de contrôle, éditée, exportée en SPLINE
     await field.fill('500');
     await field.blur();
     await expect.poll(async () => ((await currentObjects(page))[0].points as number[])[7]).toBe(500);
-    page.on('dialog', d => void d.accept());
+    page.on('dialog', d => { d.accept().catch(() => {}); });
     const menu = page.getByRole('button', { name: 'Menu' });
     if (await menu.isVisible().catch(() => false)) await menu.click();
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'DXF', exact: true }).click()]);
