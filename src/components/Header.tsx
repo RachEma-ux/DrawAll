@@ -17,6 +17,8 @@ interface Props {
   onUndo: () => void; onRedo: () => void;
   onPalette: () => void;
   onExport: () => void;
+  /** Paquet natif (lot 8.2) : restaurer un projet depuis son paquet. */
+  onImportPackage?: () => void;
   onExportDxf: () => void;
   /** Fond de plan : image ou PDF (lot 6.2). */
   onImportUnderlay?: () => void;
@@ -112,10 +114,17 @@ export default function Header(p: Props) {
       {p.mode === 'atelier' && p.level === 'complet' && (
         <>
           <button onClick={p.onExport}
-            title="Exporter le paquet DrawAll JSON complet"
+            title="Exporter le paquet DrawAll : projet entier, historique, feuilles, styles, ressources"
             className="rounded-sm border border-emerald-400/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-400 transition-colors hover:bg-emerald-400/10">
-            JSON
+            Paquet
           </button>
+          {p.onImportPackage && (
+            <button onClick={p.onImportPackage}
+              title="Restaurer un projet depuis son paquet DrawAll (remplace le projet courant)"
+              className="rounded-sm border border-emerald-400/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-400 transition-colors hover:bg-emerald-400/10">
+              Restaurer
+            </button>
+          )}
           <button onClick={p.onReset}
             className="rounded-sm border border-red-400/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-red-400 transition-colors hover:bg-red-400/10">
             Réinitialiser

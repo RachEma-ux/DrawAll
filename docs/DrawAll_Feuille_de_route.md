@@ -155,7 +155,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 7.2 Hors ligne | Fait | #40 |
 | 7.3 Photos et notes | Fait | #41 |
 | 8.1 Historique compact | Fait | #42 |
-| 8.2 → 8.4 | À faire | — |
+| 8.2 Paquet natif | Fait | #43 |
+| 8.3 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

@@ -402,6 +402,12 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - Enregistrement (stockage local, IndexedDB, serveur) par différences : la première version et la version courante sont écrites en entier ; chaque autre version ne porte que ce qui change par rapport à la précédente (objets ajoutés ou modifiés, identifiants retirés, ordre s'il change, autres champs remplacés s'ils changent). Un projet enregistré en versions entières (avant ce lot) se relit tel quel.
 - Preuve : 1 000 modifications d'un projet de 200 objets tiennent en moins de 2 Mo ; l'aller-retour reconstruit chaque version à l'identique.
 
+### 10.2 Paquet natif (règle, lot 8.2)
+
+- « Exporter le paquet » écrit le projet entier dans un fichier JSON : manifeste (`drawall-package`, version 1.0.0, unités en millimètres), résumé, et le projet (historique par différences §10.1, objets de tous les niveaux, calques, blocs, feuilles et cartouches, profils et règles de chaque version, compteurs, ressources : fonds de plan et photos).
+- Le fichier est écrit aux clés triées et ne contient pas de date d'export : exporter, restaurer, réexporter donne le même fichier octet pour octet.
+- « Restaurer » relit un paquet 1.x (ou un paquet prototype 0.1, sans historique) et remplace le projet courant après confirmation ; un fichier qui n'est pas un paquet DrawAll, ou d'une version non prise en charge, est refusé avec un message.
+
 ## 11. Références
 
 | Sujet | Référence |
