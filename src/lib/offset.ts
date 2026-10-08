@@ -4,7 +4,7 @@ import type { CadObject, EllipseObj, SplineObj } from '@/types/cad';
 import { isClosedPolyline } from '@/types/cad';
 import type { Pt } from '@/lib/arc';
 import { ellipsePointAt, ellipseRange, isFullEllipse } from '@/lib/ellipse';
-import { splineDomain, splinePointAt } from '@/lib/spline';
+import { knotsOf, splineDomain, splinePointAt } from '@/lib/spline';
 import { sampleCurve } from '@/lib/dxf-curves';
 
 export type OffsetResult = { ok: true; partial: Partial<CadObject>; approximated?: boolean } | { ok: false; reason: string };
@@ -64,7 +64,10 @@ function offsetPolyline(points: Pt[], closed: boolean, d: number): Pt[] | null {
   return out;
 }
 
-/** Courbe décalée approchée (≤ `tol` mm) : point de la courbe + d × normale, par subdivision adaptative. */
+/**
+ * Courbe décalée approchée (≤ `tol` mm) sur une portée lisse [t0 ; t1] : point de la courbe + d ×
+ * normale (différences finies prises dans la portée), par subdivision adaptative.
+ */
 function offsetSampled(f: (t: number) => Pt, t0: number, t1: number, d: number, tol: number): Pt[] {
   const h = (t1 - t0) * 1e-6;
   const g = (t: number) => {
@@ -72,7 +75,7 @@ function offsetSampled(f: (t: number) => Pt, t0: number, t1: number, d: number, 
     const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     return { x: p.x + (-(b.y - a.y) / l) * d, y: p.y + ((b.x - a.x) / l) * d };
   };
-  return sampleCurve(g, t0, t1, tol, 32).points;
+  return sampleCurve(g, t0, t1, tol, 8).points;
 }
 
 /**
@@ -135,17 +138,35 @@ export function offsetObject(o: CadObject, distance: number, side: Pt, tol = 0.0
       const [t0, t1] = o.kind === 'ellipse'
         ? (() => { const r = ellipseRange(o); return [r.start, r.start + r.sweep]; })()
         : splineDomain(o);
-      // Côté : comparé à la tangente au point de la courbe le plus proche du point désigné.
-      let bestT = t0, bestD = Infinity;
-      for (let i = 0; i <= 720; i++) {
-        const t = t0 + ((t1 - t0) * i) / 720, p = f(t), dd = Math.hypot(p.x - side.x, p.y - side.y);
-        if (dd < bestD) { bestD = dd; bestT = t; }
+      // Portées : chaque portée de nœuds d'une spline (une courbure locale ne passe pas entre deux
+      // sondes), quarts de tour d'une ellipse.
+      const breaks = o.kind === 'spline'
+        ? [...new Set([t0, ...knotsOf(o).filter(k => k > t0 && k < t1), t1])].sort((x, y) => x - y)
+        : (() => { const n = Math.max(1, Math.ceil((t1 - t0) / 90 - 1e-9)); return Array.from({ length: n + 1 }, (_, i) => t0 + ((t1 - t0) * i) / n); })();
+      const spans = breaks.slice(1).map((b, i) => [breaks[i], b] as const).filter(([a, b]) => b > a);
+      // Côté : comparé à la tangente au point de la courbe le plus proche du point désigné, portée par portée.
+      let best = { t: t0, span: spans[0], d: Infinity };
+      for (const span of spans) {
+        for (let i = 0; i <= 64; i++) {
+          const t = span[0] + ((span[1] - span[0]) * i) / 64, p = f(t), dd = Math.hypot(p.x - side.x, p.y - side.y);
+          if (dd < best.d) best = { t, span, d: dd };
+        }
       }
-      const a = f(Math.max(t0, bestT - (t1 - t0) * 1e-4)), b = f(Math.min(t1, bestT + (t1 - t0) * 1e-4));
+      const h = (best.span[1] - best.span[0]) * 1e-4;
+      const a = f(Math.max(best.span[0], best.t - h)), b = f(Math.min(best.span[1], best.t + h));
       const d = cross(a, b, side) >= 0 ? distance : -distance;
-      const pts = offsetSampled(f, t0, t1, d, tol);
-      const closed = o.kind === 'ellipse' && isFullEllipse(o);
-      if (closed) pts[pts.length - 1] = { ...pts[0] };
+      const pts: Pt[] = [];
+      for (const [a0, a1] of spans) {
+        const part = offsetSampled(f, a0, a1, d, tol);
+        pts.push(...(pts.length ? part.slice(1) : part));
+      }
+      // Courbe fermée (ellipse entière, spline fermée) : la copie l'est aussi.
+      const closed = (o.kind === 'ellipse' && isFullEllipse(o)) || (o.kind === 'spline' && !!o.closed);
+      if (closed) {
+        const first = pts[0], last = pts[pts.length - 1];
+        if (Math.hypot(first.x - last.x, first.y - last.y) <= tol) pts[pts.length - 1] = { ...first };
+        else pts.push({ ...first });
+      }
       return { ok: true, approximated: true, partial: { kind: 'polyline', points: pts.flatMap(p => [p.x, p.y]) } };
     }
     default:

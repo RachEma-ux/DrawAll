@@ -77,6 +77,20 @@ describe('décalage à distance saisie (lot 10.4)', () => {
     expect(distToPolyline(sp, 0, 0)).toBeGreaterThan(4.9);
   });
 
+  it('spline fermée : copie fermée ; portée de nœuds étroite : sa pointe n’est pas sautée', () => {
+    // Spline fermée de degré 1 (carré) sans répétition du premier point : la copie se referme.
+    const closed: CadObject = { ...base, kind: 'spline', degree: 1, closed: true, points: [0, 0, 100, 0, 100, 100, 0, 100, 0, 0] };
+    const c = ok(offsetObject(closed, 5, { x: 200, y: 50 })).points as number[];
+    expect(c.slice(0, 2)).toEqual(c.slice(-2));
+    const open: CadObject = { ...base, kind: 'spline', degree: 1, closed: true, points: [0, 0, 100, 0, 100, 100, 0, 100], knots: [0, 0, 1, 2, 3, 3] };
+    const o = ok(offsetObject(open, 5, { x: 200, y: 50 })).points as number[];
+    expect(o.slice(0, 2)).toEqual(o.slice(-2));
+    // Pointe de 50 mm dans une portée de paramètre 0,001 sur 1 : présente dans la copie.
+    const spike: CadObject = { ...base, kind: 'spline', degree: 1, points: [0, 0, 100, 0, 100.5, -50, 101, 0, 200, 0], knots: [0, 0, 0.4995, 0.5, 0.5005, 1, 1] };
+    const sp = ok(offsetObject(spike, 1, { x: 50, y: 20 })).points as number[];
+    expect(Math.min(...sp.filter((_, i) => i % 2 === 1))).toBeLessThan(-45);
+  });
+
   it('objet non décalable : message', () => {
     const t: CadObject = { ...base, kind: 'text', x: 0, y: 0, content: 'A', height: 10, rotation: 0, align: 'left' };
     expect(offsetObject(t, 5, { x: 0, y: 0 })).toMatchObject({ ok: false });
