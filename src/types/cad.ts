@@ -3,7 +3,7 @@
 
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -254,7 +254,30 @@ export interface BalloonObj extends Base {
   x: number; y: number;
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj;
+/**
+ * Fond de plan (lot 6.2) : image ou page de PDF (ressource `assetId` du projet) placée sous le dessin,
+ * coin supérieur gauche en (x, y), largeur et hauteur en mm ; verrouillé, il n'est ni désignable ni
+ * modifiable.
+ */
+export interface UnderlayObj extends Base {
+  kind: 'underlay';
+  assetId: string;
+  x: number; y: number; w: number; h: number;
+  opacity: number;
+  locked?: boolean;
+}
+
+/** Ressource d'image du projet (fond de plan), conservée une fois hors de l'historique. */
+export interface Asset {
+  id: string;
+  name: string;
+  dataUrl: string;
+  /** Dimensions de l'image enregistrée (px). */
+  px: { w: number; h: number };
+  source: 'image' | 'pdf';
+}
+
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
@@ -370,6 +393,7 @@ export interface ProjectState {
   blockCounter: number;    // compteur d'identifiants BLQ-
   activeLayerId: string;
   activeLevelId?: string;  // niveau affiché et édité (lot 4.4)
+  assets?: Record<string, Asset>; // images des fonds de plan (lot 6.2), hors historique
 }
 
 export function createDefaultLayers(): Layer[] {
@@ -410,6 +434,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   cut: 'Vue en coupe',
   bom: 'Nomenclature',
   balloon: 'Repère de pièce',
+  underlay: 'Fond de plan',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -496,6 +521,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'cut': return `Coupe de ${obj.sourceId} par ${obj.markId}`;
     case 'bom': return 'Tableau de nomenclature';
     case 'balloon': return `Repère de ${obj.targetId}`;
+    case 'underlay': return `Fond ${fmt(obj.w)} × ${fmt(obj.h)} mm${obj.locked ? ' · verrouillé' : ''}`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }

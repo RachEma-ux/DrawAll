@@ -1,11 +1,12 @@
 // État du projet : microversions Git-like, calques, blocs, cotes associatives,
 // annulation, versions nommées, persistance locale (brouillon explicite — Concept §8).
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   createDefaultLayers,
   type BlockDef,
   type CadObject,
   type DimensionStyle,
+  type Asset,
   type Layer,
   type Level,
   type MicroVersion,
@@ -220,6 +221,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         blockCounter: Math.max(Number(p.blockCounter ?? 0), ...allBlocks.map(b => numericSuffix(b.id, 'BLQ')), 0),
         activeLayerId,
         ...(typeof p.activeLevelId === 'string' ? { activeLevelId: p.activeLevelId } : {}),
+        ...(normalizeAssets(p.assets) ? { assets: normalizeAssets(p.assets) } : {}),
       };
     }
   }
@@ -245,6 +247,19 @@ export function withDependents(objects: CadObject[], ids: Iterable<string>): Set
     for (const o of objects) { const p = parentOf(o); if (p && out.has(p) && !out.has(o.id)) { out.add(o.id); changed = true; } }
   }
   return out;
+}
+
+/** Images des fonds de plan : seules les images en data URL avec leurs dimensions sont gardées. */
+export function normalizeAssets(raw: unknown): Record<string, Asset> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, Asset> = {};
+  for (const [id, a] of Object.entries(raw as Record<string, Partial<Asset>>)) {
+    if (!a || typeof a.dataUrl !== 'string' || !a.dataUrl.startsWith('data:image/')) continue;
+    const w = Number(a.px?.w), h = Number(a.px?.h);
+    if (!(w > 0) || !(h > 0)) continue;
+    out[id] = { id, name: typeof a.name === 'string' ? a.name : id, dataUrl: a.dataUrl, px: { w, h }, source: a.source === 'pdf' ? 'pdf' : 'image' };
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function load(): ProjectState {
@@ -294,6 +309,15 @@ function localizePrimitive(obj: PrimitiveObject, origin: { x: number; y: number 
   }
 }
 
+/** État de l'enregistrement local, partagé hors de React (le stockage du navigateur est externe). */
+const storageStatus = { full: false, listeners: new Set<() => void>() };
+function setStorageFull(full: boolean) {
+  if (storageStatus.full === full) return;
+  storageStatus.full = full;
+  storageStatus.listeners.forEach(l => l());
+}
+const subscribeStorage = (listener: () => void) => { storageStatus.listeners.add(listener); return () => { storageStatus.listeners.delete(listener); }; };
+
 export function useProject() {
   const [state, setState] = useState<ProjectState>(load);
   const [selectedId, setSelectedIdRaw] = useState<string | null>(null);
@@ -309,9 +333,13 @@ export function useProject() {
     setSelectedIdRaw(ids[ids.length - 1] ?? null);
   }, []);
 
+  // Enregistrement local : un échec (stockage plein) est signalé au lieu d'être ignoré.
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* quota : état visible, non bloquant */ }
+    let ok = true;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { ok = false; }
+    setStorageFull(!ok);
   }, [state]);
+  const storageFull = useSyncExternalStore(subscribeStorage, () => storageStatus.full, () => false);
 
   const current = state.versions[state.pointer];
   const allObjects = current.objects;
@@ -346,6 +374,7 @@ export function useProject() {
         ...((patch.levels ?? cur.levels) ? { levels: patch.levels ?? cur.levels } : {}),
       };
       return {
+        ...s,
         versions: [...s.versions.slice(0, s.pointer + 1), mv],
         pointer: s.pointer + 1,
         counter: patch.counter ?? s.counter,
@@ -386,7 +415,7 @@ export function useProject() {
   const transformObjects = useCallback((ids: string[], fn: (o: CadObject) => Partial<CadObject> | null, label: string) => {
     const editable = ids
       .map(id => allObjects.find(o => o.id === id))
-      .filter((o): o is CadObject => !!o && !layers.find(l => l.id === o.layerId)?.locked && o.kind !== 'dimension');
+      .filter((o): o is CadObject => !!o && !layers.find(l => l.id === o.layerId)?.locked && o.kind !== 'dimension' && !(o.kind === 'underlay' && o.locked));
     if (editable.length === 0) return 0;
     const patches = new Map<string, Partial<CadObject>>();
     for (const o of editable) {
@@ -584,6 +613,23 @@ export function useProject() {
     return id;
   }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
 
+  // ─── Fonds de plan (lot 6.2) ─────────────────────────────────────────────────
+  const assets = useMemo(() => state.assets ?? {}, [state.assets]);
+
+  /** Fond de plan : l'image devient une ressource du projet, l'objet la place à l'origine (taille donnée). */
+  const addUnderlay = useCallback((asset: Omit<Asset, 'id'>, size: { w: number; h: number }) => {
+    const assetId = nextId('IMG', Object.keys(state.assets ?? {}));
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const underlay = stampLevel({
+      id, name: `Fond ${asset.name}`, kind: 'underlay', classification: 'non-classifie', layerId: activeLayerId, hatch: 'none', createdSeq: current.seq,
+      assetId, x: 0, y: 0, w: size.w, h: size.h, opacity: 0.6,
+    } as CadObject);
+    setState(s => ({ ...s, assets: { ...(s.assets ?? {}), [assetId]: { ...asset, id: assetId } } }));
+    commit(`Importer le fond de plan ${asset.name}`, { objects: [...allObjects, underlay], counter: state.counter + 1 });
+    setSelectedId(id);
+    return id;
+  }, [state.assets, state.counter, activeLayerId, current.seq, allObjects, commit, setSelectedId, stampLevel]);
+
   /** Repère (bulle) d'une pièce, posé en haut à droite de son emprise. */
   const addBalloon = useCallback((targetId: string) => {
     const target = allObjects.find(o => o.id === targetId);
@@ -762,7 +808,7 @@ export function useProject() {
 
   const diagnostics = useMemo(() => {
     const out: { level: 'info' | 'avertissement'; text: string }[] = [];
-    const unclassified = allObjects.filter(o => o.classification === 'non-classifie' && o.kind !== 'dimension');
+    const unclassified = allObjects.filter(o => o.classification === 'non-classifie' && o.kind !== 'dimension' && o.kind !== 'underlay');
     if (unclassified.length > 0) {
       out.push({ level: 'avertissement', text: `${unclassified.length} objet(s) sans classification métier — lectures indisponibles (${unclassified.map(o => o.id).join(', ')}).` });
     }
@@ -937,7 +983,7 @@ export function useProject() {
     addObject, updateObject, removeObject, removeObjects,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, addViews, addCut, addBalloon, addBom, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
+    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, assets, storageFull, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };

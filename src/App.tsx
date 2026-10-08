@@ -16,7 +16,7 @@ import NotFound from '@/pages/NotFound';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { useProject } from '@/store/project';
-import type { CadObject, DisplayLevel, OpeningObj, PointDimensionMode, PointDimensionObj, RoughnessObj, SectionMarkObj, ViewReading, WallObj } from '@/types/cad';
+import type { CadObject, DisplayLevel, OpeningObj, PointDimensionMode, PointDimensionObj, RoughnessObj, SectionMarkObj, UnderlayObj, ViewReading, WallObj } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
@@ -24,7 +24,8 @@ import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
-import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
+import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
+import { assetRoom, calibrate, fitEncoding, fitPixels, imageSizeMm, pdfPageSizeMm } from '@/lib/underlay';
 import { measurePolygon, type Measure } from '@/lib/area';
 import { PROFILES, withProfile, withProfileBlocks, type ViewContext } from '@/lib/materials';
 import { openingFits, positionOnWall } from '@/lib/opening';
@@ -52,6 +53,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
   { id: 'opening', label: 'Ouverture', key: 'O', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez un mur : porte ou fenêtre centrée sur ce point' },
   { id: 'room', label: 'Pièce', key: 'I', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez l’intérieur d’une pièce fermée par des murs : nom et surface' },
+  { id: 'calibrate', label: 'Caler le fond', key: 'G', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Fond de plan : touchez deux points de l’image, puis donnez leur distance réelle' },
   { id: 'symbol', label: 'Symbole', key: 'Y', levels: ['contextuel', 'complet'], hint: 'Nord, repère de coupe (deux points) ou cote de niveau en plan' },
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
@@ -278,6 +280,7 @@ function Workbench() {
       objets: project.allObjects,
       niveaux: project.levels,
       feuilles: project.sheets,
+      ressources: project.assets,
     };
     const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -427,6 +430,80 @@ function Workbench() {
     if (name === null || !name.trim()) return;
     project.addObject({ kind: 'room', classification: 'architecture', layerId: layer.id, hatch: 'none', x, y }, name.trim());
   }, [project, flash]);
+
+  // ─── Fond de plan (lot 6.2) ──────────────────────────────────────────────────
+  const underlayInputRef = useRef<HTMLInputElement>(null);
+  /** Image ou première page d'un PDF : réduite à 4 096 px de côté et à 2 Mo environ (stockage local). */
+  const importUnderlay = useCallback(async (file: File) => {
+    try {
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      let canvas: HTMLCanvasElement;
+      let size: { w: number; h: number };
+      if (isPdf) {
+        const pdfjs = await import('pdfjs-dist');
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
+        const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+        const page = await doc.getPage(1);
+        const base = page.getViewport({ scale: 1 });
+        const fit = fitPixels(base.width * (150 / 72), base.height * (150 / 72));
+        const viewport = page.getViewport({ scale: fit.w / base.width });
+        canvas = document.createElement('canvas');
+        canvas.width = Math.round(viewport.width); canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        size = pdfPageSizeMm({ w: base.width, h: base.height });
+      } else {
+        const bitmap = await createImageBitmap(file);
+        const fit = fitPixels(bitmap.width, bitmap.height);
+        canvas = document.createElement('canvas');
+        canvas.width = fit.w; canvas.height = fit.h;
+        canvas.getContext('2d')!.drawImage(bitmap, 0, 0, fit.w, fit.h);
+        size = imageSizeMm({ w: bitmap.width, h: bitmap.height });
+      }
+      // Stockage local borné : PNG si l'image reste légère, sinon JPEG de qualité décroissante, puis
+      // image réduite, jusqu'à tenir dans la place laissée par les autres fonds de plan.
+      const room = assetRoom(project.assets);
+      const encoded = fitEncoding({ w: canvas.width, h: canvas.height }, room, (w, h, q) => {
+        let c = canvas;
+        if (w !== canvas.width || h !== canvas.height) {
+          c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          const ctx = c.getContext('2d')!;
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(canvas, 0, 0, w, h);
+        }
+        return q === null ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
+      });
+      if (!encoded) {
+        window.alert('Fond de plan non importé : le stockage local du projet est plein. Supprimez un fond de plan existant, puis réessayez.');
+        return;
+      }
+      project.addUnderlay({ name: file.name, dataUrl: encoded.dataUrl, px: { w: encoded.w, h: encoded.h }, source: isPdf ? 'pdf' : 'image' }, size);
+      setMode('atelier');
+      flash(`Fond de plan importé : ${fmt(size.w)} × ${fmt(size.h)} mm${isPdf ? ' (taille de la page)' : ' (96 ppp supposés)'} — calez-le avec l’outil « Caler le fond ».`);
+    } catch (e) {
+      window.alert(`Fond de plan illisible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [project, flash]);
+
+  /** Calage : le fond sélectionné (ou le seul fond du niveau) prend l'échelle donnée par deux points et leur distance. */
+  const calibrateUnderlay = useCallback((points: number[]) => {
+    const selectedUnderlay = project.objects.find(o => o.id === project.selectedId && o.kind === 'underlay');
+    const all = project.objects.filter((o): o is UnderlayObj => o.kind === 'underlay');
+    const target = (selectedUnderlay as UnderlayObj | undefined) ?? (all.length === 1 ? all[0] : undefined);
+    if (!target) { flash(all.length ? 'Sélectionnez le fond de plan à caler.' : 'Aucun fond de plan à caler : importez une image ou un PDF.'); return; }
+    if (target.locked) { flash('Fond de plan verrouillé : déverrouillez-le pour le caler.'); return; }
+    const a = { x: points[0], y: points[1] }, b = { x: points[2], y: points[3] };
+    const measured = Math.hypot(b.x - a.x, b.y - a.y);
+    const raw = window.prompt(`Distance réelle entre les deux points (${displayUnit}) — mesurée sur le fond : ${formatLength(measured, displayUnit, fmt)}`, '');
+    if (raw === null) return;
+    const real = toMm(Number(raw.trim().replace(',', '.')), displayUnit);
+    const next = calibrate(target, a, b, real);
+    if (!next) { flash('Distance illisible ou points confondus : rien n’est modifié.'); return; }
+    project.updateObject(target.id, next, 'Caler le fond de plan');
+    flash(`Fond de plan calé : ×${fmt(real / measured, 4)}.`);
+  }, [project, displayUnit, flash]);
 
   // Outil Symbole (lot 4.5) : type et valeurs saisis dans le panneau de l'outil.
   const [symbolParams, setSymbolParams] = useState<{ kind: 'north' | 'section' | 'levelMark' | 'roughness'; rotation: string; label: string; flip: boolean; elevation: string; ra: string; process: RoughnessObj['process'] }>(
@@ -657,6 +734,7 @@ function Workbench() {
         dimension: ['cote', 'cotation', 'dimension', 'mesure associative'],
         measure: ['mesure', 'distance', 'mesurer'],
         block: ['bloc', 'symbole', 'inserer', 'occurrence'],
+        calibrate: ['fond de plan', 'caler', 'calage', 'echelle', 'image', 'pdf', 'calibrer'],
         symbol: ['symbole', 'nord', 'coupe', 'repere de coupe', 'niveau', 'altitude', 'cote de niveau'],
         pan: ['panoramique', 'pan', 'deplacer la vue', 'main', 'hand'],
       }[t.id],
@@ -684,6 +762,7 @@ function Workbench() {
     { id: 'cloud-list', title: 'Ouvrir Mes projets cloud', hint: 'Charger, renommer ou supprimer les projets du compte', keywords: ['projets', 'cloud', 'charger', 'compte'], run: () => setCloudOpen(true) },
     { id: 'toggle-snap', title: 'Basculer l’accrochage objet', hint: 'Extrémités, milieux, centres, quadrants et intersections (F9)', keywords: ['snap', 'accrochage', 'precision'], run: () => setSnapEnabled(v => !v) },
     { id: 'toggle-ortho', title: 'Basculer le mode ortho', hint: 'Contraint le tracé horizontalement ou verticalement (F8)', keywords: ['ortho', 'horizontal', 'vertical', 'precision'], run: () => setOrthoEnabled(v => !v) },
+    { id: 'import-underlay', title: 'Importer un fond de plan', hint: 'Image ou PDF placé sous le dessin, calé par deux points et une distance connue, verrouillable', keywords: ['fond de plan', 'image', 'pdf', 'photo', 'scan', 'calque', 'underlay'], run: () => underlayInputRef.current?.click() },
     { id: 'import-dxf', title: 'Importer un fichier DXF', hint: 'Traits, cercles, arcs, polylignes, textes, blocs (INSERT), cotes, hachures, splines et ellipses — rapport d’échange', keywords: ['dxf', 'import', 'autocad', 'interoperabilite'], run: () => dxfInputRef.current?.click() },
     { id: 'bom', title: 'Insérer la nomenclature', hint: 'Tableau repère / désignation / matériau / quantité, calculé depuis les pièces', keywords: ['nomenclature', 'bom', 'pieces', 'repere', 'quantite', 'tableau'], run: () => { setMode('atelier'); project.addBom(); } },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
@@ -813,6 +892,7 @@ function Workbench() {
         onExport={exportPackage}
         onExportDxf={exportDxf}
         onImportDxf={() => dxfInputRef.current?.click()}
+        onImportUnderlay={() => underlayInputRef.current?.click()}
         onReset={() => { if (confirm('Réinitialiser le projet au démonstrateur initial ? Les microversions locales seront effacées.')) { project.reset(); setProjectKey(k => k + 1); } }}
         onCloud={() => setCloudOpen(o => !o)}
         syncStatus={syncStatus}
@@ -825,6 +905,7 @@ function Workbench() {
           objects={project.allObjects}
           levels={project.levels}
           activeLevelId={project.activeLevelId}
+          assets={project.assets}
           profile={project.profile}
           layers={project.layers}
           blocks={project.blocks}
@@ -962,6 +1043,7 @@ function Workbench() {
                  tool === 'room' ? 'Pièce : touchez l’intérieur d’une pièce fermée par des murs, puis nommez-la' :
                  tool === 'opening' ? 'Ouverture : touchez un mur à l’endroit du centre de la baie' :
                  tool === 'wall' ? 'Mur : cliquez les points successifs (un mur par segment), puis Entrée ou Terminer' :
+                 tool === 'calibrate' ? 'Caler le fond : touchez deux points de l’image dont vous connaissez la distance (sans accrochage), puis saisissez-la' :
                  tool === 'symbol' ? (symbolParams.kind === 'roughness' ? 'État de surface : cliquez le point de la surface (pointe du symbole)' : symbolParams.kind === 'section' ? 'Repère de coupe : cliquez le début puis la fin de la trace ; la vue regarde à gauche du trait (« Inverser » pour l’autre côté)' : symbolParams.kind === 'north' ? 'Nord : cliquez l’emplacement du symbole' : 'Cote de niveau : cliquez le point ; l’altitude saisie est affichée') :
                  tool === 'pdim' ? 'Cote par points : désignez les points (angulaire : sommet puis deux branches ; niveau : un point), puis Terminer' :
                  tool === 'area' ? 'Aire : cliquez les sommets du contour, puis Entrée ou Terminer' :
@@ -1072,6 +1154,8 @@ function Workbench() {
                 onAddOpening={addOpening}
                 onAddRoom={addRoom}
                 onAddSymbol={addSymbol}
+                assets={project.assets}
+                onCalibrate={calibrateUnderlay}
                 symbolPoints={symbolParams.kind === 'section' ? 2 : 1}
                 symbolKind={symbolParams.kind}
                 pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
@@ -1252,6 +1336,14 @@ function Workbench() {
             {/* Panneau des modifications / problèmes — repère permanent 5 (tiroir sur petit écran) */}
             {!compact && <div className="h-44 shrink-0 border-t border-border">{historyEl}</div>}
 
+            {project.storageFull && (
+              <div role="alert" data-testid="stockage-plein" className="absolute inset-x-0 top-2 z-20 flex justify-center px-3">
+                <span className="rounded-sm border border-red-400/60 bg-[#0c1220]/95 px-3 py-2 font-mono text-[11px] text-red-300 shadow-lg">
+                  Enregistrement local impossible : stockage du navigateur plein. Les dernières modifications ne seront pas conservées après fermeture — supprimez un fond de plan ou exportez le projet.
+                </span>
+              </div>
+            )}
+
             {notice && (
               <div role="status" className="pointer-events-none absolute inset-x-0 bottom-10 z-20 flex justify-center px-3">
                 <span className="rounded-sm border border-amber-400/50 bg-[#0c1220]/95 px-3 py-2 font-mono text-[11px] text-amber-200 shadow-lg">{notice}</span>
@@ -1365,6 +1457,18 @@ function Workbench() {
         </Drawer>
       )}
 
+      <input
+        ref={underlayInputRef}
+        type="file"
+        accept="image/*,application/pdf,.pdf"
+        aria-label="Fichier du fond de plan"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (file) void importUnderlay(file);
+          e.currentTarget.value = '';
+        }}
+      />
       <input
         ref={dxfInputRef}
         type="file"

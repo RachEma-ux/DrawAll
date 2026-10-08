@@ -18,6 +18,8 @@ interface Props {
   onPalette: () => void;
   onExport: () => void;
   onExportDxf: () => void;
+  /** Fond de plan : image ou PDF (lot 6.2). */
+  onImportUnderlay?: () => void;
   onImportDxf: () => void;
   onReset: () => void;
   onCloud: () => void;
@@ -93,6 +95,13 @@ export default function Header(p: Props) {
             className="rounded-sm border border-cyan-400/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300 transition-colors hover:bg-cyan-400/10">
             Importer DXF
           </button>
+          {p.onImportUnderlay && (
+            <button onClick={p.onImportUnderlay}
+              title="Importer une image ou un PDF comme fond de plan, à caler par deux points"
+              className="rounded-sm border border-cyan-400/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300 transition-colors hover:bg-cyan-400/10">
+              Fond de plan
+            </button>
+          )}
           <button onClick={p.onExportDxf}
             title="Exporter les primitives, calques, cotes et blocs aplaties en DXF"
             className="rounded-sm border border-cyan-400/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300 transition-colors hover:bg-cyan-400/10">

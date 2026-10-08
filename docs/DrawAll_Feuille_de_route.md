@@ -148,7 +148,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 5.3 Coupes | Fait | #33 |
 | 5.4 Nomenclature | Fait | #34 |
 | 6.1 DXF complet à l'import | Fait | #35 |
-| 6.2 → 8.4 | À faire | — |
+| 6.2 Fond de plan | Fait | #36 |
+| 6.3 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

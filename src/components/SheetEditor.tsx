@@ -2,7 +2,7 @@
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
+import type { Asset, OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
@@ -24,6 +24,8 @@ interface Props {
   levels: Level[];
   /** Niveau affiché dans l'atelier : celui d'une nouvelle fenêtre. */
   activeLevelId: string;
+  /** Images des fonds de plan (lot 6.2). */
+  assets?: Record<string, Asset>;
   layers: Layer[];
   blocks: BlockDef[];
   view: ViewReading;
@@ -66,8 +68,8 @@ export default function SheetEditor(p: Props) {
   const size = sheet ? sheetSize(sheet.format, sheet.orientation) : { w: 420, h: 297 };
   const area = sheet ? printableArea(sheet) : null;
   const issues = sheet ? sheetIssues(sheet) : [];
-  // Cadrage : seulement les objets que les fenêtres dessinent (calques visibles).
-  // Cadrage par niveau : une fenêtre se cadre sur le niveau qu'elle montre.
+  // Cadrage par niveau : une fenêtre se cadre sur les objets qu'elle dessine (calques visibles)
+  // du niveau qu'elle montre.
   const boundsByLevel = useMemo(() => new Map(p.levels.map(l => [l.id,
     projectBounds(onLevel(p.objects, l.id).filter(o => p.layers.find(x => x.id === o.layerId)?.visible !== false), p.blocks)])), [p.objects, p.levels, p.layers, p.blocks]);
   // Par niveau : objets tels que dessinés en coupe et en vue (motifs du profil, pièces voisines
@@ -419,7 +421,7 @@ export default function SheetEditor(p: Props) {
                 <g key={v.id} data-testid={`fenetre-${v.id}`}>
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
                     {drawn.filter(o => visibleLayer.get(o.layerId)).map(o => (
-                      <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false}
+                      <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false} assets={p.assets}
                         zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} rooms={rooms} />
                     ))}
                   </svg>

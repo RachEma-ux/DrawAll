@@ -320,6 +320,22 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           );
         })()}
 
+        {obj.kind === 'underlay' && (
+          <div className="space-y-1.5">
+            <p className="ui-label mb-1.5">Fond de plan</p>
+            <p className="font-mono text-[10px] text-muted-foreground">{fmt(obj.w)} × {fmt(obj.h)} mm · à caler avec l’outil « Caler le fond » (deux points, distance réelle).</p>
+            <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              Opacité
+              <input type="range" min={10} max={100} step={5} aria-label="Opacité du fond de plan" value={Math.round(obj.opacity * 100)}
+                onChange={e => onUpdate(obj.id, { opacity: Number(e.target.value) / 100 }, 'Opacité du fond de plan')} className="w-32" />
+            </label>
+            <button onClick={() => onUpdate(obj.id, { locked: !obj.locked }, obj.locked ? 'Déverrouiller le fond de plan' : 'Verrouiller le fond de plan')} aria-pressed={!!obj.locked}
+              className={`w-full rounded-sm border px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] ${obj.locked ? 'border-amber-400/50 text-amber-300' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+              {obj.locked ? 'Verrouillé — déverrouiller' : 'Verrouiller le fond'}
+            </button>
+          </div>
+        )}
+
         {obj.kind === 'section' && onAddCut && (() => {
           const horizontal = Math.abs(obj.y2 - obj.y1) < 1e-6, vertical = Math.abs(obj.x2 - obj.x1) < 1e-6;
           if (!horizontal && !vertical) return <p className="text-[11px] text-amber-300">Vue en coupe : trace oblique non prise en charge (trace horizontale ou verticale).</p>;

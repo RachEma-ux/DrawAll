@@ -495,7 +495,8 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
       if (!g) return null;
       return boundsOfPoints([...g.rect, ...(g.leaf ?? [])]);
     }
-    case 'rect': return { minX: object.x, minY: object.y, maxX: object.x + object.w, maxY: object.y + object.h };
+    case 'rect':
+    case 'underlay': return { minX: object.x, minY: object.y, maxX: object.x + object.w, maxY: object.y + object.h };
     case 'circle': return { minX: object.cx - object.r, minY: object.cy - object.r, maxX: object.cx + object.r, maxY: object.cy + object.r };
     case 'arc': return arcBounds(object);
     case 'polyline': {
@@ -671,6 +672,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'balloon': return { x: object.x + dx, y: object.y + dy };
     case 'section': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'rect': return { x: object.x + dx, y: object.y + dy };
+    case 'underlay': return object.locked ? {} : { x: object.x + dx, y: object.y + dy };
     case 'circle': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'arc': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'polyline': return { points: object.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)) };
@@ -764,6 +766,8 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
     }
     case 'dimension':
       return null; // cote associative : elle suit sa cible
+    case 'underlay':
+      return null; // fond de plan : ni rotation ni symétrie (il se cale par deux points)
     case 'pdim':
       return transformPdim(object, q => rotatePoint(q.x, q.y, cx, cy, rad), { rotation: angleDeg });
     case 'opening':
@@ -824,6 +828,8 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
         : { cy: mx(object.cy), start: norm360(-object.end), end: norm360(-object.start) };
     case 'polyline':
       return { points: object.points.map((v, i) => (i % 2 === 0) === (axis === 'x') ? mx(v) : v) };
+    case 'underlay':
+      return {};
     case 'blockRef':
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
     case 'dimension':
@@ -867,6 +873,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'line': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy) };
     case 'wall': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy), thickness: round(object.thickness * factor) };
     case 'rect': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor) };
+    case 'underlay': return object.locked ? null : { x: s(object.x, cx), y: s(object.y, cy), w: object.w * factor, h: object.h * factor };
     case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'arc': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
@@ -928,6 +935,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'roughness':
     case 'views':
     case 'cut':
+    case 'underlay':
       return null;
   }
 }
