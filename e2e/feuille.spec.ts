@@ -208,3 +208,22 @@ test('lot 2.4 — le type de trait propre à une cote est conservé sur la feuil
   const dash = await page.locator('[data-testid="fenetre-FEN-0001"] [data-cote-papier] > line').last().getAttribute('stroke-dasharray');
   expect(dash).toBeTruthy();
 });
+
+test('lot 6.4 — export SVG aux dimensions de la feuille', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 5000, y2: 0 }]);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByLabel('Format').selectOption('A4');
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  await page.getByLabel('Échelle de la fenêtre').selectOption('1:50');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Exporter en SVG' }).click()]);
+  expect(download.suggestedFilename()).toBe('FEU-0001.svg');
+  const { readFileSync } = await import('node:fs');
+  const svg = readFileSync((await download.path())!, 'utf8');
+  // A4 paysage (orientation par défaut) : 297 × 210 mm, viewBox en mm papier.
+  expect(svg).toContain('width="297mm" height="210mm" viewBox="0 0 297 210"');
+  // Le trait de 5 m au 1:50 : la fenêtre montre le modèle à l'échelle (viewBox = largeur × 50).
+  const vp = svg.match(/data-fenetre="FEN-0001" x="[\d.]+" y="[\d.]+" width="([\d.]+)" height="[\d.]+" viewBox="[-\d.]+ [-\d.]+ ([\d.]+) /)!;
+  expect(Number(vp[2]) / Number(vp[1])).toBeCloseTo(50, 6);
+});
