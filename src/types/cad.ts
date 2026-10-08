@@ -5,6 +5,7 @@ import type { PropertySet } from '@/lib/properties';
 import type { Publication } from '@/lib/publication';
 import type { ProjView, SolidRecipe } from '@/lib/kernel/recipe';
 import type { Mate } from '@/lib/assembly';
+import type { Journal } from '@/lib/commands';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 import { recipeBounds } from '@/lib/solids';
 
@@ -597,6 +598,8 @@ export interface ProjectState {
   activeLayerId: string;
   activeLevelId?: string;  // niveau affiché et édité (lot 4.4)
   assets?: Record<string, Asset>; // images des fonds de plan (lot 6.2), hors historique
+  /** Journal des commandes (lot 18.1) : état de base et commandes exécutées depuis, rejouables. */
+  journal?: Journal;
 }
 
 export function createDefaultLayers(): Layer[] {

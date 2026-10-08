@@ -284,7 +284,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 17.1 Export IFC 4.3 | Fait (conventions §7.5) | #81 |
 | 17.2 STEP AP242 édition 3 | Fait (conventions §7.6) | #82 |
 | 17.3 Géoréférencement | Fait (conventions §7.7) | #83 |
-| 18.1 API de commandes | À faire | — |
+| 18.1 API de commandes | Fait (conventions §10.9) | #84 |
 | 18.2 Scripts isolés | À faire | — |
 | 18.3 Assistant à boucle contrôlée | À faire | — |
 | 19.1 Démonstrateur réduit bâtiment–mécanique | À faire | — |

@@ -1,6 +1,6 @@
 // État du projet : microversions Git-like, calques, blocs, cotes associatives,
 // annulation, versions nommées, persistance locale (brouillon explicite — Concept §8).
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   createDefaultLayers,
   type BlockDef,
@@ -55,6 +55,7 @@ import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications } from '@/lib/publication';
+import { applyTransform, decodeArgs, encodeArgs, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
 import { MATE_LABEL, isMate, placeMate, resolveMates, type Mate } from '@/lib/assembly';
 import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
 import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
@@ -271,6 +272,15 @@ export function normalizeParameters(raw: unknown): Parameter[] | undefined {
   return out.length ? out : undefined;
 }
 
+/** Journal relu (lot 18.1) : base présente, entrées nommées aux arguments en liste. */
+function normalizeJournal(raw: unknown): Journal | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const j = raw as Journal;
+  if (!j.base || !Array.isArray(j.entries)) return undefined;
+  const entries = j.entries.filter(e => e && typeof e.type === 'string' && Array.isArray(e.args) && Number.isInteger(e.n));
+  return { base: j.base, entries };
+}
+
 export function normalizeProjectState(raw: unknown): ProjectState {
   const p = raw as Partial<ProjectState> | null;
   if (p && Array.isArray(p.versions) && p.versions.length > 0) {
@@ -364,6 +374,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         ...(branch ? { branch } : {}),
         ...(branches.length ? { branches } : {}),
         ...(normalizePublications(p.publications) ? { publications: normalizePublications(p.publications) } : {}),
+        ...(normalizeJournal(p.journal) ? { journal: normalizeJournal(p.journal) } : {}),
       };
     }
   }
@@ -1541,23 +1552,103 @@ export function useProject() {
     return null;
   }, [state]);
 
+  // ——— API de commandes (lot 18.1) ———
+  // Toute opération qui modifie le projet passe par `cmd` : validée, journalisée, puis exécutée.
+  const record = useCallback((type: string, args: unknown[], refused?: string) => {
+    setState(s => {
+      const { journal, ...rest } = s;
+      const base = journal?.base ?? encodeHistory(rest as ProjectState);
+      const entries = journal?.entries ?? [];
+      const entry: JournalEntry = { n: entries.length + 1, type, args: encodeArgs(args) as unknown[], ...(refused ? { refused } : {}) };
+      return { ...s, journal: { base, entries: [...entries, entry] } };
+    });
+  }, []);
+  const cmd = <A extends unknown[], R>(type: string, fn: (...a: A) => R) => (...args: A): R => {
+    const err = validateCommand(type, args, allObjects);
+    if (err) {
+      let safe: unknown[] = [];
+      try { encodeArgs(args); safe = args; } catch { /* arguments non journalisables : non gardés */ }
+      record(type, safe, err);
+      return undefined as R;
+    }
+    record(type, args);
+    return fn(...args);
+  };
+  /** Transformation déclarative de la sélection (remplace les fonctions, non journalisables). */
+  const transform = useCallback((ids: string[], op: TransformOp, label: string) => transformObjects(ids, applyTransform(op), label), [transformObjects]);
+  // Ouvrir un autre projet ou repartir de zéro commence un nouveau journal.
+  const resetWithJournal = useCallback(() => { reset(); setState(s => { const { journal: _j, ...rest } = s; void _j; return rest as ProjectState; }); }, [reset]);
+  const loadWithJournal = useCallback((next: unknown) => { loadState(next); setState(s => { const { journal: _j, ...rest } = s; void _j; return rest as ProjectState; }); }, [loadState]);
+
+  const commands = {
+    publish: cmd('publish', publish), createVariant: cmd('createVariant', createVariant), switchVariant: cmd('switchVariant', switchVariant),
+    removeVariant: cmd('removeVariant', removeVariant), mergeVariant: cmd('mergeVariant', mergeVariant),
+    addZone: cmd('addZone', addZone), updateZone: cmd('updateZone', updateZone), removeZone: cmd('removeZone', removeZone), setRoomZone: cmd('setRoomZone', setRoomZone),
+    addConstraint: cmd('addConstraint', addConstraint), removeConstraint: cmd('removeConstraint', removeConstraint), setConstraintExpr: cmd('setConstraintExpr', setConstraintExpr),
+    addParameter: cmd('addParameter', addParameter), updateParameter: cmd('updateParameter', updateParameter), removeParameter: cmd('removeParameter', removeParameter),
+    setActiveLevelId: cmd('setActiveLevelId', setActiveLevelId), addLevel: cmd('addLevel', addLevel), updateLevel: cmd('updateLevel', updateLevel),
+    removeLevel: cmd('removeLevel', removeLevel), copyLevel: cmd('copyLevel', copyLevel),
+    setProfileId: cmd('setProfileId', setProfileId), setSurfaceRule: cmd('setSurfaceRule', setSurfaceRule),
+    addSheet: cmd('addSheet', addSheet), updateSheet: cmd('updateSheet', updateSheet), removeSheet: cmd('removeSheet', removeSheet),
+    addViewport: cmd('addViewport', addViewport), updateViewport: cmd('updateViewport', updateViewport), removeViewport: cmd('removeViewport', removeViewport),
+    addObject: cmd('addObject', addObject), updateObject: cmd('updateObject', updateObject), removeObject: cmd('removeObject', removeObject), removeObjects: cmd('removeObjects', removeObjects),
+    combineSolids: cmd('combineSolids', combineSolids), addProjections: cmd('addProjections', addProjections), addElevations: cmd('addElevations', addElevations),
+    makePart: cmd('makePart', makePart), addOccurrence: cmd('addOccurrence', addOccurrence), setMate: cmd('setMate', setMate), addSolids: cmd('addSolids', addSolids), setGeoref: cmd('setGeoref', setGeoref),
+    transform: cmd('transform', transform), duplicateObjects: cmd('duplicateObjects', duplicateObjects), addCopies: cmd('addCopies', addCopies),
+    applyEdit: cmd('applyEdit', applyEdit), applyPatches: cmd('applyPatches', applyPatches), groupObjects: cmd('groupObjects', groupObjects), ungroupObjects: cmd('ungroupObjects', ungroupObjects),
+    addLayer: cmd('addLayer', addLayer), updateLayer: cmd('updateLayer', updateLayer), removeLayer: cmd('removeLayer', removeLayer), setActiveLayerId: cmd('setActiveLayerId', setActiveLayerId),
+    addDimension: cmd('addDimension', addDimension), addViews: cmd('addViews', addViews), addCut: cmd('addCut', addCut), addBalloon: cmd('addBalloon', addBalloon),
+    addBom: cmd('addBom', addBom), addUnderlay: cmd('addUnderlay', addUnderlay), addNote: cmd('addNote', addNote), addNotePhoto: cmd('addNotePhoto', addNotePhoto),
+    removeNotePhoto: cmd('removeNotePhoto', removeNotePhoto), createBlockFromObject: cmd('createBlockFromObject', createBlockFromObject), insertBlock: cmd('insertBlock', insertBlock),
+    importObjects: cmd('importObjects', importObjects), removeBlock: cmd('removeBlock', removeBlock), addLibraryBlock: cmd('addLibraryBlock', addLibraryBlock),
+    undo: cmd('undo', undo), redo: cmd('redo', redo), goTo: cmd('goTo', goTo), nameVersion: cmd('nameVersion', nameVersion), issueIndex: cmd('issueIndex', issueIndex),
+  };
+  type CommandName = keyof typeof commands;
+
+  /** Exécution d'une commande par son nom (scripts, lot 18.2) : refus en clair, jamais d'exception. */
+  const execute = (type: string, args: unknown[]): { ok: true; result: unknown } | { ok: false; error: string } => {
+    if (!(type in commands)) return { ok: false, error: `commande inconnue « ${type} »` };
+    const err = validateCommand(type, args, allObjects);
+    if (err) { record(type, [], err); return { ok: false, error: `${type} : ${err}` }; }
+    return { ok: true, result: (commands[type as CommandName] as (...a: unknown[]) => unknown)(...args) };
+  };
+
+  // Rejeu du journal : état de base rechargé, puis une commande par rendu (chacune voit l'état
+  // laissé par la précédente), enfin comparaison du contenu obtenu avec celui d'avant le rejeu.
+  const replayRef = useRef<{ queue: JournalEntry[]; before: string; total: number } | null>(null);
+  const [replay, setReplay] = useState<{ running: boolean; done: number; total: number; identical?: boolean } | null>(null);
+  const replayJournal = useCallback(() => {
+    const j = state.journal;
+    if (!j) return 'Journal vide : aucune commande depuis l’ouverture du projet.';
+    const queue = j.entries.filter(e => !e.refused);
+    replayRef.current = { queue: [...queue], before: versionDigest(current), total: queue.length };
+    setState({ ...normalizeProjectState(decodeHistory(j.base as { versions: unknown[] })), journal: { base: j.base, entries: [] } });
+    setReplay({ running: true, done: 0, total: queue.length });
+    return null;
+  }, [state.journal, current]);
+  useEffect(() => {
+    const r = replayRef.current;
+    if (!r) return;
+    const next = r.queue.shift();
+    if (!next) {
+      replayRef.current = null;
+      setReplay({ running: false, done: r.total, total: r.total, identical: versionDigest(current) === r.before });
+      return;
+    }
+    const op = commands[next.type as CommandName] as ((...a: unknown[]) => unknown) | undefined;
+    if (op) op(...(decodeArgs(next.args) as unknown[])); else record(next.type, [], 'commande inconnue au rejeu');
+    setReplay({ running: true, done: r.total - r.queue.length, total: r.total });
+    // Une commande par rendu : l'effet suit chaque nouvel état.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
   return {
-    publish, publications: state.publications ?? [],
-    branches, createVariant, switchVariant, removeVariant, mergeVariant,
-    zones, addZone, updateZone, removeZone, setRoomZone,
-    constraints, addConstraint, removeConstraint, setConstraintExpr,
-    parameters, addParameter, updateParameter, removeParameter,
-    levels, activeLevelId, setActiveLevelId, addLevel, updateLevel, removeLevel, copyLevel, allObjects,
-    profile, setProfileId, surfaceRule, setSurfaceRule,
-    state, objects, layers, blocks, activeLayerId, sheets,
-    addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
+    ...commands, execute, journal: state.journal, replayJournal, replay,
+    publications: state.publications ?? [], branches, zones, constraints, parameters, levels, activeLevelId, allObjects,
+    profile, surfaceRule, state, objects, layers, blocks, activeLayerId, sheets,
     current, versions: state.versions, pointer: state.pointer,
-    selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations, makePart, addOccurrence, setMate, addSolids, setGeoref, georef: current.georef,
-    transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
-    addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
-    undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
+    selectedId, selectedIds, setSelectedId, setSelectedIds, georef: current.georef,
+    assets, storageFull, storageWarning, hydrated, canUndo, canRedo, reset: resetWithJournal, loadState: loadWithJournal,
     diagnostics,
   };
 }
