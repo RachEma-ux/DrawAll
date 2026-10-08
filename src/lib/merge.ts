@@ -2,7 +2,7 @@
 // supprimé, modifié) et fusion à trois voies par identifiant : une modification faite d'un seul côté
 // est reprise, des modifications différentes d'un même élément sont un conflit, listé puis tranché
 // (garder l'une ou l'autre). Rien n'est tranché en silence. Fonctions pures.
-import type { MicroVersion, ProjectState } from '@/types/cad';
+import type { CadObject, MicroVersion, ProjectState } from '@/types/cad';
 import { activeBranch } from './branches';
 
 type WithId = { id: string };
@@ -33,6 +33,11 @@ export interface Conflict {
   /** Situation de chaque côté par rapport à l'ancêtre commun. */
   ours: ChangeKind; theirs: ChangeKind;
   oursValue: unknown; theirsValue: unknown;
+  /**
+   * Objets qui dépendent de l'élément (calque, bloc, niveau) : le supprimer les supprime aussi,
+   * plutôt que de laisser des références vers un élément absent.
+   */
+  dependents?: string[];
 }
 
 export interface MergeResult {
@@ -76,6 +81,7 @@ export function merge3(base: MicroVersion, ours: MicroVersion, theirs: MicroVers
     const list = mergeList(c, listOf(base, c), listOf(ours, c), listOf(theirs, c), conflicts, taken);
     if (list.length || ours[c] !== undefined) merged[c] = list;
   }
+  dependencyConflicts(base, ours, theirs, merged, conflicts);
   for (const k of MERGED_SETTINGS) {
     const b = base[k], o = ours[k], t = theirs[k];
     if (same(t, b) || same(o, t)) { if (o !== undefined) merged[k] = o; continue; }
@@ -84,6 +90,50 @@ export function merge3(base: MicroVersion, ours: MicroVersion, theirs: MicroVers
     if (o !== undefined) merged[k] = o;
   }
   return { merged: merged as MergeResult['merged'], conflicts, taken };
+}
+
+/** Références d'un objet vers les calques, blocs et niveaux. */
+const REFS: { where: 'layers' | 'blocks' | 'levels'; of: (o: CadObject) => string | undefined }[] = [
+  { where: 'layers', of: o => o.layerId },
+  { where: 'blocks', of: o => (o.kind === 'blockRef' ? o.blockId : undefined) },
+  { where: 'levels', of: o => o.levelId },
+];
+
+/**
+ * Dépendances entre collections : un calque, un bloc ou un niveau supprimé d'un côté mais encore
+ * utilisé par des objets du résultat (ajoutés ou gardés de l'autre côté) n'est pas supprimé en
+ * silence. Il est gardé provisoirement et la suppression devient un conflit à trancher.
+ */
+function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: MicroVersion, merged: Record<string, unknown>, conflicts: Conflict[]) {
+  const objects = (merged.objects as CadObject[] | undefined) ?? [];
+  for (const { where, of } of REFS) {
+    const list = (merged[where] as WithId[] | undefined) ?? [];
+    const present = new Set(list.map(x => x.id));
+    const users = new Map<string, string[]>();
+    for (const o of objects) { const r = of(o); if (r && !present.has(r)) users.set(r, [...(users.get(r) ?? []), o.id]); }
+    for (const [id, dependents] of users) {
+      const find = (v: MicroVersion) => listOf(v, where).find(x => x.id === id) ?? null;
+      const o = find(ours), t = find(theirs), b = find(base);
+      const kept = o ?? t ?? b;
+      if (!kept) continue; // jamais défini : rien à garder
+      const existing = conflicts.find(c => c.where === where && c.id === id);
+      if (existing) { existing.dependents = dependents; continue; }
+      const kind = (v: unknown): ChangeKind => (v === null ? 'supprimé' : b ? 'modifié' : 'ajouté');
+      conflicts.push({ where, id, ours: kind(o), theirs: kind(t), oursValue: o, theirsValue: t, dependents });
+      merged[where] = [...list, kept];
+    }
+  }
+}
+
+/**
+ * Toutes les différences de `to` par rapport à `from` : chaque collection fusionnée et chaque
+ * réglage (comptes de la comparaison).
+ */
+export function versionDiff(from: MicroVersion, to: MicroVersion): (Change & { where: string })[] {
+  const out: (Change & { where: string })[] = [];
+  for (const c of MERGED_COLLECTIONS) for (const ch of diffById(listOf(from, c), listOf(to, c))) out.push({ ...ch, where: c });
+  for (const k of MERGED_SETTINGS) if (!same(from[k], to[k])) out.push({ id: k, kind: 'modifié', where: k });
+  return out;
 }
 
 export type Choice = 'nôtre' | 'leur';
@@ -104,6 +154,18 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
     else list.push(c.theirsValue as WithId);
     out[c.where] = list;
   }
+  // Suppression retenue d'un calque, d'un bloc ou d'un niveau : ses objets dépendants partent avec lui.
+  const gone = new Set<string>();
+  for (const c of r.conflicts) {
+    if (!c.dependents?.length) continue;
+    const value = choices[key(c)] === 'leur' ? c.theirsValue : c.oursValue;
+    const list = (out[c.where] as WithId[] | undefined) ?? [];
+    if (value === null) {
+      out[c.where] = list.filter(x => x.id !== c.id);
+      for (const d of c.dependents) gone.add(d);
+    }
+  }
+  if (gone.size) out.objects = ((out.objects as WithId[] | undefined) ?? []).filter(o => !gone.has(o.id));
   return out as MergeResult['merged'];
 }
 

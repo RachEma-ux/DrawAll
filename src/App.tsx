@@ -869,10 +869,13 @@ function Workbench() {
     if (!overlay) return undefined;
     const other = project.state.branches?.find(b => b.id === overlay.otherId);
     const theirs = other ? other.versions[other.pointer].objects : [];
+    // Objets de l'autre variante mesurés avec ses propres définitions de blocs.
+    const theirBlocks = other ? other.versions[other.pointer].blocks : project.blocks;
     return overlay.changes.flatMap(c => {
-      const src = c.kind === 'supprimé' ? project.allObjects : theirs;
+      const mine = c.kind === 'supprimé';
+      const src = mine ? project.allObjects : theirs;
       const o = src.find(x => x.id === c.id);
-      const b = o ? objectBounds(o, project.blocks, src) : null;
+      const b = o ? objectBounds(o, mine ? project.blocks : theirBlocks, src) : null;
       return b ? [{ id: c.id, kind: c.kind, ...b }] : [];
     });
   }, [overlay, project.state.branches, project.allObjects, project.blocks]);

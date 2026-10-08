@@ -3,7 +3,7 @@ import type { CadObject, MicroVersion, ProjectState } from '@/types/cad';
 import { createDefaultLayers } from '@/types/cad';
 import { normalizeProjectState } from '@/store/project';
 import { createBranch, switchBranch } from './branches';
-import { conflictKey, diffById, merge3, mergeInputs, resolve } from './merge';
+import { conflictKey, diffById, merge3, mergeInputs, resolve, versionDiff } from './merge';
 
 const layers = createDefaultLayers();
 const base0 = { classification: 'non-classifie' as const, layerId: layers[0].id, hatch: 'none' as const, createdSeq: 0 };
@@ -64,5 +64,41 @@ describe('comparaison et fusion (lot 14.2)', () => {
     const back = switchBranch(s, 'BR-0001') as ProjectState;
     const m2 = mergeInputs(back, 'BR-0000');
     expect('error' in m2 ? null : m2.base.seq).toBe(1);
+  });
+
+  it('dépendances : bloc supprimé d’un côté, occurrence ajoutée de l’autre → conflit, jamais d’occurrence orpheline', () => {
+    const blk = { id: 'BLQ-0001', name: 'Porte', primitives: [], base: { x: 0, y: 0 } } as unknown as MicroVersion['blocks'][number];
+    const ref = { ...base0, id: 'R', name: 'R', kind: 'blockRef', blockId: 'BLQ-0001', x: 0, y: 0, scale: 1, rotation: 0 } as unknown as CadObject;
+    const base = v(0, [], { blocks: [blk] });
+    const ours = v(1, [], { blocks: [] });              // nous : bloc supprimé
+    const theirs = v(1, [ref], { blocks: [blk] });      // eux : occurrence ajoutée
+    const r = merge3(base, ours, theirs);
+    // Le bloc est gardé provisoirement ; la suppression est un conflit qui nomme l'occurrence dépendante.
+    expect(r.merged.blocks!.map(b => b.id)).toEqual(['BLQ-0001']);
+    const c = r.conflicts.find(x => x.where === 'blocks')!;
+    expect(c).toMatchObject({ id: 'BLQ-0001', ours: 'supprimé', dependents: ['R'] });
+    // Garder la suppression retire aussi l'occurrence ; garder le bloc garde les deux.
+    const del = resolve(r, { [conflictKey(c)]: 'nôtre' });
+    if ('error' in del) throw new Error(del.error);
+    expect([del.blocks, del.objects]).toEqual([[], []]);
+    const keep = resolve(r, { [conflictKey(c)]: 'leur' });
+    if ('error' in keep) throw new Error(keep.error);
+    expect([keep.blocks!.map(b => b.id), keep.objects!.map(o => o.id)]).toEqual([['BLQ-0001'], ['R']]);
+  });
+
+  it('dépendances : calque supprimé par l’autre variante alors que nous y avons ajouté un objet', () => {
+    const extra = { id: 'LAY-0009', name: 'Relevé', color: '#ffffff', visible: true, locked: false } as MicroVersion['layers'][number];
+    const base = v(0, [], { layers: [...layers, extra] });
+    const ours = v(1, [line('N', 10, { layerId: 'LAY-0009' })], { layers: [...layers, extra] });
+    const theirs = v(1, [], { layers });
+    const r = merge3(base, ours, theirs);
+    expect(r.merged.layers!.some(l => l.id === 'LAY-0009')).toBe(true);
+    expect(r.conflicts).toEqual([expect.objectContaining({ where: 'layers', id: 'LAY-0009', theirs: 'supprimé', dependents: ['N'] })]);
+  });
+
+  it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
+    const base = v(0, [line('A', 1)]);
+    const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);
+    expect(versionDiff(base, other)).toEqual([{ id: 'LAY-0009', kind: 'ajouté', where: 'layers' }, { id: 'profileId', kind: 'modifié', where: 'profileId' }]);
   });
 });

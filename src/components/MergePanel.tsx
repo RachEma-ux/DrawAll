@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import type { ProjectState } from '@/types/cad';
 import type { BranchInfo } from '@/lib/branches';
-import { conflictKey, diffById, merge3, mergeInputs, type Change, type Choice } from '@/lib/merge';
+import { conflictKey, diffById, merge3, mergeInputs, versionDiff, type Change, type Choice } from '@/lib/merge';
 
 interface Props {
   state: ProjectState;
@@ -31,9 +31,11 @@ export default function MergePanel({ state, branches, onOverlay, onMerge, onClos
     if (!otherId) return null;
     const inputs = mergeInputs(state, otherId);
     if ('error' in inputs) return { error: inputs.error };
-    const theirs = diffById(inputs.base.objects, inputs.theirs.objects);
-    const ours = diffById(inputs.base.objects, inputs.ours.objects);
-    return { theirs, ours, result: merge3(inputs.base, inputs.ours, inputs.theirs) };
+    // Comptes : toutes les collections fusionnées et les réglages ; surimpression : les objets.
+    const theirs = versionDiff(inputs.base, inputs.theirs);
+    const ours = versionDiff(inputs.base, inputs.ours);
+    const drawn = diffById(inputs.base.objects, inputs.theirs.objects);
+    return { theirs, ours, drawn, result: merge3(inputs.base, inputs.ours, inputs.theirs) };
   }, [state, otherId]);
 
   const close = () => { onOverlay(null); onClose(); };
@@ -60,7 +62,7 @@ export default function MergePanel({ state, branches, onOverlay, onMerge, onClos
                 Depuis l’ancêtre commun, « {other?.name} » : {count(analysis.theirs, 'ajouté')} ajouté(s), {count(analysis.theirs, 'modifié')} modifié(s), {count(analysis.theirs, 'supprimé')} supprimé(s) ;
                 « {active.name} » : {count(analysis.ours, 'ajouté')} ajouté(s), {count(analysis.ours, 'modifié')} modifié(s), {count(analysis.ours, 'supprimé')} supprimé(s).
               </p>
-              <button type="button" onClick={() => onOverlay({ changes: analysis.theirs, otherId })} className="self-start rounded-sm border border-border px-2 py-1 text-foreground hover:bg-white/5">
+              <button type="button" onClick={() => onOverlay({ changes: analysis.drawn, otherId })} className="self-start rounded-sm border border-border px-2 py-1 text-foreground hover:bg-white/5">
                 Montrer les changements de « {other?.name} » sur le dessin
               </button>
               {analysis.result.conflicts.length > 0 ? (
