@@ -24,6 +24,7 @@ import { fmt } from '@/types/cad';
 import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
+import { offsetObject as offsetCurve } from '@/lib/offset';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
@@ -54,6 +55,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'circle', label: 'Cercle', key: 'C', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Centre puis rayon' },
   { id: 'arc', label: 'Arc 3 points', short: 'Arc', key: 'A', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Début, point de passage, fin' },
   { id: 'spline', label: 'Spline', key: 'S', levels: ['contextuel', 'complet'], hint: 'Points de contrôle, puis Terminer (Entrée ou double-clic) : courbe lisse de degré 3' },
+  { id: 'offset', label: 'Décaler', key: '', levels: ['contextuel', 'complet'], hint: 'Distance saisie, puis l’objet, puis un point du côté de la copie parallèle' },
   { id: 'stretch', label: 'Étirer', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins de la fenêtre de capture, puis point de base et point d’arrivée : les sommets capturés se déplacent' },
   { id: 'ellipse', label: 'Ellipse', key: 'Z', levels: ['contextuel', 'complet'], hint: 'Centre, extrémité du premier axe, puis le second demi-axe' },
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
@@ -172,6 +174,8 @@ function Workbench() {
   const showCoord = (mm: number) => `${fmt(fromMm(mm, displayUnit), unitDecimals(displayUnit))} ${displayUnit}`;
   // Paramètres du congé et du chanfrein (mm), saisis dans le panneau de l'outil.
   const [cornerParams, setCornerParams] = useState({ r: '10', d1: '10', d2: '10' });
+  // Distance du décalage (lot 10.4), saisie dans le panneau de l'outil.
+  const [offsetDistance, setOffsetDistance] = useState('10');
   const noticeTimer = useRef<number | undefined>(undefined);
   const [moreOpen, setMoreOpen] = useState(false);
   // Navigateur du projet : toujours présent, pliable ; plié par défaut sur petit écran.
@@ -647,6 +651,18 @@ function Workbench() {
     project.applyPatches([{ id: a.id, patch: patchA }, { id: b.id, patch: patchB }], added, mode === 'fillet' ? 'Congé' : 'Chanfrein');
   }, [project, flash, cornerParams]);
 
+  // Décalage à distance saisie (lot 10.4) : copie parallèle, propriétés de trait conservées.
+  const offsetPicked = useCallback((id: string, side: { x: number; y: number }) => {
+    const source = project.objects.find(o => o.id === id);
+    if (!source) return;
+    const d = offsetDistance.trim() === '' ? NaN : Number(offsetDistance.replace(',', '.'));
+    const out = offsetCurve(source, d, side);
+    if (!out.ok) { flash(out.reason); return; }
+    const style = { ...(source.color ? { color: source.color } : {}), ...(source.lineType ? { lineType: source.lineType } : {}), ...(source.lineWeight ? { lineWeight: source.lineWeight } : {}) };
+    project.applyPatches([], [{ from: source.id, partial: { ...style, ...out.partial } }], 'Décaler');
+    if (out.approximated) flash('Courbe décalée approchée par une polyligne (écart ≤ 0,01 mm) : le décalé d’une ellipse ou d’une spline n’est ni une ellipse ni une spline.');
+  }, [project, flash, offsetDistance]);
+
   const prepareBlockInsertion = useCallback((blockId: string) => {
     setActiveBlockId(blockId);
     setMode('atelier');
@@ -840,6 +856,7 @@ function Workbench() {
         ellipse: ['ellipse', 'ovale', 'axe', 'courbe'],
         spline: ['spline', 'courbe', 'lisse', 'bezier', 'nurbs'],
         stretch: ['etirer', 'étirer', 'stretch', 'allonger', 'deformer'],
+        offset: ['decaler', 'décaler', 'offset', 'parallele', 'parallèle', 'copie parallele'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
         room: ['piece', 'surface', 'local', 'room', 'sia', 'carrez'],
         note: ['note', 'photo', 'releve', 'terrain', 'chantier', 'commentaire', 'remarque'],
@@ -1178,6 +1195,7 @@ function Workbench() {
                  tool === 'block' ? (activeBlockId ? `Cliquez pour insérer ${activeBlockId}` : 'Choisissez un bloc dans le navigateur') :
                  tool === 'pan' ? 'Glissez pour déplacer la vue' :
                  tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
+                 tool === 'offset' ? 'Décaler : touchez l’objet, puis un point du côté où poser la copie parallèle' :
                  tool === 'stretch' ? 'Étirer : deux coins de la fenêtre de capture, puis le point de base et le point d’arrivée' :
                  tool === 'spline' ? 'Spline : cliquez les points de contrôle, puis Terminer (Entrée ou double-clic)' :
                  tool === 'ellipse' ? 'Ellipse : cliquez le centre, l’extrémité du premier axe, puis un point du second axe' :
@@ -1294,6 +1312,7 @@ function Workbench() {
                 onTrimExtend={trimExtend}
                 onCorner={corner}
                 onStretch={patches => project.applyPatches(patches, [], 'Étirer')}
+                onOffset={offsetPicked}
                 onMeasureArea={measureArea}
                 onAddPointDimension={addPointDimension}
                 onAddWall={addWall}
@@ -1453,6 +1472,15 @@ function Workbench() {
                         className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
                     </label>
                   )}
+                </div>
+              )}
+              {tool === 'offset' && (
+                <div className="absolute left-3 top-3 z-10 sm:top-12 flex items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg">
+                  <label className="flex items-center gap-1">Distance
+                    <input aria-label="Distance du décalage (mm)" inputMode="decimal" value={offsetDistance}
+                      onChange={e => setOffsetDistance(e.target.value)}
+                      className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                  </label>
                 </div>
               )}
               {(tool === 'fillet' || tool === 'chamfer') && (
