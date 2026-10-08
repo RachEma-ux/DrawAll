@@ -113,7 +113,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, ellipse: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -504,6 +504,22 @@ function writePrimitive(header: EntityHeader, push: Push, object: PrimitiveObjec
     push(50, n(norm360(object.start))); push(51, n(norm360(object.end)));
     return;
   }
+  if (object.kind === 'ellipse') {
+    // ELLIPSE natif : grand axe (relatif au centre), rapport petit / grand axe, paramètres en radians.
+    const major = object.rx >= object.ry;
+    const dir = ((object.rotation + (major ? 0 : 90)) * Math.PI) / 180, R = major ? object.rx : object.ry;
+    const shift = major ? 0 : -90;
+    const full = object.start === undefined || object.end === undefined;
+    let p0 = full ? 0 : ((object.start! + shift) * Math.PI) / 180;
+    let p1 = full ? 2 * Math.PI : ((object.end! + shift) * Math.PI) / 180;
+    p0 = ((p0 % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    p1 = full ? p0 + 2 * Math.PI : ((p1 % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    header('ELLIPSE', layer, 'AcDbEllipse');
+    push(10, n(object.cx)); push(20, n(-object.cy)); push(30, 0);
+    push(11, n(R * Math.cos(dir))); push(21, n(R * Math.sin(dir))); push(31, 0);
+    push(40, nf(Math.min(object.rx, object.ry) / R)); push(41, nf(p0)); push(42, nf(p1));
+    return;
+  }
   const poly = primitivePoints(object);
   if (!poly) return;
   header('LWPOLYLINE', layer, 'AcDbPolyline');
@@ -590,6 +606,7 @@ function transformPrimitive(p: PrimitiveObject, x: number, y: number, scale: num
     case 'rect': return { ...p, x: x + p.x * scale, y: y + p.y * scale, w: p.w * scale, h: p.h * scale };
     case 'circle': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
     case 'arc': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
+    case 'ellipse': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, rx: p.rx * scale, ry: p.ry * scale };
     case 'polyline': return { ...p, points: p.points.map((v, i) => (i % 2 === 0 ? x + v * scale : y + v * scale)) };
   }
 }
@@ -702,7 +719,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
   const stats = {
     text: 0, line: 0, circle: 0, arc: 0, polyline: 0, bulgeSegments: 0, maxArcError: 0, mirrored: 0, outOfPlane: 0, widths: 0, degenerate: 0,
     blockKept: 0, blockExploded: 0, missingBlock: 0, minsert: 0, dimension: 0, hatch: 0, hatchApprox: 0, hatchIslands: 0,
-    spline: 0, ellipse: 0, curveError: 0, curveFit: 0,
+    spline: 0, ellipse: 0, ellipseNative: 0, curveError: 0, curveFit: 0,
   };
   // Identifiants provisoires (les îlots de hachure y font référence), remplacés à la fin.
   let tempCounter = 0;
@@ -776,7 +793,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       // propre, toutes sur le calque de l'occurrence : bloc conservé (une occurrence DrawAll dessine ses
       // primitives avec son propre calque et son propre trait). Sinon, éclatée : rien n'est perdu.
       const simple = depth === 0 && Math.abs(rot % 360) < 1e-9 && scaleX > 0 && Math.abs(scaleX - scaleY) < 1e-9
-        && local.length > 0 && local.every(o => (o.kind === 'line' || o.kind === 'circle' || o.kind === 'arc' || o.kind === 'polyline') && !o.holes
+        && local.length > 0 && local.every(o => (o.kind === 'line' || o.kind === 'circle' || o.kind === 'arc' || o.kind === 'ellipse' || o.kind === 'polyline') && !o.holes
           && o.layerId === layer.id && o.color === undefined && o.lineType === undefined && o.lineWeight === undefined);
       if (simple) {
         let blockId = keptBlocks.get(def.name);
@@ -842,7 +859,8 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       const p0 = numberOf(body, 41, 0), p1 = numberOf(body, 42, 2 * Math.PI);
       const R = Math.hypot(major.x, major.y);
       if (R * k <= EPS || !(ratio > 0)) { stats.degenerate++; return []; }
-      const full = Math.abs(p1 - p0 - 2 * Math.PI) < 1e-9 || Math.abs(p1 - p0) < 1e-12;
+      // Tour complet à 10⁻⁶ rad près (paramètres parfois écrits avec six décimales).
+      const full = Math.abs(p1 - p0 - 2 * Math.PI) < 1e-6 || Math.abs(p1 - p0) < 1e-12;
       if (Math.abs(ratio - 1) < 1e-9) {
         // Ellipse circulaire : cercle ou arc exacts.
         const cx = sx * c.x * k, cy = c.y * k, r = R * k;
@@ -853,11 +871,15 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
         if (mirror) [start, end] = [180 - end, 180 - start];
         return [{ ...base('Arc'), kind: 'arc', cx: round(cx), cy: round(-cy), r: round(r), start: norm360(start), end: norm360(end) } as CadObject];
       }
-      const s = ellipsePoints(c, major, ratio, p0, full ? p0 + 2 * Math.PI : p1, tolLocal);
-      stats.ellipse++;
-      stats.curveError = Math.max(stats.curveError, s.error * k);
-      const o = polylineOf('Ellipse', s.points, full);
-      return o ? [o] : [];
+      // ELLIPSE natif (lot 10.1) : aucune approximation. Le paramètre t devient −t en repère symétrique.
+      let rotation = (Math.atan2(major.y, major.x) * 180) / Math.PI;
+      let start = (p0 * 180) / Math.PI, end = (p1 * 180) / Math.PI;
+      if (mirror) { rotation = 180 - rotation; [start, end] = [-end, -start]; }
+      stats.ellipseNative++;
+      return [{
+        ...base('Ellipse'), kind: 'ellipse', cx: round(sx * c.x * k), cy: round(-c.y * k), rx: round(R * k), ry: round(ratio * R * k),
+        rotation: norm360(rotation), ...(full ? {} : { start: norm360(start), end: norm360(end) }),
+      } as CadObject];
     }
     if (entity.type === 'SPLINE') {
       const degree = numberOf(body, 71, 3);
@@ -958,8 +980,10 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
   if (stats.dimension) report.transformed.push(`Cotes DIMENSION : ${stats.dimension} → géométrie dessinée (traits, flèches, textes) ; elles ne sont plus associatives.`);
   if (stats.hatch) report.kept.push(`Hachures : ${stats.hatch} (contour, ${stats.hatchIslands} îlot(s), angle et pas ; aplat SOLID conservé).`);
   if (stats.hatchApprox) report.transformed.push(`Motifs de hachure : ${stats.hatchApprox} motif(s) prédéfini(s) ramené(s) à des traits parallèles ou croisés (angle et pas de la première famille).`);
-  if (stats.spline || stats.ellipse) {
-    report.transformed.push(`Courbes : ${stats.spline} spline(s) et ${stats.ellipse} ellipse(s) approchées par des polylignes (écart maximal ${formatMm(stats.curveError)} mm, tolérance ${formatMm(ARC_TOLERANCE_MM)} mm${stats.curveFit ? ` ; ${stats.curveFit} spline(s) par points d'ajustement reliés` : ''}).`);
+  if (stats.ellipseNative) report.kept.push(`Ellipses : ${stats.ellipseNative} (ELLIPSE natif, sans approximation).`);
+  if (stats.ellipse) report.kept.push(`Ellipses circulaires : ${stats.ellipse} → cercles ou arcs exacts.`);
+  if (stats.spline) {
+    report.transformed.push(`Courbes : ${stats.spline} spline(s) approchée(s) par des polylignes (écart maximal ${formatMm(stats.curveError)} mm, tolérance ${formatMm(ARC_TOLERANCE_MM)} mm${stats.curveFit ? ` ; ${stats.curveFit} spline(s) par points d'ajustement reliés` : ''}).`);
   }
   if (stats.bulgeSegments) {
     const parts = `${stats.bulgeSegments} segment(s) courbe(s) de polyligne`;
@@ -1218,6 +1242,12 @@ function samePoint(x1: number, y1: number, x2: number, y2: number): boolean {
 
 function n(value: number): string {
   const rounded = Math.round(value * 1000000) / 1000000;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+/** Valeur sans unité de longueur (rapport, paramètre en radians) : douze décimales. */
+function nf(value: number): string {
+  const rounded = Number(value.toFixed(12));
   return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 

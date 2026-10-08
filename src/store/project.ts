@@ -26,6 +26,7 @@ import {
 import { decodeHistory, encodeHistory } from '@/lib/history';
 import { loadProject, quotaWarning, saveProject, shouldResume, storageUsage } from '@/lib/offline';
 import { arcBounds } from '@/lib/arc';
+import { ellipseBounds } from '@/lib/ellipse';
 import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
 import { LINE_TYPES } from '@/lib/linestyle';
 import { profileById } from '@/lib/materials';
@@ -168,7 +169,7 @@ function normalizeBlocks(raw: unknown, layers: Layer[]): BlockDef[] {
       ...(typeof b.libraryKey === 'string' ? { libraryKey: b.libraryKey } : {}),
       primitives: Array.isArray(b.primitives)
         ? b.primitives.map(p => normalizeObject(p, layers)).filter((p): p is PrimitiveObject =>
-            !!p && (p.kind === 'line' || p.kind === 'rect' || p.kind === 'circle' || p.kind === 'arc' || p.kind === 'polyline'),
+            !!p && (p.kind === 'line' || p.kind === 'rect' || p.kind === 'circle' || p.kind === 'arc' || p.kind === 'ellipse' || p.kind === 'polyline'),
           )
         : [],
     }));
@@ -313,6 +314,7 @@ function primitiveOrigin(obj: PrimitiveObject): { x: number; y: number } {
     case 'rect': return { x: obj.x, y: obj.y };
     case 'circle': return { x: obj.cx - obj.r, y: obj.cy - obj.r };
     case 'arc': { const b = arcBounds(obj); return { x: b.minX, y: b.minY }; }
+    case 'ellipse': { const b = ellipseBounds(obj); return { x: b.minX, y: b.minY }; }
     case 'polyline': {
       const e = polylineExtents(obj.points);
       return { x: e.minX, y: e.minY };
@@ -326,7 +328,8 @@ function localizePrimitive(obj: PrimitiveObject, origin: { x: number; y: number 
     case 'line': return { ...local, x1: local.x1 - origin.x, y1: local.y1 - origin.y, x2: local.x2 - origin.x, y2: local.y2 - origin.y };
     case 'rect': return { ...local, x: 0, y: 0 };
     case 'circle': return { ...local, cx: local.cx - origin.x, cy: local.cy - origin.y };
-    case 'arc': return { ...local, cx: local.cx - origin.x, cy: local.cy - origin.y };
+    case 'arc':
+    case 'ellipse': return { ...local, cx: local.cx - origin.x, cy: local.cy - origin.y };
     case 'polyline': return { ...local, points: local.points.map((v, i) => v - (i % 2 === 0 ? origin.x : origin.y)) };
   }
 }
@@ -774,7 +777,7 @@ export function useProject() {
 
   const createBlockFromObject = useCallback((objectId: string) => {
     const source = allObjects.find(o => o.id === objectId);
-    if (!source || (source.kind !== 'line' && source.kind !== 'rect' && source.kind !== 'circle' && source.kind !== 'arc' && source.kind !== 'polyline')) return null;
+    if (!source || (source.kind !== 'line' && source.kind !== 'rect' && source.kind !== 'circle' && source.kind !== 'arc' && source.kind !== 'ellipse' && source.kind !== 'polyline')) return null;
     const blockId = `BLQ-${String(state.blockCounter + 1).padStart(4, '0')}`;
     const origin = primitiveOrigin(source);
     const primitive = localizePrimitive(source, origin, blockId);

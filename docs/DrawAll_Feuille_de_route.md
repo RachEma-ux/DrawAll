@@ -248,7 +248,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 8.3 Sécurité de la connexion | Fait | #44 |
 | 8.4 Partage et commentaires | Fait (recette à deux comptes au niveau de l'API, base simulée ; essai avec deux vrais comptes dépendant de l'hébergement, §7 « Tunnel de démonstration ») | #45 |
 | Parcours de preuve final (§6) | Fait (partage et commentaires prouvés au niveau de l'API) | #46 |
-| 10.1 Ellipse native | À faire | — |
+| 10.1 Ellipse native | Fait | #48 |
 | 10.2 Spline native | À faire | — |
 | 10.3 Étirer | À faire | — |
 | 10.4 Décalage à distance saisie | À faire | — |

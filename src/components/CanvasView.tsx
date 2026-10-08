@@ -42,6 +42,7 @@ import {
 } from '@/lib/geometry';
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
+import { distanceToEllipse, ellipseFrom3Points, ellipsePath } from '@/lib/ellipse';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -60,7 +61,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -136,11 +137,11 @@ interface Props {
 
 /** Les points d'un arc ne sont pas contraints par Ortho (ils seraient alignés). */
 function isArcDraft(d: { kind: string } | null): boolean {
-  return d?.kind === 'arc' || d?.kind === 'arcCenter';
+  return d?.kind === 'arc' || d?.kind === 'arcCenter' || d?.kind === 'ellipse';
 }
 
 interface Draft {
-  kind: 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'measure';
+  kind: 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'polyline' | 'measure';
   sx: number; sy: number;
   cx: number; cy: number;
   points: number[];
@@ -219,7 +220,7 @@ export default function CanvasView({
   const activeDraft = draft && (
     (draft.kind === 'polyline' && (draft.origin ?? 'polyline') === tool) ||
     (draft.kind === 'measure' && tool === 'measure') ||
-    ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle' || draft.kind === 'arc' || draft.kind === 'arcCenter') && draft.kind === tool)
+    ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle' || draft.kind === 'arc' || draft.kind === 'arcCenter' || draft.kind === 'ellipse') && draft.kind === tool)
   ) ? draft : null;
   const [hoverSnap, setHoverSnap] = useState<SnapPoint | null>(null);
   const [pointText, setPointText] = useState('');
@@ -318,7 +319,7 @@ export default function CanvasView({
       const compatible =
         (d.kind === 'polyline' && (d.origin ?? 'polyline') === tool) ||
         (d.kind === 'measure' && tool === 'measure') ||
-        ((d.kind === 'line' || d.kind === 'rect' || d.kind === 'circle' || d.kind === 'arc' || d.kind === 'arcCenter') && d.kind === tool);
+        ((d.kind === 'line' || d.kind === 'rect' || d.kind === 'circle' || d.kind === 'arc' || d.kind === 'arcCenter' || d.kind === 'ellipse') && d.kind === tool);
       return compatible ? d : null;
     });
   }, [tool]);
@@ -417,6 +418,19 @@ export default function CanvasView({
       if (geom) {
         onAdd({ kind: 'arc', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', cx: geom.cx, cy: geom.cy, r: geom.r, start: geom.start, end: geom.end });
       }
+      setDraft(null);
+      return;
+    }
+    if (tool === 'ellipse') {
+      // Ellipse : centre, extrémité du premier axe, puis un point donnant le second demi-axe.
+      const previous = activeDraft?.kind === 'ellipse' ? activeDraft.points : [];
+      const pts = [...previous, point.x, point.y];
+      if (pts.length < 6) {
+        setDraft({ kind: 'ellipse', sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts });
+        return;
+      }
+      const geom = ellipseFrom3Points({ x: pts[0], y: pts[1] }, { x: pts[2], y: pts[3] }, { x: pts[4], y: pts[5] });
+      if (geom) onAdd({ kind: 'ellipse', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', ...geom });
       setDraft(null);
       return;
     }
@@ -673,7 +687,7 @@ export default function CanvasView({
   /** Dernier point du tracé en cours, sinon dernier point posé. */
   const lastPoint = (): Point | null => {
     const d = activeDraft;
-    if (d && (d.kind === 'polyline' || d.kind === 'arc' || d.kind === 'arcCenter') && d.points.length >= 2) {
+    if (d && (d.kind === 'polyline' || d.kind === 'arc' || d.kind === 'arcCenter' || d.kind === 'ellipse') && d.points.length >= 2) {
       return { x: d.points[d.points.length - 2], y: d.points[d.points.length - 1] };
     }
     if (d) return { x: d.sx, y: d.sy };
@@ -703,7 +717,7 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse') {
       startOrContinueDraft(point);
       return;
     }
@@ -1062,6 +1076,20 @@ export default function CanvasView({
               </g>
             );
           })()}
+          {activeDraft && activeDraft.kind === 'ellipse' && (() => {
+            // Aperçu : premier axe vers le curseur, puis ellipse complète.
+            const p = activeDraft.points;
+            const cur = { x: activeDraft.cx, y: activeDraft.cy };
+            const dash = `${6 / tf.k} ${4 / tf.k}`;
+            if (p.length < 4) return <line x1={p[0]} y1={p[1]} x2={cur.x} y2={cur.y} stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={dash} />;
+            const geom = ellipseFrom3Points({ x: p[0], y: p[1] }, { x: p[2], y: p[3] }, cur);
+            return (
+              <g>
+                <line x1={p[0]} y1={p[1]} x2={p[2]} y2={p[3]} stroke="#22d3ee" strokeWidth={1 / tf.k} strokeDasharray={dash} />
+                {geom && <path data-apercu-ellipse d={ellipsePath(geom)} fill="none" stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={dash} />}
+              </g>
+            );
+          })()}
           {activeDraft && activeDraft.kind === 'measure' && measure && (
             <g>
               <line x1={activeDraft.sx} y1={activeDraft.sy} x2={activeDraft.cx} y2={activeDraft.cy} stroke="#34d399" strokeWidth={1.5 / tf.k} markerStart="url(#dim-arrow)" markerEnd="url(#dim-arrow)" />
@@ -1108,7 +1136,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
@@ -1515,6 +1543,16 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
           {showLabel && label(obj.cx - obj.r, obj.cy - obj.r)}
         </g>
       );
+    case 'ellipse':
+      return (
+        <g data-ellipse>
+          <path d={ellipsePath(obj)} {...common} fill="none" />
+          <path d={ellipsePath(obj)} stroke="transparent" strokeWidth={10 / zoom} fill="none" />
+          {selected && <line x1={obj.cx - 5 / zoom} y1={obj.cy} x2={obj.cx + 5 / zoom} y2={obj.cy} stroke={color} strokeWidth={1 / zoom} />}
+          {selected && <line x1={obj.cx} y1={obj.cy - 5 / zoom} x2={obj.cx} y2={obj.cy + 5 / zoom} stroke={color} strokeWidth={1 / zoom} />}
+          {showLabel && label(obj.cx - Math.max(obj.rx, obj.ry), obj.cy - Math.max(obj.rx, obj.ry))}
+        </g>
+      );
     case 'polyline': {
       const closed = isClosedPolyline(obj);
       return (
@@ -1698,6 +1736,7 @@ function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[
     }
     if (o.kind === 'circle' && Math.abs(Math.hypot(x - o.cx, y - o.cy) - o.r) <= tol) return o;
     if (o.kind === 'arc' && distanceToArc(o, x, y) <= tol) return o;
+    if (o.kind === 'ellipse' && distanceToEllipse(o, { x, y }) <= tol) return o;
     if (o.kind === 'polyline') {
       for (let j = 0; j + 3 <= o.points.length; j += 2) {
         if (distanceSegment(x, y, o.points[j], o.points[j + 1], o.points[j + 2], o.points[j + 3]) <= tol) return o;

@@ -6,6 +6,7 @@ import type { BlockDef, CadObject, Layer, Level, MicroVersion, OpeningObj, Primi
 import { dimensionValue, isClosedPolyline } from '@/types/cad';
 import { dimensionGeometry, primitiveBounds } from '@/lib/geometry';
 import { arcSweep } from '@/lib/arc';
+import { ellipseBeziers, isFullEllipse } from '@/lib/ellipse';
 import { effectiveStyle, lineTypeDef } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dimensionTextPosition } from '@/lib/annotation';
 import { pdimGeometry } from '@/lib/pdim';
@@ -115,6 +116,7 @@ function primitiveIn(p: PrimitiveObject, x: number, y: number, s: number): Primi
     case 'rect': return { ...p, x: x + p.x * s, y: y + p.y * s, w: p.w * s, h: p.h * s };
     case 'circle': return { ...p, cx: x + p.cx * s, cy: y + p.cy * s, r: p.r * s };
     case 'arc': return { ...p, cx: x + p.cx * s, cy: y + p.cy * s, r: p.r * s };
+    case 'ellipse': return { ...p, cx: x + p.cx * s, cy: y + p.cy * s, rx: p.rx * s, ry: p.ry * s };
     case 'polyline': return { ...p, points: p.points.map((v, i) => (i % 2 === 0 ? x + v * s : y + v * s)) };
   }
 }
@@ -300,6 +302,14 @@ export function sheetToPdf(input: PdfInput): string {
         case 'circle': return { path: `${arcPath(toPdf({ x: o.cx, y: o.cy }), o.r * k * MM_TO_PT, 0, 360)} h`, closed: true };
         // Les angles d'arc sont dans le repère DXF (Y vers le haut), comme le repère PDF : rien à inverser.
         case 'arc': return { path: arcPath(toPdf({ x: o.cx, y: o.cy }), o.r * k * MM_TO_PT, o.start, arcSweep(o)), closed: false };
+        case 'ellipse': {
+          // Courbes de Bézier dans le repère modèle, portées sur la feuille (transformation affine).
+          const parts = ellipseBeziers(o).map(b => b.map(toPdf));
+          const head = `${n(parts[0][0].x)} ${n(parts[0][0].y)} m`;
+          const body = parts.map(([, a, b, c]) => `${n(a.x)} ${n(a.y)} ${n(b.x)} ${n(b.y)} ${n(c.x)} ${n(c.y)} c`).join('\n');
+          const closed = isFullEllipse(o);
+          return { path: `${head}\n${body}${closed ? ' h' : ''}`, closed };
+        }
         case 'polyline': {
           const pts: P[] = [];
           for (let i = 0; i + 1 < o.points.length; i += 2) pts.push(toPdf({ x: o.points[i], y: o.points[i + 1] }));

@@ -6,6 +6,7 @@ import { normalizeAngle, textBounds } from '@/lib/text';
 import { linkedViews } from '@/lib/views';
 import { cutView } from '@/lib/cuts';
 import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } from '@/lib/arc';
+import { ellipseBounds, ellipseEndpoints, ellipseMidpoint, ellipseQuadrants, ellipseSamples, isFullEllipse } from '@/lib/ellipse';
 import { pdimGeometry, pdimPoints, transformPdim } from '@/lib/pdim';
 import { hatchParamsOf } from '@/lib/hatch';
 import { wallQuad } from '@/lib/wall';
@@ -27,7 +28,7 @@ export interface SnapPoint extends Point {
   distance: number;
 }
 
-interface Segment { x1: number; y1: number; x2: number; y2: number; objectId: string }
+interface Segment { x1: number; y1: number; x2: number; y2: number; objectId: string; /** Morceau d'une courbe approchée (ellipse) : jamais sécant de ses voisins. */ curve?: boolean }
 interface CircleGeom { cx: number; cy: number; r: number; objectId: string; arc?: { start: number; end: number } }
 
 const SNAP_PRIORITY: Record<SnapType, number> = {
@@ -161,6 +162,17 @@ function collectObjectSnaps(
       add('quadrant', object.cx - object.r, object.cy);
       add('quadrant', object.cx, object.cy - object.r);
       return;
+    case 'ellipse': {
+      add('center', object.cx, object.cy);
+      for (const q of ellipseQuadrants(object)) add('quadrant', q.x, q.y);
+      if (!isFullEllipse(object)) {
+        const [e1, e2] = ellipseEndpoints(object), m = ellipseMidpoint(object);
+        add('endpoint', e1.x, e1.y);
+        add('endpoint', e2.x, e2.y);
+        add('midpoint', m.x, m.y);
+      }
+      return;
+    }
     case 'arc': {
       const [e1, e2] = arcEndpoints(object);
       add('endpoint', e1.x, e1.y);
@@ -241,6 +253,8 @@ function collectIntersections(objects: CadObject[], blocks: BlockDef[], x: numbe
 
   for (let i = 0; i < segments.length; i++) {
     for (let j = i + 1; j < segments.length; j++) {
+      // Une ellipse ne se recoupe pas : ses morceaux approchés ne donnent pas d'intersection entre eux.
+      if (segments[i].curve && segments[j].curve && segments[i].objectId === segments[j].objectId) continue;
       const p = segmentIntersection(segments[i], segments[j]);
       if (p) add(p.x, p.y, segments[j].objectId);
     }
@@ -283,6 +297,12 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
     case 'arc':
       circles.push({ cx: object.cx, cy: object.cy, r: object.r, objectId: object.id, arc: { start: object.start, end: object.end } });
       return;
+    case 'ellipse': {
+      // Arêtes d'accrochage : polyligne à 0,01 mm de la courbe.
+      const pts = ellipseSamples(object);
+      for (let i = 0; i + 1 < pts.length; i++) segments.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y, objectId: object.id, curve: true });
+      return;
+    }
     case 'polyline':
       for (let i = 0; i + 3 < object.points.length; i += 2) {
         segments.push({ x1: object.points[i], y1: object.points[i + 1], x2: object.points[i + 2], y2: object.points[i + 3], objectId: object.id });
@@ -450,6 +470,7 @@ function transformPrimitive(p: PrimitiveObject, x: number, y: number, scale: num
     case 'rect': return { ...p, x: x + p.x * scale, y: y + p.y * scale, w: p.w * scale, h: p.h * scale };
     case 'circle': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
     case 'arc': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
+    case 'ellipse': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, rx: p.rx * scale, ry: p.ry * scale };
     case 'polyline': return { ...p, points: p.points.map((v, i) => (i % 2 === 0 ? x + v * scale : y + v * scale)) };
   }
 }
@@ -500,6 +521,7 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
     case 'note': { const p = notePosition(object, objects, blocks); return { minX: p.x, minY: p.y, maxX: p.x, maxY: p.y }; }
     case 'circle': return { minX: object.cx - object.r, minY: object.cy - object.r, maxX: object.cx + object.r, maxY: object.cy + object.r };
     case 'arc': return arcBounds(object);
+    case 'ellipse': return ellipseBounds(object);
     case 'polyline': {
       const pts: Point[] = [];
       for (let i = 0; i + 1 < object.points.length; i += 2) pts.push({ x: object.points[i], y: object.points[i + 1] });
@@ -564,6 +586,7 @@ export function primitiveBounds(o: PrimitiveObject): Bounds {
     case 'rect': return { minX: o.x, minY: o.y, maxX: o.x + o.w, maxY: o.y + o.h };
     case 'circle': return { minX: o.cx - o.r, minY: o.cy - o.r, maxX: o.cx + o.r, maxY: o.cy + o.r };
     case 'arc': return arcBounds(o);
+    case 'ellipse': return ellipseBounds(o);
     case 'polyline': {
       const pts: Point[] = [];
       for (let i = 0; i + 1 < o.points.length; i += 2) pts.push({ x: o.points[i], y: o.points[i + 1] });
@@ -676,7 +699,8 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'underlay': return object.locked ? {} : { x: object.x + dx, y: object.y + dy };
     case 'note': return { x: object.x + dx, y: object.y + dy };
     case 'circle': return { cx: object.cx + dx, cy: object.cy + dy };
-    case 'arc': return { cx: object.cx + dx, cy: object.cy + dy };
+    case 'arc':
+    case 'ellipse': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'polyline': return { points: object.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)) };
     case 'dimension': return { offset: object.offset + (object.style === 'vertical' ? dx : dy) };
     case 'pdim': return transformPdim(object, q => ({ x: q.x + dx, y: q.y + dy })) ?? {};
@@ -753,6 +777,11 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
       // angleDeg > 0 = sens horaire à l'écran = angles DXF décroissants.
       const p = rotatePoint(object.cx, object.cy, cx, cy, rad);
       return { cx: p.x, cy: p.y, start: norm360(object.start - angleDeg), end: norm360(object.end - angleDeg) };
+    }
+    case 'ellipse': {
+      // Les paramètres sont relatifs aux axes : seule la direction des axes tourne.
+      const p = rotatePoint(object.cx, object.cy, cx, cy, rad);
+      return { cx: p.x, cy: p.y, rotation: norm360(object.rotation - angleDeg) };
     }
     case 'polyline': {
       const points: number[] = [];
@@ -834,6 +863,13 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
       return axis === 'x'
         ? { cx: mx(object.cx), start: norm360(180 - object.end), end: norm360(180 - object.start) }
         : { cy: mx(object.cy), start: norm360(-object.end), end: norm360(-object.start) };
+    case 'ellipse': {
+      // Symétrie : la direction des axes devient 180° − θ (axe vertical) ou −θ ; le paramètre t devient −t.
+      const params = isFullEllipse(object) ? {} : { start: norm360(-object.end!), end: norm360(-object.start!) };
+      return axis === 'x'
+        ? { cx: mx(object.cx), rotation: norm360(180 - object.rotation), ...params }
+        : { cy: mx(object.cy), rotation: norm360(-object.rotation), ...params };
+    }
     case 'polyline':
       return { points: object.points.map((v, i) => (i % 2 === 0) === (axis === 'x') ? mx(v) : v) };
     case 'underlay':
@@ -887,6 +923,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'note': return object.targetId ? {} : { x: s(object.x, cx), y: s(object.y, cy) };
     case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'arc': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
+    case 'ellipse': return { cx: s(object.cx, cx), cy: s(object.cy, cy), rx: round(object.rx * factor), ry: round(object.ry * factor) };
     case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
     case 'blockRef': return { x: s(object.x, cx), y: s(object.y, cy), scale: round(object.scale * factor) };
     case 'dimension': return { offset: round(object.offset * factor) };
@@ -931,6 +968,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
       return { r };
     }
     case 'polyline':
+    case 'ellipse': // le décalé d'une ellipse n'est pas une ellipse (lot 10.4)
     case 'dimension':
     case 'pdim':
     case 'blockRef':
