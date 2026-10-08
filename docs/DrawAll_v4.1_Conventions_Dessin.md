@@ -379,6 +379,14 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - un second doigt annule l'appui en cours et zoome.
 - Recette : un sommet pointé au doigt est pris à ±1 px écran.
 
+### 9.2 Hors ligne (règle, lot 7.2)
+
+- L'application construite installe un service worker : les pages sont servies par le réseau d'abord et, sans réseau, par la dernière copie en cache ; les fichiers de l'application sont mis en cache au premier usage ; l'API n'est jamais mise en cache.
+- Le projet est enregistré à chaque modification dans le stockage local du navigateur (copie lue en premier) et dans IndexedDB (plus de place).
+- Reprise : au démarrage, la copie IndexedDB remplace l'état lu dans le stockage local quand son dernier enregistrement n'a pas atteint le stockage local (plein) ou quand celui-ci n'a pas de projet ; rien n'est enregistré avant cette vérification.
+- Alertes : « Hors ligne — travail conservé sur l'appareil » tant que le réseau manque ; « Stockage de l'appareil presque plein » au-delà de 90 % du quota estimé ; alerte rouge si aucun des deux stockages n'a pu enregistrer.
+- Recette : dessiner hors ligne, recharger, retrouver ; enregistrement manqué par le stockage local repris d'IndexedDB.
+
 ## 10. Références
 
 | Sujet | Référence |

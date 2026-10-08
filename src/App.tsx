@@ -148,6 +148,14 @@ function Workbench() {
     try { return localStorage.getItem('drawall-couleurs') === 'metier' ? 'metier' : 'calque'; } catch { return 'calque'; }
   });
   useEffect(() => { try { localStorage.setItem('drawall-couleurs', colorMode); } catch { /* préférence non conservée */ } }, [colorMode]);
+  // Hors ligne (lot 7.2) : état du réseau affiché ; le travail reste enregistré sur l'appareil.
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
+  useEffect(() => {
+    const on = () => setOnline(true), off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
   // Réticule décalé au doigt (lot 7.1) : préférence de ce navigateur, désactivé par défaut.
   const [reticleOn, setReticleOn] = useState(() => { try { return localStorage.getItem('drawall-reticule') === '1'; } catch { return false; } });
   useEffect(() => { try { localStorage.setItem('drawall-reticule', reticleOn ? '1' : '0'); } catch { /* préférence non conservée */ } }, [reticleOn]);
@@ -1374,6 +1382,8 @@ function Workbench() {
 
             {/* Barre d'état */}
             <div className="flex h-7 shrink-0 items-center gap-4 overflow-x-auto whitespace-nowrap border-t border-border bg-[#0c1220]/90 px-3 font-mono text-[10px] text-muted-foreground">
+              {!online && <span data-testid="hors-ligne" className="text-amber-300">Hors ligne — travail conservé sur l’appareil</span>}
+              {project.storageWarning && <span data-testid="quota" className="text-red-300">{project.storageWarning}</span>}
               <span className="text-cyan-400">
                 {cursor.x === null ? '—' : `X ${showCoord(cursor.x)}`} · {cursor.y === null ? '—' : `Y ${showCoord(cursor.y)}`}
               </span>

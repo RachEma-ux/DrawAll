@@ -23,6 +23,7 @@ import {
   polylineExtents,
   supportedDimensionStyles,
 } from '@/types/cad';
+import { loadProject, quotaWarning, saveProject, shouldResume, storageUsage } from '@/lib/offline';
 import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
 import { LINE_TYPES } from '@/lib/linestyle';
@@ -310,10 +311,15 @@ function localizePrimitive(obj: PrimitiveObject, origin: { x: number; y: number 
 }
 
 /** État de l'enregistrement local, partagé hors de React (le stockage du navigateur est externe). */
-const storageStatus = { full: false, listeners: new Set<() => void>() };
+const storageStatus = { full: false, warning: null as string | null, listeners: new Set<() => void>() };
 function setStorageFull(full: boolean) {
   if (storageStatus.full === full) return;
   storageStatus.full = full;
+  storageStatus.listeners.forEach(l => l());
+}
+function setQuotaWarning(warning: string | null) {
+  if (storageStatus.warning === warning) return;
+  storageStatus.warning = warning;
   storageStatus.listeners.forEach(l => l());
 }
 const subscribeStorage = (listener: () => void) => { storageStatus.listeners.add(listener); return () => { storageStatus.listeners.delete(listener); }; };
@@ -333,13 +339,39 @@ export function useProject() {
     setSelectedIdRaw(ids[ids.length - 1] ?? null);
   }, []);
 
-  // Enregistrement local : un échec (stockage plein) est signalé au lieu d'être ignoré.
+  // Hors ligne (lot 7.2) : au démarrage, la copie IndexedDB reprend la main si le stockage local a
+  // manqué le dernier enregistrement (plein) ou n'a pas de projet ; rien n'est enregistré avant.
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
-    let ok = true;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { ok = false; }
-    setStorageFull(!ok);
-  }, [state]);
+    let alive = true;
+    let localHasProject = false;
+    try { localHasProject = !!localStorage.getItem(STORAGE_KEY); } catch { /* stockage local illisible */ }
+    loadProject()
+      .then(saved => {
+        if (!alive || !shouldResume(saved, localHasProject)) return;
+        try { setState(normalizeProjectState(JSON.parse(saved!.json))); } catch { /* copie illisible : état local gardé */ }
+      })
+      .catch(() => { /* IndexedDB indisponible : stockage local seul */ })
+      .finally(() => { if (alive) setHydrated(true); });
+    return () => { alive = false; };
+  }, []);
+
+  // Enregistrement : stockage local (lu en premier) et copie IndexedDB (plus de place). Un échec des
+  // deux (stockage plein) est signalé au lieu d'être ignoré ; l'occupation du quota est suivie.
+  useEffect(() => {
+    if (!hydrated) return;
+    const json = JSON.stringify(state);
+    let localOk = true;
+    try { localStorage.setItem(STORAGE_KEY, json); } catch { localOk = false; }
+    let alive = true;
+    saveProject({ savedAt: Date.now(), json, localOk })
+      .then(() => { if (alive) setStorageFull(false); })
+      .catch(() => { if (alive) setStorageFull(!localOk); })
+      .finally(() => { void storageUsage().then(u => setQuotaWarning(quotaWarning(u))); });
+    return () => { alive = false; };
+  }, [state, hydrated]);
   const storageFull = useSyncExternalStore(subscribeStorage, () => storageStatus.full, () => false);
+  const storageWarning = useSyncExternalStore(subscribeStorage, () => storageStatus.warning, () => null);
 
   const current = state.versions[state.pointer];
   const allObjects = current.objects;
@@ -983,7 +1015,7 @@ export function useProject() {
     addObject, updateObject, removeObject, removeObjects,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, assets, storageFull, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
+    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, assets, storageFull, storageWarning, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };

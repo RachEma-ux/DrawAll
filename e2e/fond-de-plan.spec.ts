@@ -77,7 +77,11 @@ test('lot 6.2 — une fenêtre de sélection ne prend pas le fond de plan', asyn
 test('lot 6.2 — stockage du navigateur plein : l’échec d’enregistrement est signalé', async ({ page }) => {
   await openAtelier(page);
   await expect(page.getByTestId('stockage-plein')).toHaveCount(0);
-  await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('quota', 'QuotaExceededError'); }; });
+  // Stockage local et IndexedDB pleins tous deux (la copie IndexedDB suffit sinon, lot 7.2).
+  await page.evaluate(() => {
+    Storage.prototype.setItem = () => { throw new DOMException('quota', 'QuotaExceededError'); };
+    IDBFactory.prototype.open = () => { throw new DOMException('quota', 'QuotaExceededError'); };
+  });
   await chooseTool(page, /^Ligne/);
   const point = page.getByLabel('Point précis');
   for (const p of ['0;0', '1000;0']) { await point.fill(p); await point.press('Enter'); }
