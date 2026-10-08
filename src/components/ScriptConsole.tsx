@@ -3,11 +3,9 @@
 // échoue (exception, commande refusée, délai dépassé, arrêt) est annulé en entier : le projet,
 // journal compris, revient à son état d'avant le script.
 import { useEffect, useRef, useState } from 'react';
-import type { useProject } from '@/store/project';
+import { useCommandRunner, type Project } from '@/hooks/useCommandRunner';
 import { runScript } from '@/lib/scripts/runner';
 import type { ScriptRequest } from '@/lib/scripts/protocol';
-
-type Project = ReturnType<typeof useProject>;
 
 const EXAMPLE = `// Grille de 3 × 4 poteaux de 300 × 300 mm, entraxe 5 m
 const { activeLayerId } = await drawall.context();
@@ -27,28 +25,14 @@ export default function ScriptConsole({ project, onClose }: { project: Project; 
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<'reussi' | 'annule' | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
-  // Projet à jour et attente du rendu suivant : chaque commande voit l'état laissé par la précédente.
-  const projectRef = useRef(project);
-  const waiters = useRef<(() => void)[]>([]);
-  useEffect(() => {
-    projectRef.current = project;
-    const w = waiters.current;
-    waiters.current = [];
-    w.forEach(f => f());
-  }, [project]);
+  const { projectRef, exec } = useCommandRunner(project);
   useEffect(() => () => stopRef.current?.(), []);
-  const nextRender = () => new Promise<void>(r => { waiters.current.push(r); });
 
   const onRequest = async (req: Exclude<ScriptRequest, { op: 'log' }>) => {
     const p = projectRef.current;
     if (req.op === 'objects') return transferable(p.allObjects);
     if (req.op === 'context') return transferable({ activeLayerId: p.activeLayerId, activeLevelId: p.activeLevelId, layers: p.layers.map(l => ({ id: l.id, name: l.name, locked: l.locked })), levels: p.levels });
-    const rendered = nextRender();
-    const r = p.execute(req.type, req.args);
-    // Une commande acceptée ou refusée est journalisée : un rendu suit ; une commande inconnue, non.
-    if (r.ok || !r.error.startsWith('commande inconnue')) await rendered;
-    if (!r.ok) throw new Error(r.error);
-    return transferable(r.result);
+    return transferable(await exec(req.type, req.args));
   };
 
   const run = () => {

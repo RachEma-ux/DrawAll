@@ -600,6 +600,24 @@ export interface ProjectState {
   assets?: Record<string, Asset>; // images des fonds de plan (lot 6.2), hors historique
   /** Journal des commandes (lot 18.1) : état de base et commandes exécutées depuis, rejouables. */
   journal?: Journal;
+  /** Journal des hypothèses de l'assistant (lot 18.3) : demandes, hypothèses, décision. */
+  assistantLog?: AssistantLogEntry[];
+}
+
+/** Entrée du journal des hypothèses de l'assistant (lot 18.3, annexe D4). */
+export interface AssistantLogEntry {
+  n: number;
+  /** Date ISO de la décision. */
+  time: string;
+  request: string;
+  generator: string;
+  hypotheses: string[];
+  /** Opérations proposées et corrections nécessaires avant validation. */
+  steps: number;
+  corrections: number;
+  decision: 'executee' | 'rejetee' | 'echec';
+  /** Raison de l'échec à l'exécution (projet rétabli). */
+  error?: string;
 }
 
 export function createDefaultLayers(): Layer[] {

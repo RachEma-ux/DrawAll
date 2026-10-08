@@ -800,6 +800,29 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - Délai réglable de 1 à 120 s, 10 s par défaut. Au-delà, le Worker est arrêté.
   - Un script réussi laisse ses commandes au journal et ses versions dans l'historique.
 
+### 10.11 Assistant à boucle contrôlée (règle, lot 18.3 ; Concept §9, annexe D4)
+
+- **Boucle** (palette « Assistant ») :
+  1. Demande en clair.
+  2. Le générateur propose une séquence d'opérations, c'est-à-dire de commandes de l'API (§10.9). Seules `addObject`, `updateObject`, `transform` et `removeObjects` sont permises.
+  3. Les moteurs la valident à blanc, chaque opération sur l'état laissé par la précédente. Ils appliquent la validation de l'API et les contrôles métier : section de poteau, poutre, mur, calque verrouillé.
+  4. En cas d'erreur, les erreurs numérotées sont renvoyées au générateur. Il dispose de **trois corrections au plus** ; au-delà, rien n'est proposé.
+  5. La séquence validée est **aperçue**, les objets proposés étant dessinés sur ceux du niveau actif, avec ses hypothèses et la liste des opérations.
+  6. Elle n'est **exécutée qu'après accord explicite** (« Accepter et exécuter »), commande par commande, par l'API.
+  7. Une commande qui échoue à l'exécution rétablit le projet dans son état d'avant (§10.10).
+- **Jamais de valeur inventée** : une donnée que la demande ne fournit pas fait l'objet d'une question. C'est le cas de la section, de l'entraxe, de l'épaisseur ou d'une unité. Les interprétations et les valeurs implicites sont rendues en **hypothèses**, par exemple l'origine au point 0;0 ou le même entraxe dans les deux directions.
+- **Journal des hypothèses** : il est enregistré avec le projet, hors historique, et n'est pas réécrit par le rejeu du journal des commandes. Chaque décision y est inscrite (exécutée, rejetée, échec) avec :
+  - la demande ;
+  - le générateur ;
+  - les hypothèses ;
+  - le nombre d'opérations et de corrections.
+- **Cache sémantique** des opérations validées : la clé est la demande normalisée (casse, espaces, ponctuation finale). Une proposition en cache est revalidée sur le projet du moment avant d'être resservie ; si elle n'est plus valide, elle est oubliée et le générateur est rappelé.
+- **Générateur** : générateur local de démonstration, sans modèle de langage ni envoi externe. Le fournisseur d'un modèle est une décision du maître d'ouvrage (feuille de route §7). Formes reconnues :
+  - « grille de N x M poteaux B x H mm (ou diamètre D mm) entraxe E m (ou entraxes E m et F m) [à partir de X;Y mm] » ;
+  - « rectangle de murs L x l m épaisseur T mm [à partir de X;Y m] ».
+
+  Un autre générateur se branche par l'interface `Generator` (`propose(demande, contexte, erreurs, essai)`). Les tests en utilisent un simulé.
+
 ## 11. Références
 
 | Sujet | Référence |

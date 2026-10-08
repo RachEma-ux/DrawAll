@@ -286,7 +286,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 17.3 Géoréférencement | Fait (conventions §7.7) | #83 |
 | 18.1 API de commandes | Fait (conventions §10.9) | #84 |
 | 18.2 Scripts isolés | Fait (conventions §10.10) | #85 |
-| 18.3 Assistant à boucle contrôlée | À faire | — |
+| 18.3 Assistant à boucle contrôlée | Fait (conventions §10.11) | #86 |
 | 19.1 Démonstrateur réduit bâtiment–mécanique | À faire | — |
 | 19.2 Banc de mesure | À faire | — |
 

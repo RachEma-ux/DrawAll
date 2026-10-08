@@ -17,6 +17,7 @@ import {
   type Level,
   type MicroVersion,
   type NewCadObject,
+  type AssistantLogEntry,
   type PrimitiveObject,
   type ProjectState,
   type Sheet,
@@ -281,6 +282,17 @@ function normalizeJournal(raw: unknown): Journal | undefined {
   return { base: j.base, entries };
 }
 
+/** Journal des hypothèses relu (lot 18.3) : entrées complètes seulement. */
+export function normalizeAssistantLog(raw: unknown): AssistantLogEntry[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const strs = (v: unknown) => Array.isArray(v) && v.every(x => typeof x === 'string');
+  const out = raw.filter((e): e is AssistantLogEntry => !!e && typeof e === 'object' && Number.isInteger(e.n) && typeof e.time === 'string' && typeof e.request === 'string'
+    && typeof e.generator === 'string' && strs(e.hypotheses) && Number.isInteger(e.steps) && Number.isInteger(e.corrections)
+    && ['executee', 'rejetee', 'echec'].includes(e.decision) && (e.error === undefined || typeof e.error === 'string'))
+    .map(e => ({ n: e.n, time: e.time, request: e.request, generator: e.generator, hypotheses: [...e.hypotheses], steps: e.steps, corrections: e.corrections, decision: e.decision, ...(e.error ? { error: e.error } : {}) }));
+  return out.length ? out : undefined;
+}
+
 export function normalizeProjectState(raw: unknown): ProjectState {
   const p = raw as Partial<ProjectState> | null;
   if (p && Array.isArray(p.versions) && p.versions.length > 0) {
@@ -375,6 +387,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         ...(branches.length ? { branches } : {}),
         ...(normalizePublications(p.publications) ? { publications: normalizePublications(p.publications) } : {}),
         ...(normalizeJournal(p.journal) ? { journal: normalizeJournal(p.journal) } : {}),
+        ...(normalizeAssistantLog(p.assistantLog) ? { assistantLog: normalizeAssistantLog(p.assistantLog) } : {}),
       };
     }
   }
@@ -1623,10 +1636,13 @@ export function useProject() {
     if (!j) return 'Journal vide : aucune commande depuis l’ouverture du projet.';
     const queue = j.entries.filter(e => !e.refused);
     replayRef.current = { queue: [...queue], before: versionDigest(current), total: queue.length };
-    setState({ ...normalizeProjectState(decodeHistory(j.base as { versions: unknown[] })), journal: { base: j.base, entries: [] } });
+    // Le journal des hypothèses (lot 18.3) reste celui du moment : le rejeu ne réécrit pas les décisions.
+    const { assistantLog: _l, ...replayBase } = normalizeProjectState(decodeHistory(j.base as { versions: unknown[] }));
+    void _l;
+    setState({ ...replayBase, ...(state.assistantLog ? { assistantLog: state.assistantLog } : {}), journal: { base: j.base, entries: [] } });
     setReplay({ running: true, done: 0, total: queue.length });
     return null;
-  }, [state.journal, current]);
+  }, [state.journal, state.assistantLog, current]);
   useEffect(() => {
     const r = replayRef.current;
     if (!r) return;
@@ -1648,9 +1664,13 @@ export function useProject() {
    * Ce n'est pas une commande : rien n'est journalisé.
    */
   const restore = useCallback((snapshot: ProjectState) => setState(snapshot), []);
+  /** Journal des hypothèses de l'assistant (lot 18.3) : une entrée par décision ; hors historique, non journalisé. */
+  const logAssistant = useCallback((entry: Omit<AssistantLogEntry, 'n'>) => {
+    setState(s => ({ ...s, assistantLog: [...(s.assistantLog ?? []), { ...entry, n: (s.assistantLog?.length ?? 0) + 1 }] }));
+  }, []);
 
   return {
-    ...commands, execute, restore, journal: state.journal, replayJournal, replay,
+    ...commands, execute, restore, logAssistant, assistantLog: state.assistantLog ?? [], journal: state.journal, replayJournal, replay,
     publications: state.publications ?? [], branches, zones, constraints, parameters, levels, activeLevelId, allObjects,
     profile, surfaceRule, state, objects, layers, blocks, activeLayerId, sheets,
     current, versions: state.versions, pointer: state.pointer,

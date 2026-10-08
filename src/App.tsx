@@ -36,6 +36,7 @@ import FacadesPanel from '@/components/FacadesPanel';
 import GeorefPanel from '@/components/GeorefPanel';
 import JournalPanel from '@/components/JournalPanel';
 import ScriptConsole from '@/components/ScriptConsole';
+import AssistantPanel from '@/components/AssistantPanel';
 import { formatGeoref } from '@/lib/georef';
 import MergePanel from '@/components/MergePanel';
 import PublicationsPanel from '@/components/PublicationsPanel';
@@ -852,6 +853,7 @@ function Workbench() {
   const [georefOpen, setGeorefOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
   const [scriptsOpen, setScriptsOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
   const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
   const deleteWithImpact = useCallback((ids: string[]) => {
@@ -1155,6 +1157,7 @@ function Workbench() {
     { id: 'merge', title: 'Comparer et fusionner des variantes', hint: 'Changements d’une autre variante en surimpression, fusion à trois voies, conflits tranchés', keywords: ['fusion', 'fusionner', 'merge', 'comparer', 'variante', 'branche', 'differences', 'conflit'], run: () => setMergeOpen(true) },
     { id: 'journal', title: 'Journal des commandes', hint: 'Commandes exécutées depuis l’ouverture du projet ; rejeu de vérification', keywords: ['journal', 'commandes', 'historique', 'rejouer', 'api', 'audit'], run: () => setJournalOpen(true) },
     { id: 'scripts', title: 'Console de scripts', hint: 'Script exécuté à part, sans accès au stockage, par l’API de commandes ; annulé en entier s’il échoue', keywords: ['script', 'scripts', 'console', 'javascript', 'api', 'automatiser', 'programme', 'macro'], run: () => setScriptsOpen(true) },
+    { id: 'assistant', title: 'Assistant', hint: 'Opérations proposées, validées par les moteurs, aperçues, exécutées après accord ; journal des hypothèses', keywords: ['assistant', 'ia', 'copilote', 'demande', 'proposer', 'hypotheses', 'generer', 'automatique'], run: () => setAssistantOpen(true) },
     { id: 'georef', title: 'Géoréférencement', hint: 'Point de base (E, N, altitude), système de coordonnées (EPSG), nord du quadrillage ; transmis à l’IFC', keywords: ['georeferencement', 'coordonnees', 'epsg', 'nord', 'point de base', 'carte', 'sig', 'lambert', 'altitude'], run: () => setGeorefOpen(true) },
     { id: 'facades', title: 'Façades et coupes', hint: 'Générées depuis le modèle 3D du bâtiment, posées sur les feuilles', keywords: ['facade', 'facades', 'elevation', 'coupe', 'coupes', 'batiment', 'feuille', 'nord', 'sud', 'est', 'ouest'], run: () => setFacadesOpen(true) },
     { id: 'solids', title: 'Solides 3D', hint: 'Extrusion, révolution, union, différence, intersection, perçage (noyau OCCT)', keywords: ['solide', 'extrusion', 'extruder', 'revolution', 'booleen', 'union', 'difference', 'intersection', 'percage', 'percer', 'trou', '3d', 'volume'], run: () => setSolidsOpen(true) },
@@ -2168,6 +2171,7 @@ function Workbench() {
       {mergeOpen && (
         <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />
       )}
+      {assistantOpen && <AssistantPanel project={project} onClose={() => setAssistantOpen(false)} />}
       {scriptsOpen && <ScriptConsole project={project} onClose={() => setScriptsOpen(false)} />}
       {journalOpen && <JournalPanel journal={project.journal} replay={project.replay} onReplay={project.replayJournal} onClose={() => setJournalOpen(false)} />}
       {georefOpen && <GeorefPanel georef={project.georef} onSave={project.setGeoref} onClose={() => setGeorefOpen(false)} />}
