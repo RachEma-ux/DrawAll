@@ -155,3 +155,25 @@ describe('objets associatifs copiés avec leur parent (lot 5.2)', () => {
     expect(viewCopies.find(o => o.kind === 'views')).toMatchObject({ sourceId: viewCopies.find(o => o.kind === 'rect')!.id });
   });
 });
+
+describe('coupe copiée avec sa face et son repère (lot 5.3)', () => {
+  const b = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0, name: 'o' };
+  const objs: CadObject[] = [
+    { ...b, id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 100, h: 60 },
+    { ...b, id: 'OBJ-0004', kind: 'section', x1: -10, y1: 30, x2: 110, y2: 30, label: 'A' },
+    { ...b, id: 'OBJ-0005', kind: 'cut', sourceId: 'OBJ-0001', markId: 'OBJ-0004', depth: 10, gap: 20 },
+  ];
+
+  it('copier la face emporte la coupe et son repère ; la copie pointe vers les deux copies', () => {
+    const sources = withDependencies(objs, ['OBJ-0001']);
+    expect(sources.map(o => o.id)).toEqual(['OBJ-0001', 'OBJ-0004', 'OBJ-0005']);
+    const { objects: copies } = cloneAll(sources, [translation(0, 200)], 10, 1);
+    const face = copies.find(o => o.kind === 'rect')!, mark = copies.find(o => o.kind === 'section')!;
+    expect(copies.find(o => o.kind === 'cut')).toMatchObject({ sourceId: face.id, markId: mark.id });
+  });
+
+  it('un repère copié seul ne copie pas la pièce ; une coupe sans repère copié n’est pas copiée', () => {
+    expect(withDependencies(objs, ['OBJ-0004']).map(o => o.id)).toEqual(['OBJ-0004']);
+    expect(cloneAll([objs[0], objs[2]], [translation(0, 200)], 10, 1).objects.map(o => o.kind)).toEqual(['rect']);
+  });
+});

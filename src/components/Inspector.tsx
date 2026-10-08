@@ -7,6 +7,7 @@ import { formatLevel, pdimValues } from '@/lib/pdim';
 import { containedContours, hatchParamsOf, loopOf } from '@/lib/hatch';
 import { openingFits } from '@/lib/opening';
 import { deviations, fit, formatDeviation, parseClass } from '@/lib/iso286';
+import { cutView, materialIntervals, shapeOf } from '@/lib/cuts';
 import { SURFACE_RULES, areaM2, detectRoom, formatM2, type SurfaceRule } from '@/lib/rooms';
 import { MATERIALS, effectiveHatch, materialById, profileById, type DrawingProfile } from '@/lib/materials';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
@@ -46,10 +47,12 @@ interface Props {
   onSurfaceRule?: (rule: SurfaceRule) => void;
   /** Vues liées d'une face fermée (lot 5.2). */
   onAddViews?: (sourceId: string, depth: number) => void;
+  /** Vue en coupe d'une face par un repère de coupe (lot 5.3). */
+  onAddCut?: (sourceId: string, markId: string, depth: number) => void;
   onSelect?: (id: string) => void;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onSelect }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onSelect }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -267,6 +270,83 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
                   Créer les vues de dessus et de côté
                 </button>
               )}
+            </div>
+          );
+        })()}
+
+        {obj.kind === 'section' && onAddCut && (() => {
+          const horizontal = Math.abs(obj.y2 - obj.y1) < 1e-6, vertical = Math.abs(obj.x2 - obj.x1) < 1e-6;
+          if (!horizontal && !vertical) return <p className="text-[11px] text-amber-300">Vue en coupe : trace oblique non prise en charge (trace horizontale ou verticale).</p>;
+          // Faces fermées traversées par la trace (matière le long de la droite, dans l'étendue de la trace).
+          const lo = horizontal ? Math.min(obj.x1, obj.x2) : Math.min(obj.y1, obj.y2), hi = horizontal ? Math.max(obj.x1, obj.x2) : Math.max(obj.y1, obj.y2);
+          const faces = objects.filter(o => {
+            const shape = shapeOf(o);
+            if (!shape || o.kind === 'section') return false;
+            const holes = (o.holes ?? []).map(id => objects.find(x => x.id === id)).map(h => (h ? shapeOf(h) : null)).filter((l): l is NonNullable<typeof l> => !!l);
+            return materialIntervals([shape, ...holes], horizontal ? 'y' : 'x', horizontal ? obj.y1 : obj.x1).some(([a, b]) => b > lo && a < hi);
+          });
+          return (
+            <div className="space-y-1">
+              <p className="ui-label mb-1.5">Vue en coupe {obj.label}–{obj.label}</p>
+              {faces.length === 0 && <p className="text-[11px] text-muted-foreground">La trace ne traverse aucune face fermée.</p>}
+              {faces.map(f => {
+                const existing = objects.find(o => o.kind === 'cut' && o.sourceId === f.id && o.markId === obj.id);
+                const views = objects.find((o): o is Extract<CadObject, { kind: 'views' }> => o.kind === 'views' && o.sourceId === f.id);
+                return existing ? (
+                  <button key={f.id} onClick={() => onSelect?.(existing.id)} className="w-full rounded-sm border border-border px-2 py-1.5 text-left font-mono text-[10px] text-muted-foreground hover:text-foreground">
+                    {existing.id} : coupe de {f.id} (sélectionner)
+                  </button>
+                ) : (
+                  <button key={f.id}
+                    onClick={() => {
+                      let d = views?.depth;
+                      if (d === undefined) {
+                        const raw = window.prompt(`Épaisseur de ${f.id} (mm)`, '10');
+                        if (raw == null) return;
+                        d = Number(raw.trim().replace(',', '.'));
+                      }
+                      if (d > 0) onAddCut(f.id, obj.id, d); else window.alert('Épaisseur illisible : saisir un nombre positif de millimètres.');
+                    }}
+                    className="w-full rounded-sm border border-cyan-400/40 px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300 hover:bg-cyan-400/10">
+                    Créer la coupe de {f.id}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {obj.kind === 'cut' && (() => {
+          const c = cutView(obj, objects.find(o => o.id === obj.sourceId), objects.find(o => o.id === obj.markId), objects, 0, 0);
+          const field = (label: string, value: number, apply: (v: number) => void) => (
+            <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              {label}
+              <span className="flex items-center gap-1">
+                <input key={`${obj.id}-${label}-${value}`} aria-label={`Coupe — ${label}`} defaultValue={String(value).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => { const v = Number(e.target.value.trim().replace(',', '.')); if (Number.isFinite(v) && v !== value) apply(v); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+              </span>
+            </label>
+          );
+          return (
+            <div className="space-y-1.5">
+              <p className="ui-label mb-1.5">Vue en coupe</p>
+              <p className="font-mono text-[10px] text-muted-foreground">Face {obj.sourceId} · repère {obj.markId} — la coupe suit la face et la trace.</p>
+              {c.ok
+                ? <p data-testid="coupe-matiere" className="font-mono text-[10px] text-foreground/80">{c.value.material.length} surface{c.value.material.length > 1 ? 's' : ''} coupée{c.value.material.length > 1 ? 's' : ''} · {c.value.label.text}</p>
+                : <p className="text-[11px] text-amber-300">Non évaluée : {c.error}</p>}
+              {field('Épaisseur', obj.depth, v => v > 0 && onUpdate(obj.id, { depth: v }, 'Coupe : épaisseur'))}
+              {field('Écart', obj.gap, v => v >= 0 && onUpdate(obj.id, { gap: v }, 'Coupe : écart'))}
+              <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                Projection
+                <select aria-label="Méthode de projection de la coupe" value={obj.method ?? 'premier-diedre'}
+                  onChange={e => onUpdate(obj.id, { method: e.target.value as ProjectionMethod }, 'Coupe : méthode de projection')}
+                  className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs">
+                  <option value="premier-diedre">Premier dièdre (ISO E)</option>
+                  <option value="troisieme-diedre">Troisième dièdre (ISO A)</option>
+                </select>
+              </label>
             </div>
           );
         })()}

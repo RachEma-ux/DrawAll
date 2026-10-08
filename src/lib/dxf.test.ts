@@ -517,3 +517,23 @@ describe('vues liées (lot 5.2)', () => {
     }
   });
 });
+
+describe('coupes (lot 5.3)', () => {
+  it('platine percée coupée : contours, hachures HATCH et désignation, lisibles par ezdxf', () => {
+    const objs: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'Platine', kind: 'rect', x: 0, y: 0, w: 100, h: 60, holes: ['OBJ-0002', 'OBJ-0003'] },
+      { ...base, id: 'OBJ-0002', name: 'P1', kind: 'circle', cx: 25, cy: 30, r: 6.25 },
+      { ...base, id: 'OBJ-0003', name: 'P2', kind: 'circle', cx: 75, cy: 30, r: 6.25 },
+      { ...base, id: 'OBJ-0004', name: 'A', kind: 'section', x1: -10, y1: 30, x2: 110, y2: 30, label: 'A' },
+      { ...base, id: 'OBJ-0005', name: 'Coupe', kind: 'cut', sourceId: 'OBJ-0001', markId: 'OBJ-0004', depth: 10, gap: 20 },
+    ];
+    const { content, report } = exportDxf(objs, layers, []);
+    keepFixture('coupe-platine.dxf', content);
+    expect((content.match(/\nHATCH\n/g) ?? []).length).toBe(3);
+    expect(decodeDxfString(content)).toContain('A–A');
+    expect(report.transformed.join(' ')).toMatch(/Vues en coupe : 1/);
+    // Contours coupés en continu 0,5 mm (12 traits : 3 surfaces), hachures 0,18 mm.
+    expect((content.match(/\n6\nCONTINUOUS\n370\n50\n100\nAcDbLine\n/g) ?? []).length).toBe(12);
+    expect((content.match(/\n6\nCONTINUOUS\n370\n18\n100\nAcDbHatch\n/g) ?? []).length).toBe(3);
+  });
+});

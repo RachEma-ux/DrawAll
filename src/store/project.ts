@@ -29,6 +29,8 @@ import { libraryBlock, libraryItem } from '@/lib/library';
 import { DEFAULT_LEVEL, copyLevelObjects, levelIdOf, levelsOf, onLevel } from '@/lib/levels';
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
 import { nextIndexLetter } from '@/lib/titleblock';
+import { cutView } from '@/lib/cuts';
+import { linkedViews } from '@/lib/views';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
@@ -555,6 +557,31 @@ export function useProject() {
     return id;
   }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
 
+  /**
+   * Vue en coupe d'une face par un repère de coupe ; elle prend la place de la vue liée qui occuperait
+   * le même emplacement (une coupe A–A vue du dessus remplace la vue de dessus).
+   */
+  const addCut = useCallback((sourceId: string, markId: string, depth: number) => {
+    const source = allObjects.find(o => o.id === sourceId);
+    if (!source || !(depth > 0)) return null;
+    const views = allObjects.find((o): o is Extract<CadObject, { kind: 'views' }> => o.kind === 'views' && o.sourceId === sourceId);
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const cut: CadObject = {
+      id, name: `Coupe de ${source.name}`, kind: 'cut', classification: source.classification, layerId: source.layerId, hatch: 'none',
+      createdSeq: current.seq, ...(source.levelId ? { levelId: source.levelId } : {}),
+      sourceId, markId, depth, gap: views?.gap ?? Math.max(10, Math.round(depth * 2)), ...(views?.method ? { method: views.method } : {}),
+    };
+    let next = [...allObjects, cut];
+    const c = cutView(cut, source, allObjects.find(o => o.id === markId), allObjects, 0, 0);
+    if (views && c.ok) {
+      const same = (linkedViews(views, source, allObjects) ?? []).find(v => Math.abs(v.frame.x - c.value.frame.x) < 1e-6 && Math.abs(v.frame.y - c.value.frame.y) < 1e-6);
+      if (same) next = next.map(o => (o.id === views.id ? ({ ...o, [same.kind === 'dessus' ? 'top' : 'side']: false } as CadObject) : o));
+    }
+    commit(`Coupe de ${sourceId} par ${markId}`, { objects: next, counter: state.counter + 1 });
+    setSelectedId(id);
+    return id;
+  }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
+
   const createBlockFromObject = useCallback((objectId: string) => {
     const source = allObjects.find(o => o.id === objectId);
     if (!source || (source.kind !== 'line' && source.kind !== 'rect' && source.kind !== 'circle' && source.kind !== 'arc' && source.kind !== 'polyline')) return null;
@@ -716,6 +743,9 @@ export function useProject() {
           out.push({ level: 'info', text: `${o.id} : style « ${o.style} » non applicable à ${target.id} — style par défaut utilisé.` });
         }
       }
+      if (o.kind === 'cut' && !allObjects.some(t => t.id === o.markId)) {
+        out.push({ level: 'avertissement', text: `${o.id} : coupe orpheline — repère ${o.markId} absent.` });
+      }
       if (o.kind === 'views' && !allObjects.some(t => t.id === o.sourceId)) {
         out.push({ level: 'avertissement', text: `${o.id} : vues orphelines — face ${o.sourceId} absente.` });
       }
@@ -869,7 +899,7 @@ export function useProject() {
     addObject, updateObject, removeObject, removeObjects,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, addViews, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
+    addDimension, addViews, addCut, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };

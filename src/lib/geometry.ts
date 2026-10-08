@@ -4,6 +4,7 @@ import type { BlockDef, CadObject, DimensionObj, HatchParams, Layer, PrimitiveOb
 import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExtents } from '@/types/cad';
 import { normalizeAngle, textBounds } from '@/lib/text';
 import { linkedViews } from '@/lib/views';
+import { cutView } from '@/lib/cuts';
 import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } from '@/lib/arc';
 import { pdimGeometry, pdimPoints, transformPdim } from '@/lib/pdim';
 import { hatchParamsOf } from '@/lib/hatch';
@@ -200,6 +201,11 @@ function collectObjectSnaps(
     case 'text':
       add('insertion', object.x, object.y);
       return;
+    case 'cut': {
+      const c = cutView(object, objects.find(o => o.id === object.sourceId), objects.find(o => o.id === object.markId), objects, 0, 0);
+      if (c.ok) for (const [x1, y1, x2, y2] of c.value.visible) { add('endpoint', x1, y1); add('endpoint', x2, y2); }
+      return;
+    }
     case 'views': {
       // Vues liées : extrémités et milieux des arêtes vues (rappels entre vues).
       for (const v of linkedViews(object, objects.find(o => o.id === object.sourceId), objects) ?? []) {
@@ -462,6 +468,10 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
   switch (object.kind) {
     case 'line': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'wall': { const q = wallQuad(object); return q ? boundsOfPoints(q) : boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]); }
+    case 'cut': {
+      const c = cutView(object, objects.find(o => o.id === object.sourceId), objects.find(o => o.id === object.markId), objects, 0, 0);
+      return c.ok ? { minX: c.value.frame.x, minY: c.value.frame.y, maxX: c.value.frame.x + c.value.frame.w, maxY: c.value.frame.y + c.value.frame.h } : null;
+    }
     case 'views': {
       const v = linkedViews(object, objects.find(o => o.id === object.sourceId), objects);
       return v && v.length ? unionBounds(v.map(g => ({ minX: g.frame.x, minY: g.frame.y, maxX: g.frame.x + g.frame.w, maxY: g.frame.y + g.frame.h }))) : null;
@@ -650,6 +660,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'wall': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'opening': return {}; // l'ouverture suit son mur
     case 'views': return {}; // les vues suivent leur face
+    case 'cut': return {};
     case 'room': return { x: object.x + dx, y: object.y + dy };
     case 'north':
     case 'roughness':
@@ -753,6 +764,7 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
       return transformPdim(object, q => rotatePoint(q.x, q.y, cx, cy, rad), { rotation: angleDeg });
     case 'opening':
     case 'views':
+    case 'cut':
       return {};
     case 'room':
     case 'levelMark': {
@@ -814,6 +826,7 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
       return transformPdim(object, q => (axis === 'x' ? { x: mx(q.x), y: q.y } : { x: q.x, y: mx(q.y) })) ?? {};
     case 'opening':
     case 'views':
+    case 'cut':
       return {};
     case 'room':
     case 'levelMark':
@@ -853,7 +866,8 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'dimension': return { offset: round(object.offset * factor) };
     case 'pdim': return transformPdim(object, q => ({ x: s(q.x, cx), y: s(q.y, cy) }), { factor });
     case 'opening': return { position: round(object.position * factor), width: round(object.width * factor) };
-    case 'views': return { depth: round(object.depth * factor), gap: round(object.gap * factor) };
+    case 'views':
+    case 'cut': return { depth: round(object.depth * factor), gap: round(object.gap * factor) };
     case 'room':
     case 'north':
     case 'roughness':
@@ -901,6 +915,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'levelMark':
     case 'roughness':
     case 'views':
+    case 'cut':
       return null;
   }
 }
