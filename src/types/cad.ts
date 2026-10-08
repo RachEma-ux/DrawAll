@@ -7,7 +7,7 @@ import type { ProjView, SolidRecipe } from '@/lib/kernel/recipe';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 import { recipeBounds } from '@/lib/solids';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'column' | 'beam' | 'solid' | 'projection' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'column' | 'beam' | 'solid' | 'projection' | 'elevation' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -245,6 +245,20 @@ export interface ProjectionObj extends Base {
   x: number; y: number;
 }
 
+/** Façade (vue depuis un point cardinal) ou coupe de bâtiment par un repère de coupe (lot 16.2). */
+export type ElevationView = 'nord' | 'sud' | 'est' | 'ouest' | 'coupe';
+
+/**
+ * Façade ou coupe générée (lot 16.2) depuis le modèle 3D du bâtiment (§8.11), arêtes vues seulement,
+ * coin haut gauche de son cadre en (x, y). Une coupe suit son repère `markId`.
+ */
+export interface ElevationObj extends Base {
+  kind: 'elevation';
+  view: ElevationView;
+  markId?: string;
+  x: number; y: number;
+}
+
 /** Zone (lot 13.3) : regroupement nommé de pièces, couleur de remplissage (#rrggbb). */
 export interface Zone { id: string; name: string; color: string }
 
@@ -394,11 +408,11 @@ export interface Asset {
   source: 'image' | 'pdf';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | ColumnObj | BeamObj | SolidObj | ProjectionObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | ColumnObj | BeamObj | SolidObj | ProjectionObj | ElevationObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
-  return o.kind === 'dimension' || o.kind === 'balloon' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' || o.kind === 'projection' ? o.sourceId : o.kind === 'note' ? o.targetId ?? null : null;
+  return o.kind === 'dimension' || o.kind === 'balloon' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' || o.kind === 'projection' ? o.sourceId : o.kind === 'note' ? o.targetId ?? null : o.kind === 'elevation' ? o.markId ?? null : null;
 }
 
 /**
@@ -424,6 +438,7 @@ export function withParent<T extends CadObject>(o: T, parent: string): T {
   if (o.kind === 'dimension' || o.kind === 'balloon' || o.kind === 'note') return { ...o, targetId: parent };
   if (o.kind === 'opening') return { ...o, hostId: parent };
   if (o.kind === 'views' || o.kind === 'cut' || o.kind === 'projection') return { ...o, sourceId: parent };
+  if (o.kind === 'elevation') return { ...o, markId: parent };
   return o;
 }
 
@@ -595,6 +610,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   beam: 'Poutre',
   solid: 'Solide',
   projection: 'Vue projetée',
+  elevation: 'Façade',
   north: 'Nord',
   section: 'Repère de coupe',
   levelMark: 'Cote de niveau',
@@ -696,6 +712,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'roof': return `Toiture ${obj.roofType === 'un-pan' ? 'à un pan' : obj.roofType === 'deux-pans' ? 'à deux pans' : 'à quatre pans'} · pente ${fmt(obj.pitch)}° · ${fmt(obj.w)} × ${fmt(obj.h)} mm`;
     case 'column': return obj.section === 'circle' ? `Poteau Ø ${fmt(obj.d ?? 0)} mm` : `Poteau ${fmt(obj.b ?? 0)} × ${fmt(obj.h ?? 0)} mm`;
     case 'projection': return `${VIEW_NAMES[obj.view]} de ${obj.sourceId}`;
+    case 'elevation': return obj.view === 'coupe' ? `Coupe selon ${obj.markId ?? '?'}` : `Façade ${obj.view}`;
     case 'solid': { const b = recipeBounds(obj.recipe); return `Encombrement ${fmt(b.max[0] - b.min[0])} × ${fmt(b.max[1] - b.min[1])} × ${fmt(b.max[2] - b.min[2])} mm`; }
     case 'beam': return `Poutre ${fmt(obj.b)} × ${fmt(obj.h)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'north': return `Nord à ${fmt(obj.rotation)}°`;

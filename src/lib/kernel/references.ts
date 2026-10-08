@@ -115,7 +115,8 @@ export function featureSupports(r: SolidRecipe, out: Supports = { byFeature: new
       }
       break;
     }
-    case 'sweep': case 'loft': break; // faces d'un balayage ou d'un lissage : pas de nom génératif
+    case 'compound': for (const p of r.parts) featureSupports(p, out); break;
+    case 'sweep': case 'loft': case 'polyhedron': break; // faces d'un balayage ou d'un lissage : pas de nom génératif
     case 'translate': case 'rotate': case 'mirror': case 'scale': {
       // Les supports suivent le solide déplacé, tourné, symétrisé ou mis à l'échelle.
       const inner = featureSupports(r.of);

@@ -53,8 +53,9 @@ import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switch
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications } from '@/lib/publication';
 import { BOOLEAN_LABEL, isRecipe, type BooleanOp } from '@/lib/solids';
-import { VIEW_LABEL, defaultPlacement } from '@/lib/projection';
+import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
 import type { ProjView } from '@/lib/kernel/recipe';
+import type { ElevationView } from '@/types/cad';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -179,6 +180,7 @@ function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
   // Solide (lot 15.2) : recette mal formée = objet écarté (le noyau ne l'évaluerait pas).
   if (base.kind === 'solid' && !isRecipe(base.recipe)) return null;
   // Vue projetée (lot 16.1) : vue connue, position finie.
+  if (base.kind === 'elevation' && (!['nord', 'sud', 'est', 'ouest', 'coupe'].includes(base.view) || (base.view === 'coupe' && typeof base.markId !== 'string') || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
   if (base.kind === 'projection' && (!['dessus', 'face', 'cote'].includes(base.view) || typeof base.sourceId !== 'string' || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
   // Tableau de quantités (lot 13.5) : type inconnu = nomenclature.
   if (base.kind === 'bom' && base.table !== undefined && !['pieces', 'ouvertures', 'murs'].includes(base.table)) delete base.table;
@@ -829,6 +831,22 @@ export function useProject() {
     return made.map(o => o.id);
   }, [allObjects, state.counter, current.seq, commit]);
 
+  /** Façades et coupes du bâtiment (lot 16.2), posées sous lui, en une seule version. */
+  const addElevations = useCallback((views: { view: ElevationView; markId?: string }[]) => {
+    const placed = elevationPlacement(allObjects, views);
+    if (!placed.length) return [];
+    let counter = state.counter;
+    const made = placed.map(({ view, markId, x, y }) => {
+      counter += 1;
+      const id = `OBJ-${String(counter).padStart(4, '0')}`;
+      const mark = allObjects.find(o => o.id === markId);
+      const name = view === 'coupe' ? `Coupe ${mark?.kind === 'section' ? mark.label || 'A' : ''}` : `Façade ${view}`;
+      return { id, name, kind: 'elevation', classification: 'architecture', layerId: activeLayerId, hatch: 'none', createdSeq: current.seq, view, ...(markId ? { markId } : {}), x, y } as CadObject;
+    });
+    commit(`Façades et coupes ${made.map(o => o.id).join(', ')}`, { objects: [...allObjects, ...made.map(o => stampLevel(o))], counter });
+    return made.map(o => o.id);
+  }, [allObjects, state.counter, current.seq, commit, activeLayerId, stampLevel]);
+
   /**
    * Vue en coupe d'une face par un repère de coupe ; elle prend la place de la vue liée qui occuperait
    * le même emplacement (une coupe A–A vue du dessus remplace la vue de dessus).
@@ -1458,7 +1476,7 @@ export function useProject() {
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections,
+    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,

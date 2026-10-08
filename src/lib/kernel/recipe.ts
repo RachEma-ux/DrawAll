@@ -62,6 +62,10 @@ export type SolidRecipe =
    * sortante (positif : matière ajoutée ; négatif : matière retirée).
    */
   | { op: 'pushpull'; of: SolidRecipe; face: FaceRef; distance: number }
+  /** Assemblage de recettes sans fusion (lot 16.2 : bâtiment pour façades et coupes). */
+  | { op: 'compound'; parts: SolidRecipe[] }
+  /** Faces planes données par leurs sommets (lot 16.2 : pans de toiture). */
+  | { op: 'polyhedron'; faces: Vec3[][] }
   /** Déplacement (lot 15.2). */
   | { op: 'translate'; of: SolidRecipe; by: Vec3 }
   /** Rotation de `angle` degrés autour de la verticale passant par `about` (lot 15.2). */
@@ -86,7 +90,21 @@ export interface MeshResult { vertices: number[]; triangles: number[] }
 export type ProjView = 'dessus' | 'face' | 'cote';
 /** Arêtes vues et cachées, en polylignes (x, y alternés). */
 export interface ProjLines { visible: number[][]; hidden: number[][] }
-export const PROJ_CAMERAS: Record<ProjView, { dir: Vec3; xAxis: Vec3 }> = {
+/** Caméra de projection : `dir` vers l'observateur, `xAxis` vers la droite de la vue. */
+export interface Camera { dir: Vec3; xAxis: Vec3 }
+/**
+ * Coupe (lot 16.2) : seul ce qui est du côté `look` du plan vertical passant par `point` est gardé
+ * (l'observateur regarde dans le sens `look`).
+ */
+export interface Clip { point: [number, number]; look: [number, number] }
+
+/** Caméra d'un observateur regardant horizontalement dans le sens `look` (plan, Y vers le bas). */
+export function cameraLooking(look: [number, number]): Camera {
+  const l = Math.hypot(look[0], look[1]), x = look[0] / l, y = look[1] / l;
+  return { dir: [-x, -y, 0], xAxis: [-y, x, 0] };
+}
+
+export const PROJ_CAMERAS: Record<ProjView, Camera> = {
   dessus: { dir: [0, 0, 1], xAxis: [1, 0, 0] },
   face: { dir: [0, 1, 0], xAxis: [1, 0, 0] },
   cote: { dir: [1, 0, 0], xAxis: [0, -1, 0] },

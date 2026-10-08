@@ -4,6 +4,7 @@
 // élément dont la hauteur ne peut pas être déterminée n'est pas montré et il est signalé.
 // Repère : X du plan → X, Y du plan (vers le bas) → Z, altitude → Y (haut). Millimètres.
 import type { CadObject, Level, RoofObj } from '@/types/cad';
+import type { SolidRecipe } from './kernel/recipe';
 import { levelIdOf, levelsOf } from './levels';
 import { roofGeometry, roofInput } from './roof';
 import { beamEdges, columnCorners } from './structure';
@@ -79,8 +80,8 @@ export function storeyHeight(levels: Level[], levelId: string): number | null {
   return i >= 0 && i + 1 < sorted.length ? sorted[i + 1].elevation - sorted[i].elevation : null;
 }
 
-/** Toiture : pans (triangles et trapèzes) au-dessus de l'égout à l'altitude `y0`. */
-function roofMesh(o: RoofObj, y0: number): Mesh3D {
+/** Pans de la toiture (polygones plans, repère du noyau : X, Y du plan, Z altitude), égout à `y0`. */
+export function roofFaces(o: RoofObj, y0: number): [number, number, number][][] {
   const g = roofGeometry(roofInput(o));
   const t = Math.tan((o.pitch * Math.PI) / 180);
   const [X0, Y0] = [g.outline[0].x, g.outline[0].y], [X1, Y1] = [g.outline[2].x, g.outline[2].y];
@@ -93,12 +94,8 @@ function roofMesh(o: RoofObj, y0: number): Mesh3D {
     if (o.roofType === 'deux-pans') return y0 + (o.axis === 'x' ? Math.min(p.y - Y0, Y1 - p.y) : Math.min(p.x - X0, X1 - p.x)) * t;
     return y0 + Math.min(p.x - X0, X1 - p.x, p.y - Y0, Y1 - p.y) * t;
   };
-  const positions: number[] = [], indices: number[] = [];
-  const face = (pts: P2[]) => {
-    const base = positions.length / 3;
-    for (const p of pts) positions.push(p.x, h(p), p.y);
-    for (let i = 1; i + 1 < pts.length; i++) indices.push(base, base + i + 1, base + i);
-  };
+  const faces: [number, number, number][][] = [];
+  const face = (pts: P2[]) => { faces.push(pts.map(p => [p.x, p.y, h(p)])); };
   const [a, b, c, d] = g.outline;
   if (o.roofType === 'un-pan') face([a, b, c, d]);
   else if (o.roofType === 'deux-pans') {
@@ -108,6 +105,17 @@ function roofMesh(o: RoofObj, y0: number): Mesh3D {
     const [e0, e1] = g.ridge ?? [g.hips[0][1], g.hips[0][1]];
     if (Math.abs(e0.y - e1.y) < 1e-9) { face([a, b, e1, e0]); face([e0, e1, c, d]); face([d, a, e0]); face([b, c, e1]); }
     else { face([a, e0, e1, d]); face([e0, b, c, e1]); face([a, b, e0]); face([c, d, e1]); }
+  }
+  return faces;
+}
+
+/** Toiture : pans (triangles et trapèzes) au-dessus de l'égout à l'altitude `y0`. */
+function roofMesh(o: RoofObj, y0: number): Mesh3D {
+  const positions: number[] = [], indices: number[] = [];
+  for (const f of roofFaces(o, y0)) {
+    const base = positions.length / 3;
+    for (const [x, y, z] of f) positions.push(x, z, y);
+    for (let i = 1; i + 1 < f.length; i++) indices.push(base, base + i + 1, base + i);
   }
   return { id: o.id, kind: 'roof', positions, indices };
 }
@@ -169,4 +177,38 @@ export function p95(xs: number[]): number | null {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.ceil(0.95 * s.length) - 1)];
+}
+
+/**
+ * Bâtiment pour le noyau (lot 16.2 : façades et coupes) : mêmes éléments et mêmes hauteurs que la
+ * vue 3D, en recettes (prismes extrudés, pans de toiture), plus les solides du projet. Assemblage
+ * sans fusion ; null si rien n'a de volume.
+ */
+export function buildingRecipe(objects: CadObject[], levelList: Level[] | undefined): { recipe: SolidRecipe | null; skipped: Building3D['skipped'] } {
+  const { meshes, skipped } = building3d(objects, levelList);
+  const levels = levelsOf(levelList);
+  const elevation = (o: CadObject) => levels.find(l => l.id === levelIdOf(o))?.elevation ?? 0;
+  const parts: SolidRecipe[] = [];
+  for (const m of meshes) {
+    const o = objects.find(x => x.id === m.id)!;
+    if (m.kind === 'roof') {
+      // Égout = altitude basse des pans.
+      const zs = m.positions.filter((_, i) => i % 3 === 1);
+      parts.push({ op: 'polyhedron', faces: roofFaces(o as RoofObj, Math.min(...zs)) });
+      continue;
+    }
+    // Prisme : base = premiers sommets (anneau du bas), altitude et hauteur depuis le maillage.
+    const n = m.positions.length / 6;
+    const ring: [number, number][] = [];
+    for (let i = 0; i < n; i++) ring.push([m.positions[3 * i], m.positions[3 * i + 2]]);
+    const z0 = m.positions[1], z1 = m.positions[3 * n + 1];
+    if (o.kind === 'column' && o.section === 'circle') { parts.push({ op: 'cylinder', r: o.d! / 2, h: z1 - z0, at: [o.x, o.y, z0] }); continue; }
+    parts.push({ op: 'extrude', profile: ring, height: z1 - z0, ...(z0 ? { z: z0 } : {}) });
+  }
+  for (const o of objects) {
+    if (o.kind !== 'solid') continue;
+    const z = elevation(o);
+    parts.push(z ? { op: 'translate', of: o.recipe, by: [0, 0, z] } : o.recipe);
+  }
+  return { recipe: parts.length ? { op: 'compound', parts } : null, skipped };
 }

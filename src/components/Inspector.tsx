@@ -49,6 +49,8 @@ interface Props {
   onOpenZones?: () => void;
   /** Ouvre le panneau des solides (lot 15.2). */
   onOpenSolids?: () => void;
+  /** Ouvre le panneau des façades et coupes (lot 16.2). */
+  onOpenFacades?: () => void;
   /** Analyse d'impact de l'objet (lot 14.3). */
   impact?: { modification: Impact; suppression: Impact };
   onRemove: (id: string) => void;
@@ -78,7 +80,7 @@ interface Props {
   comments?: ReactNode;
 }
 
-export default function Inspector({ impact, zones, onOpenZones, onOpenSolids, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
+export default function Inspector({ impact, zones, onOpenZones, onOpenSolids, onOpenFacades, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -708,6 +710,10 @@ export default function Inspector({ impact, zones, onOpenZones, onOpenSolids, ob
         )}
         {onOpenSolids && (obj.kind === 'solid' || !('error' in contourOf(obj))) && (
           <button type="button" onClick={onOpenSolids} className="w-full rounded-sm border border-border px-2 py-1 text-left text-[11px] text-muted-foreground hover:text-foreground">Solides (extrusion, révolution, booléens, perçage)…</button>
+        )}
+
+        {onOpenFacades && ['wall', 'slab', 'roof', 'column', 'beam', 'section', 'elevation'].includes(obj.kind) && (
+          <button type="button" onClick={onOpenFacades} className="w-full rounded-sm border border-border px-2 py-1 text-left text-[11px] text-muted-foreground hover:text-foreground">Façades et coupes…</button>
         )}
 
         {(obj.kind === 'column' || obj.kind === 'beam') && (() => {

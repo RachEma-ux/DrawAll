@@ -278,7 +278,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 15.5 Coque | Fait (conventions §8.15) | #75 |
 | 15.6 Pousser / tirer | Fait (conventions §8.16) | #76 |
 | 16.1 Vues projetées | Fait (conventions §8.17) | #77 |
-| 16.2 Façades et coupes générées | À faire | — |
+| 16.2 Façades et coupes générées | Fait (conventions §8.18) | #78 |
 | 16.3 Pièces et occurrences | À faire | — |
 | 16.4 Liaisons et nomenclature d'assemblage | À faire | — |
 | 17.1 Export IFC 4.3 | À faire | — |

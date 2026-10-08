@@ -603,6 +603,15 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Associativité** : la vue est liée à son solide. Modifier le solide (perçage, pousser / tirer, booléen, déplacement…) la recalcule ; le supprimer la supprime. Pendant le calcul, le cadre de la vue est tracé avec la mention « calcul… ». Une erreur du noyau est affichée à la place de la vue.
 - **Échanges** : DXF et PDF écrivent les arêtes en lignes, cachées en interrompu, après avoir attendu le calcul de toutes les vues.
 
+### 8.18 Façades et coupes de bâtiment (règle, lot 16.2)
+
+- **Source** : le modèle 3D du bâtiment, avec les mêmes éléments et hauteurs que la vue 3D (§8.11) : murs, dalles, poteaux, poutres, pans de toiture, plus les solides du projet. Un élément sans hauteur déterminable n'y figure pas.
+- **Façades** : nord, sud, est, ouest. La façade sud se regarde depuis le sud (le nord est en haut du plan) ; l'altitude est vers le haut de l'écran.
+- **Coupes** : par un repère de coupe (§4.5), dans le sens de ses flèches (à gauche du trait parcouru, à droite si « inverser »). Seul ce qui est au-delà du plan est gardé. Un plan qui ne traverse pas le bâtiment est refusé en clair.
+- **Rendu** : arêtes vues seulement (élimination des arêtes cachées par le noyau). Les surfaces coupées ne sont pas hachurées dans ce lot ; c'est signalé, rien n'est simulé.
+- **Pose** : panneau « Façades et coupes » (palette, ou inspecteur d'un mur, d'une dalle, d'une toiture, d'un poteau, d'une poutre, d'un repère de coupe). Les vues générées sont posées en ligne sous le bâtiment ; « Poser » crée sur la feuille choisie une fenêtre centrée sur la vue, à l'échelle choisie.
+- **Associativité** : modifier le modèle (hauteur d'un mur, ajout d'une dalle…) recalcule les façades et les coupes. Supprimer le repère de coupe supprime sa coupe. DXF et PDF attendent le calcul.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

@@ -1,11 +1,12 @@
 // Accès au noyau 3D depuis l'interface (lot 11.2) : le Worker n'est créé qu'au premier appel.
-import type { MeshResult, ProjLines, ProjView, SolidRecipe, Vec3 } from './recipe';
+import type { Camera, Clip, MeshResult, ProjLines, ProjView, SolidRecipe, Vec3 } from './recipe';
 
 export type KernelRequest =
   | { id: number; type: 'volume'; recipe: SolidRecipe }
   | { id: number; type: 'mesh'; recipe: SolidRecipe; tolerance?: number }
   | { id: number; type: 'deviation'; recipe: SolidRecipe; points: Vec3[] }
-  | { id: number; type: 'project'; recipe: SolidRecipe; view: ProjView };
+  | { id: number; type: 'project'; recipe: SolidRecipe; view: ProjView }
+  | { id: number; type: 'projectCamera'; recipe: SolidRecipe; camera: Camera; clip?: Clip };
 export type KernelResponse =
   | { id: number; ok: true; result: number | MeshResult | ProjLines; loadMs: number }
   | { id: number; ok: false; error: string };
@@ -58,6 +59,13 @@ export async function kernelDeviation(recipe: SolidRecipe, points: Vec3[]): Prom
 /** Vue projetée d'un solide (lot 16.1). */
 export async function kernelProject(recipe: SolidRecipe, view: ProjView): Promise<ProjLines> {
   const r = await call({ type: 'project', recipe, view });
+  if (!r.ok) throw new Error(r.error);
+  return r.result as ProjLines;
+}
+
+/** Façade ou coupe : projection par une caméra, après coupe éventuelle (lot 16.2). */
+export async function kernelProjectCamera(recipe: SolidRecipe, camera: Camera, clip?: Clip): Promise<ProjLines> {
+  const r = await call({ type: 'projectCamera', recipe, camera, ...(clip ? { clip } : {}) });
   if (!r.ok) throw new Error(r.error);
   return r.result as ProjLines;
 }

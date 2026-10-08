@@ -2,7 +2,8 @@
 // aux formules (aire × hauteur, Pappus-Guldin, perçages), à 10⁻⁶ près en relatif.
 import { describe, expect, it } from 'vitest';
 import { loadKernel } from './occt';
-import { meshVolume, type PathSeg, type SolidRecipe, type SweepProfile } from './recipe';
+import { cameraLooking, meshVolume, type PathSeg, type SolidRecipe, type SweepProfile } from './recipe';
+import { buildingRecipe } from '../building3d';
 import { extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
 
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.abs(b);
@@ -240,5 +241,37 @@ describe('vues projetées (lot 16.1) : arêtes vues et cachées du noyau', async
     const ys = (r: SolidRecipe) => k.project(r, 'face').visible.flatMap(l => l.filter((_, i) => i % 2 === 1));
     expect(Math.min(...ys(block))).toBeCloseTo(-20, 9);
     expect(Math.min(...ys(take(pushPullRecipe(block, { feature: 'P', role: 'top' }, 30))))).toBeCloseTo(-50, 9);
+  });
+});
+
+describe('façades et coupes de bâtiment (lot 16.2)', async () => {
+  const k = await loadKernel();
+  const base = { classification: 'architecture' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
+  const wall = (id: string, x1: number, y1: number, x2: number, y2: number) => ({ ...base, id, name: id, kind: 'wall' as const, x1, y1, x2, y2, thickness: 200, justification: 'axe' as const, height: 2500 });
+  const walls = [wall('M1', 0, 0, 5000, 0), wall('M2', 5000, 0, 5000, 4000), wall('M3', 5000, 4000, 0, 4000), wall('M4', 0, 4000, 0, 0)];
+  const { recipe } = buildingRecipe(walls, undefined);
+  const xs = (p: { visible: number[][] }) => p.visible.flatMap(l => l.filter((_, i) => i % 2 === 0));
+  const ys = (p: { visible: number[][] }) => p.visible.flatMap(l => l.filter((_, i) => i % 2 === 1));
+  const vertical = (p: { visible: number[][] }, x: number) => p.visible.some(l => l.length === 4 && Math.abs(l[0] - x) < 1e-6 && Math.abs(l[2] - x) < 1e-6 && Math.abs(Math.abs(l[1] - l[3]) - 2500) < 1e-6);
+
+  it('caméras : regard horizontal ; face = façade sud, côté = façade est', () => {
+    expect(cameraLooking([0, -1])).toEqual({ dir: [-0, 1, 0], xAxis: [1, 0, 0] });
+    expect(cameraLooking([-1, 0])).toEqual({ dir: [1, -0, 0], xAxis: [-0, -1, 0] });
+  });
+
+  it('façade sud : nu extérieur de −100 à 5 100, hauteur 2 500 ; les faces intérieures ne se voient pas', () => {
+    const p = k.projectCamera(recipe!, cameraLooking([0, -1]));
+    expect([Math.min(...xs(p)), Math.max(...xs(p))]).toEqual([-100, 5100]);
+    expect([Math.min(...ys(p)), Math.max(...ys(p))]).toEqual([-2500, 0]);
+    expect(vertical(p, 100)).toBe(false);
+  });
+
+  it('coupe horizontale à y = 2 000, vers le nord : murs coupés (nus intérieurs à 100 et 4 900) et mur du fond', () => {
+    const p = k.projectCamera(recipe!, cameraLooking([0, -1]), { point: [-1000, 2000], look: [0, -1] });
+    expect(vertical(p, 100)).toBe(true);
+    expect(vertical(p, 4900)).toBe(true);
+    expect([Math.min(...xs(p)), Math.max(...xs(p))]).toEqual([-100, 5100]);
+    // Plan de coupe hors du bâtiment : refusé en clair.
+    expect(() => k.projectCamera(recipe!, cameraLooking([0, -1]), { point: [0, 9000], look: [0, 1] })).toThrow('Coupe : le plan ne traverse pas le bâtiment.');
   });
 });

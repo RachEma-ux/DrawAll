@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CadObject, ProjectionObj, SolidObj } from '@/types/cad';
+import type { CadObject, ElevationObj, ProjectionObj, SolidObj } from '@/types/cad';
 import { createDefaultLayers, dimensionOf, parentOf } from '@/types/cad';
 import type { ProjLines, SolidRecipe } from './kernel/recipe';
 import { exportDxf, exportToDxf } from './dxf';
 import { moveObject, objectBounds } from './geometry';
-import { cachedProjection, defaultPlacement, ensureProjections, placedView, projectionPrimitives, projectionsVersion, requestProjection, subscribeProjections, viewFrame } from './projection';
+import { ELEVATION_LABEL, cachedProjection, defaultPlacement, elevationLabel, elevationPlacement, elevationSetup, ensureProjections, placedElevation, setProjectionLevels, viewPrimitives, placedView, projectionPrimitives, projectionsVersion, requestProjection, subscribeProjections, viewFrame } from './projection';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const recipe: SolidRecipe = { op: 'box', x: 100, y: 50, z: 20, at: [10, 20, 5] };
@@ -69,5 +69,41 @@ describe('vues projetées : cadre, cache, placement (lot 16.1)', () => {
     expect(moveObject(proj('face'), 5, 6)).toEqual({ x: 505, y: 6 });
     expect(objectBounds(proj('face'), [], [solid])).toEqual({ minX: 500, minY: 0, maxX: 600, maxY: 20 });
     expect(dimensionOf(proj('cote'))).toBe('Vue de côté de OBJ-0001');
+  });
+
+  it('façades et coupes : réglage de caméra, coupe par repère, erreurs en clair, placement, cache', async () => {
+    const wall = (id: string, x1: number, y1: number, x2: number, y2: number) => ({ ...base, id, name: id, kind: 'wall', x1, y1, x2, y2, thickness: 200, justification: 'axe', height: 2500 }) as CadObject;
+    const mark = { ...base, id: 'OBJ-0050', name: 'A', kind: 'section', x1: -1000, y1: 2000, x2: 6000, y2: 2000, label: 'A' } as CadObject;
+    const objs = [wall('M1', 0, 0, 5000, 0), wall('M2', 5000, 0, 5000, 4000), mark];
+    const elev = (view: ElevationObj['view'], extra: Partial<ElevationObj> = {}): ElevationObj => ({ ...base, id: 'OBJ-0060', name: 'F', kind: 'elevation', view, x: 0, y: 6000, ...extra });
+    setProjectionLevels(undefined);
+    const sud = elevationSetup(elev('sud'), objs);
+    if ('error' in sud) throw new Error(sud.error);
+    expect(sud.camera).toEqual({ dir: [-0, 1, 0], xAxis: [1, 0, 0] });
+    expect(sud.clip).toBeUndefined();
+    // Coupe : trait de gauche à droite, vue à gauche du trait (vers le nord, Y décroissant).
+    const coupe = elevationSetup(elev('coupe', { markId: 'OBJ-0050' }), objs);
+    expect('error' in coupe ? coupe.error : coupe.clip).toEqual({ point: [-1000, 2000], look: [0, -1] });
+    const flipped = elevationSetup(elev('coupe', { markId: 'OBJ-0050' }), [objs[0], objs[1], { ...mark, flip: true } as CadObject]);
+    expect('error' in flipped ? flipped.error : flipped.clip?.look).toEqual([-0, 1]);
+    expect(elevationSetup(elev('coupe', { markId: 'OBJ-9999' }), objs)).toEqual({ error: 'repère de coupe OBJ-9999 absent' });
+    expect(elevationSetup(elev('nord'), [mark])).toEqual({ error: 'aucun élément en volume (murs, dalles, toitures… ou solides)' });
+    expect(elevationLabel(elev('coupe', { markId: 'OBJ-0050' }), objs)).toBe('Coupe A–A');
+    expect(ELEVATION_LABEL.est).toBe('Façade est');
+    expect(parentOf(elev('coupe', { markId: 'OBJ-0050' }))).toBe('OBJ-0050');
+    expect(parentOf(elev('sud'))).toBeNull();
+    // Cadre tiré de l'encombrement, sans attendre le noyau ; puis arêtes vues seulement.
+    expect(placedElevation(elev('sud'), objs)).toMatchObject({ frame: { x: 0, y: 6000, w: 5100, h: 2500 }, state: 'calcul' });
+    const lines: ProjLines = { visible: [[-100, 0, 5100, 0]], hidden: [[0, 0, 0, -2500]] };
+    await ensureProjections([...objs, elev('sud')], async () => lines, async () => lines);
+    const v = placedElevation(elev('sud'), objs)!;
+    expect(v).toMatchObject({ state: 'prête', visible: [[-100, 8500, 5100, 8500]], hidden: [] });
+    expect(viewPrimitives(elev('sud'), objs)).toMatchObject([{ kind: 'line', x1: -100, y1: 8500, x2: 5100, y2: 8500 }]);
+    // Placement sous le bâtiment, en ligne.
+    const placed = elevationPlacement(objs, [{ view: 'sud' }, { view: 'est' }]);
+    expect(placed.map(p => p.view)).toEqual(['sud', 'est']);
+    // Murs bruts (sans jonction) : X de 0 à 5 100, Y jusqu'à 4 000 ; écart = 5 100 / 5.
+    expect(placed).toEqual([{ view: 'sud', x: 0, y: 5020 }, { view: 'est', x: 5100 + 1020, y: 5020 }]);
+    expect(elevationPlacement([mark], [{ view: 'sud' }])).toEqual([]);
   });
 });

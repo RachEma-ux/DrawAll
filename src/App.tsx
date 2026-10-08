@@ -32,6 +32,7 @@ import { SCHEDULE_TITLE } from '@/lib/schedules';
 import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
 import SolidsPanel from '@/components/SolidsPanel';
+import FacadesPanel from '@/components/FacadesPanel';
 import MergePanel from '@/components/MergePanel';
 import PublicationsPanel from '@/components/PublicationsPanel';
 import type { Change } from '@/lib/merge';
@@ -41,8 +42,8 @@ import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
 import type { GeoConstraint, PolylineObj, RoofObj } from '@/types/cad';
 import { expandToGroups } from '@/lib/groups';
-import { kernelProject, kernelVolume } from '@/lib/kernel/client';
-import { ensureProjections, projectionsVersion, subscribeProjections } from '@/lib/projection';
+import { kernelProject, kernelProjectCamera, kernelVolume } from '@/lib/kernel/client';
+import { ensureProjections, projectionsVersion, setProjectionLevels, subscribeProjections } from '@/lib/projection';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
@@ -346,10 +347,14 @@ function Workbench() {
   // Vues projetées (lot 16.1) : calculées par le noyau à chaque changement de leur solide ;
   // le rendu suit l'arrivée des résultats.
   useSyncExternalStore(subscribeProjections, projectionsVersion);
-  useEffect(() => { if (project.allObjects.some(o => o.kind === 'projection')) void ensureProjections(project.allObjects, kernelProject); }, [project.allObjects]);
+  // Façades et coupes (lot 16.2) : hauteurs d'étage tirées des niveaux du projet.
+  setProjectionLevels(project.levels);
+  useEffect(() => {
+    if (project.allObjects.some(o => o.kind === 'projection' || o.kind === 'elevation')) void ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
+  }, [project.allObjects, project.levels]);
 
   const exportDxf = useCallback(async () => {
-    await ensureProjections(project.allObjects, kernelProject);
+    await ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
     // Pas de hachure papier : convertis à l'échelle de la première fenêtre de feuille, sinon 1:1.
     const vp = project.sheets.flatMap(sh => sh.viewports)[0];
     const { content, report } = exportDxfFile(shownObjects, project.layers, shownBlocks, { hatchPaperScale: vp ? vp.scale.model / vp.scale.paper : 1 });
@@ -787,6 +792,7 @@ function Workbench() {
   const [zonesOpen, setZonesOpen] = useState(false);
   const [view3dOpen, setView3dOpen] = useState(false);
   const [solidsOpen, setSolidsOpen] = useState(false);
+  const [facadesOpen, setFacadesOpen] = useState(false);
   // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
   const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
   const deleteWithImpact = useCallback((ids: string[]) => {
@@ -1088,6 +1094,7 @@ function Workbench() {
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
     { id: 'publish', title: 'Publier le dossier / dossiers publiés', hint: 'Version nommée + PDF des feuilles, figés ; état publié ou modifié depuis', keywords: ['publier', 'publication', 'dossier', 'diffusion', 'emission', 'pdf', 'fige'], run: () => setPublishOpen(true) },
     { id: 'merge', title: 'Comparer et fusionner des variantes', hint: 'Changements d’une autre variante en surimpression, fusion à trois voies, conflits tranchés', keywords: ['fusion', 'fusionner', 'merge', 'comparer', 'variante', 'branche', 'differences', 'conflit'], run: () => setMergeOpen(true) },
+    { id: 'facades', title: 'Façades et coupes', hint: 'Générées depuis le modèle 3D du bâtiment, posées sur les feuilles', keywords: ['facade', 'facades', 'elevation', 'coupe', 'coupes', 'batiment', 'feuille', 'nord', 'sud', 'est', 'ouest'], run: () => setFacadesOpen(true) },
     { id: 'solids', title: 'Solides 3D', hint: 'Extrusion, révolution, union, différence, intersection, perçage (noyau OCCT)', keywords: ['solide', 'extrusion', 'extruder', 'revolution', 'booleen', 'union', 'difference', 'intersection', 'percage', 'percer', 'trou', '3d', 'volume'], run: () => setSolidsOpen(true) },
     { id: 'view3d', title: 'Vue 3D', hint: 'Maquette en volume dérivée du plan : murs, dalles, poteaux, poutres, toitures ; orbite et cadrage', keywords: ['3d', 'volume', 'maquette', 'perspective', 'orbite', 'webgl'], run: () => setView3dOpen(true) },
     { id: 'zones', title: 'Zones', hint: 'Regrouper des pièces : nom, couleur, surface cumulée', keywords: ['zone', 'zones', 'regrouper', 'pieces', 'surface cumulee', 'logement', 'lot', 'secteur'], run: () => setZonesOpen(true) },
@@ -1204,6 +1211,7 @@ function Workbench() {
       zones={project.zones}
       onOpenZones={() => setZonesOpen(true)}
       onOpenSolids={() => setSolidsOpen(true)}
+      onOpenFacades={() => setFacadesOpen(true)}
       obj={selected}
       issues={selected ? project.diagnostics.filter(d => d.level === 'avertissement' && new RegExp(`\\b${selected.id}\\b`).test(d.text)).map(d => d.text) : []}
       objects={project.objects}
@@ -2081,6 +2089,11 @@ function Workbench() {
       )}
       {mergeOpen && (
         <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />
+      )}
+      {facadesOpen && (
+        <FacadesPanel objects={project.allObjects} sheets={project.sheets} onGenerate={project.addElevations}
+          onPlace={(sheetId, e, center, scale, name) => project.addViewport(sheetId, { center, scale, name, ...(e.levelId ? { levelId: e.levelId } : {}) })}
+          onClose={() => setFacadesOpen(false)} />
       )}
       {solidsOpen && (
         <SolidsPanel objects={project.allObjects} selectedIds={project.selectedIds}

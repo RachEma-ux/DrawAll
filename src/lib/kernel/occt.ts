@@ -3,8 +3,8 @@
 // séparé, chargé à la demande et remplaçable (décision de licence du maître d'ouvrage, feuille de
 // route §7). Ce fichier n'est importé que par le Worker du noyau et par les tests.
 import opencascade from 'replicad-opencascadejs';
-import { FaceFinder, ProjectionCamera, assembleWire, basicFaceExtrusion, cast, makeProjectedEdges, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
-import { PROJ_CAMERAS, type EdgeRef, type FaceRef, type LoftSection, type MeshResult, type PathSeg, type ProjLines, type ProjView, type SolidRecipe, type SweepProfile, type Vec3 } from './recipe';
+import { FaceFinder, ProjectionCamera, makeCompound, makePolygon, assembleWire, basicFaceExtrusion, cast, makeProjectedEdges, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
+import { PROJ_CAMERAS, type Camera, type Clip, type EdgeRef, type FaceRef, type LoftSection, type MeshResult, type PathSeg, type ProjLines, type ProjView, type SolidRecipe, type SweepProfile, type Vec3 } from './recipe';
 import { inventory, parseStepFile, type StepInventory } from './step-file';
 import { cleanProjection } from './hlr-clean';
 import { edgeLabel, faceLabel, featureSupports, pointOnSupport, supportOf, surfaceTypeOf, type RefReport, type Support, type Supports } from './references';
@@ -36,6 +36,8 @@ export interface Kernel {
   boundaryDeviation(recipe: SolidRecipe, points: Vec3[]): number;
   /** Vue projetée du solide, arêtes cachées séparées (lot 16.1). */
   project(recipe: SolidRecipe, view: ProjView): ProjLines;
+  /** Projection par une caméra quelconque, éventuellement après coupe (lot 16.2). */
+  projectCamera(recipe: SolidRecipe, camera: Camera, clip?: Clip): ProjLines;
   /** Durée du chargement du module (ms). */
   loadMs: number;
 }
@@ -91,6 +93,14 @@ function build(r: SolidRecipe, report?: RefReport[]): Shape3D {
       : polygon(r.profile).sketchOnPlane('XZ').revolve([0, 0, 1], { angle: r.angle }) as Shape3D;
     case 'sweep': return sweep(r.profile, r.path, r.z ?? 0);
     case 'loft': return lofted(r.sections, r.ruled);
+    case 'compound': {
+      const parts = r.parts.map(p => build(p, report));
+      try { return makeCompound(parts) as Shape3D; } finally { for (const p of parts) p.delete(); }
+    }
+    case 'polyhedron': {
+      const faces = r.faces.map(f => makePolygon(f));
+      try { return makeCompound(faces) as Shape3D; } finally { for (const f of faces) f.delete(); }
+    }
     case 'pushpull': return derive(r.of, report, s => {
       const found = [resolveFace(s, featureSupports(r.of), r.face, 'pousser / tirer')];
       return applyResolved(found, report, s, ([f]) => {
@@ -173,6 +183,42 @@ function sectionWire(s: LoftSection) {
 function lofted(sections: LoftSection[], ruled: boolean): Shape3D {
   const wires = sections.map(sectionWire);
   try { return loft(wires, { ruled }); } finally { for (const w of wires) w.delete(); }
+}
+
+/** Arêtes vues et cachées d'une forme par une caméra (la forme est libérée). */
+function projectWith(s: Shape3D, camera: Camera) {
+  const cam = new ProjectionCamera([0, 0, 0], camera.dir, camera.xAxis);
+  try {
+    const { visible, hidden } = makeProjectedEdges(s, cam);
+    // Droites : deux points ; courbes : 48 segments (arcs, cercles, courbes de contour).
+    const lines = (edges: Edge[]) => edges.map(e => {
+      const n = e.geomType === 'LINE' ? 1 : 48, pts: number[] = [];
+      for (let i = 0; i <= n; i++) { const p = e.pointAt(i / n); pts.push(r9(p.x), r9(p.y)); p.delete(); }
+      e.delete();
+      return pts;
+    });
+    return cleanProjection({ visible: lines(visible), hidden: lines(hidden) });
+  } finally { cam.delete(); s.delete(); }
+}
+
+/** Demi-espace gardé par une coupe, borné à l'encombrement de la forme (null si vide). */
+function clipBox(s: Shape3D, clip: Clip): Shape3D | null {
+  const bb = s.boundingBox;
+  const [[x0, y0, z0], [x1, y1, z1]] = bb.bounds;
+  bb.delete();
+  const m = 1;
+  let poly: [number, number][] = [[x0 - m, y0 - m], [x1 + m, y0 - m], [x1 + m, y1 + m], [x0 - m, y1 + m]];
+  // Sutherland-Hodgman sur le demi-plan dot(p − point, look) ≥ 0.
+  const f = (p: [number, number]) => (p[0] - clip.point[0]) * clip.look[0] + (p[1] - clip.point[1]) * clip.look[1];
+  const out: [number, number][] = [];
+  poly.forEach((p, i) => {
+    const q = poly[(i + 1) % poly.length], fp = f(p), fq = f(q);
+    if (fp >= 0) out.push(p);
+    if ((fp >= 0) !== (fq >= 0)) { const t = fp / (fp - fq); out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]); }
+  });
+  poly = out;
+  if (poly.length < 3) return null;
+  return polygon(poly).sketchOnPlane('XY', z0 - m).extrude(z1 - z0 + 2 * m) as Shape3D;
 }
 
 /** Les formes intermédiaires sont libérées (la mémoire WebAssembly n'est pas ramassée). */
@@ -294,21 +340,13 @@ function makeKernel(loadMs: number): Kernel {
       } finally { s.delete(); }
     },
     importStep: text => importStep(text),
-    project: (r, view) => {
+    project: (r, view) => projectWith(build(r), PROJ_CAMERAS[view]),
+    projectCamera: (r, camera, clip) => {
       const s = build(r);
-      const { dir, xAxis } = PROJ_CAMERAS[view];
-      const cam = new ProjectionCamera([0, 0, 0], dir, xAxis);
-      try {
-        const { visible, hidden } = makeProjectedEdges(s, cam);
-        // Droites : deux points ; courbes : 48 segments (arcs, cercles, courbes de contour).
-        const lines = (edges: Edge[]) => edges.map(e => {
-          const n = e.geomType === 'LINE' ? 1 : 48, pts: number[] = [];
-          for (let i = 0; i <= n; i++) { const p = e.pointAt(i / n); pts.push(r9(p.x), r9(p.y)); p.delete(); }
-          e.delete();
-          return pts;
-        });
-        return cleanProjection({ visible: lines(visible), hidden: lines(hidden) });
-      } finally { cam.delete(); s.delete(); }
+      if (!clip) return projectWith(s, camera);
+      const box = clipBox(s, clip);
+      if (!box) { s.delete(); throw new Error('Coupe : le plan ne traverse pas le bâtiment.'); }
+      try { return projectWith(s.intersect(box), camera); } finally { s.delete(); box.delete(); }
     },
     boundaryDeviation: (r, points) => {
       const s = build(r);
