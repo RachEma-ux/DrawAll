@@ -1,7 +1,9 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark';
+import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
+
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -78,7 +80,19 @@ export interface DimensionObj extends Base {
   offset: number;
   /** Cote radiale : rayon (R) ou diamètre (Ø) ; défaut Ø pour un cercle, R pour un arc. */
   radialMode?: 'rayon' | 'diametre';
+  /** Tolérance (lot 5.1) ; absente = cote nominale seule. */
+  tolerance?: DimensionTolerance;
 }
+
+/**
+ * Tolérance d'une cote (lot 5.1) : symétrique (± mm), écarts saisis (mm, signés), classe ISO 286
+ * (« H7 », « g6 ») dont les écarts sont tirés de la norme, ou ajustement alésage / arbre (« H7/g6 »).
+ */
+export type DimensionTolerance =
+  | { kind: 'symetrique'; value: number }
+  | { kind: 'ecarts'; upper: number; lower: number }
+  | { kind: 'classe'; cls: string }
+  | { kind: 'ajustement'; hole: string; shaft: string };
 
 /**
  * Cote par points (lot 2.6), non associative : sa valeur vient de ses points.
@@ -184,7 +198,19 @@ export interface LevelMarkObj extends Base {
   elevation: number;
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj;
+/**
+ * État de surface (lot 5.1) : symbole graphique pointe sur la surface (ISO 21920-1, ex-ISO 1302),
+ * procédé (quelconque, enlèvement de matière exigé ou interdit) et rugosité Ra saisie (µm).
+ */
+export interface RoughnessObj extends Base {
+  kind: 'roughness';
+  x: number; y: number;
+  rotation: number;
+  process: 'quelconque' | 'enlevement' | 'sans-enlevement';
+  ra?: number;
+}
+
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj;
 
 export interface BlockDef {
   id: string;              // identifiant stable BLQ-0001
@@ -304,6 +330,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   north: 'Nord',
   section: 'Repère de coupe',
   levelMark: 'Cote de niveau',
+  roughness: 'État de surface',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -385,6 +412,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'north': return `Nord à ${fmt(obj.rotation)}°`;
     case 'section': return `Coupe ${obj.label} · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'levelMark': return `Niveau ${fmt(obj.elevation / 1000)} m`;
+    case 'roughness': return obj.ra !== undefined ? `Ra ${fmt(obj.ra, 3)} µm` : 'État de surface';
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }
@@ -456,7 +484,23 @@ export function dimensionValue(obj: DimensionObj, objects: CadObject[]): string 
   if (!target) return 'cible absente';
   const measure = dimensionMeasure(obj, target);
   if (!measure) return 'cote non prise en charge';
-  return `${measure.prefix}${fmt(measure.value)} mm`;
+  return `${measure.prefix}${fmt(measure.value)}${toleranceText(obj.tolerance, measure.value)} mm`;
+}
+
+/** Texte de tolérance ajouté à la valeur d'une cote (« ±0,1 », « +0,1/−0,05 », « H7 (+0,021/0) »). */
+export function toleranceText(t: DimensionTolerance | undefined, nominal: number): string {
+  if (!t) return '';
+  const mm = (v: number) => formatDeviation(Math.round(v * 1e6) / 1e3);
+  switch (t.kind) {
+    case 'symetrique': return ` ±${fmt(Math.abs(t.value), 4)}`;
+    case 'ecarts': return ` ${mm(t.upper)}/${mm(t.lower)}`;
+    case 'classe': {
+      const c = parseClass(t.cls);
+      const d = c ? deviations(nominal, c) : null;
+      return d?.ok ? ` ${formatClass(c!)} (${formatDeviation(d.value.upper)}/${formatDeviation(d.value.lower)})` : ` ${t.cls} (non évalué)`;
+    }
+    case 'ajustement': return ` ${t.hole}/${t.shaft}`;
+  }
 }
 
 /** Précision affichée par défaut : deux décimales au plus (la géométrie stockée n'est jamais arrondie). */

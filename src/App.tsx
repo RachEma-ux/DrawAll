@@ -16,7 +16,7 @@ import NotFound from '@/pages/NotFound';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { useProject } from '@/store/project';
-import type { CadObject, DisplayLevel, OpeningObj, PointDimensionMode, PointDimensionObj, SectionMarkObj, ViewReading, WallObj } from '@/types/cad';
+import type { CadObject, DisplayLevel, OpeningObj, PointDimensionMode, PointDimensionObj, RoughnessObj, SectionMarkObj, ViewReading, WallObj } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
@@ -428,8 +428,8 @@ function Workbench() {
   }, [project, flash]);
 
   // Outil Symbole (lot 4.5) : type et valeurs saisis dans le panneau de l'outil.
-  const [symbolParams, setSymbolParams] = useState<{ kind: 'north' | 'section' | 'levelMark'; rotation: string; label: string; flip: boolean; elevation: string }>(
-    { kind: 'north', rotation: '0', label: '', flip: false, elevation: '' },
+  const [symbolParams, setSymbolParams] = useState<{ kind: 'north' | 'section' | 'levelMark' | 'roughness'; rotation: string; label: string; flip: boolean; elevation: string; ra: string; process: RoughnessObj['process'] }>(
+    { kind: 'north', rotation: '0', label: '', flip: false, elevation: '', ra: '', process: 'enlevement' },
   );
   const activeLevel = project.levels.find(l => l.id === project.activeLevelId)!;
   /** Prochain repère de coupe libre : A, B, C… puis A1, B1… */
@@ -442,7 +442,14 @@ function Workbench() {
     if (!layer || layer.locked) { flash('Calque actif verrouillé : symbole non créé.'); return; }
     const num = (v: string) => Number(v.trim().replace(',', '.'));
     const base = { classification: 'architecture' as const, layerId: layer.id, hatch: 'none' as const };
-    if (symbolParams.kind === 'north') {
+    if (symbolParams.kind === 'roughness') {
+      // État de surface : rugosité facultative ; une valeur saisie doit être un nombre positif.
+      const ra = symbolParams.ra.trim() === '' ? undefined : num(symbolParams.ra);
+      if (ra !== undefined && !(ra > 0)) { flash('Rugosité Ra illisible : saisir un nombre de µm, par exemple 3,2.'); return; }
+      const rotation = num(symbolParams.rotation || '0');
+      if (!Number.isFinite(rotation)) { flash('Angle illisible.'); return; }
+      project.addObject({ ...base, classification: 'mecanique', kind: 'roughness', x: points[0], y: points[1], rotation, process: symbolParams.process, ...(ra !== undefined ? { ra } : {}) }, 'État de surface');
+    } else if (symbolParams.kind === 'north') {
       const rotation = num(symbolParams.rotation || '0');
       if (!Number.isFinite(rotation)) { flash('Angle du nord illisible.'); return; }
       project.addObject({ ...base, kind: 'north', x: points[0], y: points[1], rotation }, 'Nord');
@@ -948,7 +955,7 @@ function Workbench() {
                  tool === 'room' ? 'Pièce : touchez l’intérieur d’une pièce fermée par des murs, puis nommez-la' :
                  tool === 'opening' ? 'Ouverture : touchez un mur à l’endroit du centre de la baie' :
                  tool === 'wall' ? 'Mur : cliquez les points successifs (un mur par segment), puis Entrée ou Terminer' :
-                 tool === 'symbol' ? (symbolParams.kind === 'section' ? 'Repère de coupe : cliquez le début puis la fin de la trace ; la vue regarde à gauche du trait (« Inverser » pour l’autre côté)' : symbolParams.kind === 'north' ? 'Nord : cliquez l’emplacement du symbole' : 'Cote de niveau : cliquez le point ; l’altitude saisie est affichée') :
+                 tool === 'symbol' ? (symbolParams.kind === 'roughness' ? 'État de surface : cliquez le point de la surface (pointe du symbole)' : symbolParams.kind === 'section' ? 'Repère de coupe : cliquez le début puis la fin de la trace ; la vue regarde à gauche du trait (« Inverser » pour l’autre côté)' : symbolParams.kind === 'north' ? 'Nord : cliquez l’emplacement du symbole' : 'Cote de niveau : cliquez le point ; l’altitude saisie est affichée') :
                  tool === 'pdim' ? 'Cote par points : désignez les points (angulaire : sommet puis deux branches ; niveau : un point), puis Terminer' :
                  tool === 'area' ? 'Aire : cliquez les sommets du contour, puis Entrée ou Terminer' :
                  tool === 'fillet' ? 'Congé : cliquez la première ligne puis la seconde, du côté à conserver' :
@@ -1132,10 +1139,26 @@ function Workbench() {
                     <option value="north">Nord</option>
                     <option value="section">Repère de coupe</option>
                     <option value="levelMark">Cote de niveau</option>
+                    <option value="roughness">État de surface</option>
                   </select>
-                  {symbolParams.kind === 'north' && (
+                  {symbolParams.kind === 'roughness' && (
+                    <>
+                      <select aria-label="Procédé de la surface" value={symbolParams.process} onChange={e => setSymbolParams(p => ({ ...p, process: e.target.value as RoughnessObj['process'] }))}
+                        className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                        <option value="enlevement">Enlèvement de matière exigé</option>
+                        <option value="sans-enlevement">Enlèvement interdit</option>
+                        <option value="quelconque">Procédé quelconque</option>
+                      </select>
+                      <label className="flex items-center gap-1">Ra
+                        <input aria-label="Rugosité Ra (µm)" inputMode="decimal" value={symbolParams.ra} placeholder="—"
+                          onChange={e => setSymbolParams(p => ({ ...p, ra: e.target.value }))}
+                          className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> µm
+                      </label>
+                    </>
+                  )}
+                  {(symbolParams.kind === 'north' || symbolParams.kind === 'roughness') && (
                     <label className="flex items-center gap-1">Angle
-                      <input aria-label="Angle du nord (degrés)" inputMode="decimal" value={symbolParams.rotation}
+                      <input aria-label={symbolParams.kind === 'north' ? 'Angle du nord (degrés)' : 'Angle du symbole (degrés)'} inputMode="decimal" value={symbolParams.rotation}
                         onChange={e => setSymbolParams(p => ({ ...p, rotation: e.target.value }))}
                         className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> °
                     </label>

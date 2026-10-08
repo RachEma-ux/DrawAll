@@ -1,11 +1,12 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
-import type { BlockDef, CadObject, Classification, DimensionStyle, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ViewReading, WallObj } from '@/types/cad';
+import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ViewReading, WallObj } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
 import { formatLevel, pdimValues } from '@/lib/pdim';
 import { containedContours, hatchParamsOf } from '@/lib/hatch';
 import { openingFits } from '@/lib/opening';
+import { deviations, fit, formatDeviation, parseClass } from '@/lib/iso286';
 import { SURFACE_RULES, areaM2, detectRoom, formatM2, type SurfaceRule } from '@/lib/rooms';
 import { MATERIALS, effectiveHatch, materialById, profileById, type DrawingProfile } from '@/lib/materials';
 import { formatArea, formatLength, type DisplayUnit } from '@/lib/input';
@@ -13,6 +14,7 @@ import {
   canHatch,
   CLASSIFICATION_META,
   DIMENSION_LABEL,
+  dimensionMeasure,
   dimensionOf,
   dimensionValue,
   effectiveDimensionStyle,
@@ -343,6 +345,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
                 </div>
               )}
               <p className="mt-1 font-mono text-[9px] text-muted-foreground">Cible : {obj.targetId} · valeur recalculée automatiquement.</p>
+              {target && <ToleranceEditor obj={obj} nominal={dimensionMeasure(obj, target)?.value ?? null} onUpdate={onUpdate} />}
             </div>
           );
         })()}
@@ -398,7 +401,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           );
         })()}
 
-        {(obj.kind === 'north' || obj.kind === 'section' || obj.kind === 'levelMark') && (() => {
+        {(obj.kind === 'north' || obj.kind === 'section' || obj.kind === 'levelMark' || obj.kind === 'roughness') && (() => {
           // Symboles (lot 4.5) : valeurs saisies ; nombre décimal à virgule ou point.
           const numInput = (label: string, value: number, apply: (v: number) => void, unit: string) => (
             <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
@@ -413,7 +416,19 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           );
           return (
             <div className="space-y-1.5">
-              <p className="ui-label mb-1.5">{obj.kind === 'north' ? 'Nord' : obj.kind === 'section' ? 'Repère de coupe' : 'Cote de niveau'}</p>
+              <p className="ui-label mb-1.5">{obj.kind === 'north' ? 'Nord' : obj.kind === 'section' ? 'Repère de coupe' : obj.kind === 'roughness' ? 'État de surface' : 'Cote de niveau'}</p>
+              {obj.kind === 'roughness' && (
+                <>
+                  <select aria-label="Procédé de la surface" value={obj.process} onChange={e => onUpdate(obj.id, { process: e.target.value as typeof obj.process }, 'État de surface : procédé')}
+                    className="w-full rounded-sm border border-input bg-background px-1.5 py-1 text-xs">
+                    <option value="enlevement">Enlèvement de matière exigé</option>
+                    <option value="sans-enlevement">Enlèvement interdit</option>
+                    <option value="quelconque">Procédé quelconque</option>
+                  </select>
+                  {numInput('Rugosité Ra', obj.ra ?? 0, v => onUpdate(obj.id, v > 0 ? { ra: v } : { ra: undefined }, 'État de surface : rugosité'), 'µm')}
+                  {numInput('Angle du symbole', obj.rotation, v => onUpdate(obj.id, { rotation: v }, 'Orienter l’état de surface'), '°')}
+                </>
+              )}
               {obj.kind === 'north' && numInput('Angle du nord', obj.rotation, v => onUpdate(obj.id, { rotation: v }, 'Orienter le nord'), '°')}
               {obj.kind === 'levelMark' && numInput('Altitude', obj.elevation / 1000, v => onUpdate(obj.id, { elevation: Math.round(v * 1000) }, 'Cote de niveau : altitude'), 'm')}
               {obj.kind === 'section' && (
@@ -606,6 +621,77 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           La suppression crée une microversion — réversible via l'historique.
         </p>
       </div>
+    </div>
+  );
+}
+
+/** Tolérance d'une cote (lot 5.1) : ±, écarts saisis, classe ISO 286 ou ajustement alésage / arbre. */
+function ToleranceEditor({ obj, nominal, onUpdate }: { obj: DimensionObj; nominal: number | null; onUpdate: (id: string, patch: Partial<CadObject>, label?: string) => void }) {
+  const t = obj.tolerance;
+  const kind = t?.kind ?? 'aucune';
+  const num = (v: string) => Number(v.trim().replace(',', '.').replace('−', '-'));
+  const field = (label: string, value: string, apply: (v: string) => void, width = 'w-20') => (
+    <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+      {label}
+      <input key={`${obj.id}-${label}-${value}`} aria-label={`Tolérance — ${label}`} defaultValue={value}
+        onBlur={e => { if (e.target.value.trim() !== value) apply(e.target.value); }}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        className={`${width} rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs`} />
+    </label>
+  );
+  const set = (tol: DimensionTolerance | undefined, label: string) => onUpdate(obj.id, { tolerance: tol }, label);
+  const choose = (k: string) => {
+    if (k === 'aucune') set(undefined, 'Cote sans tolérance');
+    else if (k === 'symetrique') set({ kind: 'symetrique', value: 0.1 }, 'Tolérance ±');
+    else if (k === 'ecarts') set({ kind: 'ecarts', upper: 0.1, lower: 0 }, 'Tolérance par écarts');
+    else if (k === 'classe') set({ kind: 'classe', cls: 'H7' }, 'Tolérance ISO 286');
+    else set({ kind: 'ajustement', hole: 'H7', shaft: 'g6' }, 'Ajustement ISO 286');
+  };
+  const iso = (() => {
+    if (nominal === null || !t) return null;
+    if (t.kind === 'classe') {
+      const c = parseClass(t.cls);
+      const d = c ? deviations(nominal, c) : { ok: false as const, error: `Classe illisible : « ${t.cls} ».` };
+      return d.ok ? `Écarts ${formatDeviation(d.value.upper)} / ${formatDeviation(d.value.lower)} mm (IT${c!.grade})` : d.error;
+    }
+    if (t.kind === 'ajustement') {
+      const f = fit(nominal, t.hole, t.shaft);
+      if (!f.ok) return f.error;
+      const v = f.value;
+      const nature = v.type === 'jeu' ? 'avec jeu' : v.type === 'serrage' ? 'avec serrage' : 'incertain';
+      return `Alésage ${formatDeviation(v.hole.upper)} / ${formatDeviation(v.hole.lower)} · arbre ${formatDeviation(v.shaft.upper)} / ${formatDeviation(v.shaft.lower)} mm — ajustement ${nature} : jeu de ${formatDeviation(v.minClearance)} à ${formatDeviation(v.maxClearance)} mm`;
+    }
+    return null;
+  })();
+  return (
+    <div className="mt-2 space-y-1.5 border-t border-border/50 pt-2">
+      <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        Tolérance
+        <select aria-label="Tolérance de la cote" value={kind} onChange={e => choose(e.target.value)}
+          className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs">
+          <option value="aucune">Aucune</option>
+          <option value="symetrique">± symétrique</option>
+          <option value="ecarts">Écarts supérieur / inférieur</option>
+          <option value="classe">Classe ISO 286</option>
+          <option value="ajustement">Ajustement ISO 286</option>
+        </select>
+      </label>
+      {t?.kind === 'symetrique' && field('± (mm)', String(t.value).replace('.', ','), v => { const n = num(v); if (n > 0) set({ kind: 'symetrique', value: n }, 'Tolérance ±'); })}
+      {t?.kind === 'ecarts' && (
+        <>
+          {field('Écart supérieur (mm)', String(t.upper).replace('.', ','), v => { const n = num(v); if (Number.isFinite(n) && n > t.lower) set({ ...t, upper: n }, 'Écart supérieur'); })}
+          {field('Écart inférieur (mm)', String(t.lower).replace('.', ','), v => { const n = num(v); if (Number.isFinite(n) && n < t.upper) set({ ...t, lower: n }, 'Écart inférieur'); })}
+        </>
+      )}
+      {t?.kind === 'classe' && field('Classe (H7, g6…)', t.cls, v => set({ kind: 'classe', cls: v.trim() }, 'Classe ISO 286'), 'w-16')}
+      {t?.kind === 'ajustement' && (
+        <>
+          {field('Alésage (H7…)', t.hole, v => set({ ...t, hole: v.trim() }, 'Ajustement : alésage'), 'w-16')}
+          {field('Arbre (g6…)', t.shaft, v => set({ ...t, shaft: v.trim() }, 'Ajustement : arbre'), 'w-16')}
+        </>
+      )}
+      {iso && <p data-testid="tolerance-iso" className="font-mono text-[10px] leading-relaxed text-foreground/80">{iso}</p>}
+      {(t?.kind === 'classe' || t?.kind === 'ajustement') && <p className="font-mono text-[9px] text-muted-foreground">ISO 286-1 : tailles jusqu’à 500 mm ; positions d à p (arbres), D à P (alésages).</p>}
     </div>
   );
 }

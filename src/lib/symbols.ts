@@ -2,7 +2,7 @@
 // papier (mm papier) : la géométrie est calculée dans le modèle pour un facteur `u` = mm du modèle
 // par mm papier (échelle de la fenêtre, ou zoom de l'écran). Fonctions pures, repère Y vers le bas,
 // angles positifs dans le sens antihoraire à l'écran (comme le DXF).
-import type { LevelMarkObj, NorthObj, SectionMarkObj } from '@/types/cad';
+import type { LevelMarkObj, NorthObj, RoughnessObj, SectionMarkObj } from '@/types/cad';
 import { formatElevation } from '@/lib/levels';
 
 export interface Pt { x: number; y: number }
@@ -21,6 +21,8 @@ export const SYMBOL_PAPER = {
   northRadius: 6, northText: 3.5,
   sectionEnd: 6, sectionArrow: 4, sectionText: 5,
   levelTriangle: 3, levelText: 2.5, levelLine: 14,
+  // État de surface pour une écriture de 3,5 mm : H1 = 1,4 h = 5 mm, H2 = 3 h = 10,5 mm.
+  roughText: 3.5, roughH1: 5, roughH2: 10.5, roughLine: 14,
 } as const;
 
 const empty = (): SymbolGeometry => ({ lines: [], fills: [], circles: [], texts: [] });
@@ -89,8 +91,31 @@ export function levelMarkGeometry(o: Pick<LevelMarkObj, 'x' | 'y' | 'elevation'>
   return g;
 }
 
-export type SymbolObject = NorthObj | SectionMarkObj | LevelMarkObj;
-export const isSymbol = (o: { kind: string }): o is SymbolObject => o.kind === 'north' || o.kind === 'section' || o.kind === 'levelMark';
+/** Rugosité affichée : « Ra 3,2 ». */
+export const roughnessText = (ra: number) => `Ra ${ra.toLocaleString('fr-FR', { maximumFractionDigits: 3 })}`;
+
+/**
+ * État de surface : deux traits inégaux inclinés à 60° depuis la pointe (posée sur la surface),
+ * barre fermant le trait court si l'enlèvement de matière est exigé, cercle inscrit s'il est
+ * interdit ; trait d'appui et exigence (« Ra 3,2 ») sous ce trait quand une rugosité est donnée.
+ */
+export function roughnessGeometry(o: Pick<RoughnessObj, 'x' | 'y' | 'rotation' | 'process' | 'ra'>, u: number): SymbolGeometry {
+  const g = empty();
+  const S = SYMBOL_PAPER, k = 1 / Math.tan(Math.PI / 3);
+  const p = place({ x: o.x, y: o.y }, o.rotation ?? 0, u);
+  const tip = p(0, 0), shortEnd = p(-S.roughH1 * k, -S.roughH1), longEnd = p(S.roughH2 * k, -S.roughH2);
+  g.lines.push({ a: tip, b: shortEnd, weight: 'fin' }, { a: tip, b: longEnd, weight: 'fin' });
+  if (o.process === 'enlevement') g.lines.push({ a: shortEnd, b: p(S.roughH1 * k, -S.roughH1), weight: 'fin' });
+  if (o.process === 'sans-enlevement') g.circles.push({ c: p(0, -S.roughH1 / 3), r: (S.roughH1 / 3) * u });
+  if (o.ra !== undefined) {
+    g.lines.push({ a: longEnd, b: p(S.roughH2 * k + S.roughLine, -S.roughH2), weight: 'fin' });
+    g.texts.push({ at: p(S.roughH2 * k + 0.8, -S.roughH2 + S.roughText + 0.8), text: roughnessText(o.ra), height: S.roughText * u, anchor: 'start' });
+  }
+  return g;
+}
+
+export type SymbolObject = NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj;
+export const isSymbol = (o: { kind: string }): o is SymbolObject => o.kind === 'north' || o.kind === 'section' || o.kind === 'levelMark' || o.kind === 'roughness';
 
 /** Géométrie d'un symbole pour `u` mm du modèle par mm papier (null : symbole dégénéré). */
 export function symbolGeometry(o: SymbolObject, u: number): SymbolGeometry | null {
@@ -98,6 +123,7 @@ export function symbolGeometry(o: SymbolObject, u: number): SymbolGeometry | nul
     case 'north': return northGeometry(o, u);
     case 'section': return sectionGeometry(o, u);
     case 'levelMark': return levelMarkGeometry(o, u);
+    case 'roughness': return roughnessGeometry(o, u);
   }
 }
 
