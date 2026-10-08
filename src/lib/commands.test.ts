@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CadObject, MicroVersion } from '@/types/cad';
 import { polarArray, rectangularArray } from './array';
 import { KIND_LABEL } from '@/types/cad';
-import { applyTransform, OBJECT_SPEC_KINDS, decodeArgs, encodeArgs, validateCommand, versionDigest } from './commands';
+import { applyTransform, OBJECT_SPEC_KINDS, SCRIPT_COMMANDS, decodeArgs, scriptCommandError, encodeArgs, validateCommand, versionDigest } from './commands';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const line = { ...base, id: 'OBJ-0001', name: 'L', kind: 'line', x1: 0, y1: 0, x2: 100, y2: 0 } as CadObject;
@@ -37,7 +37,12 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('addObject', [{ kind: 'licorne' }], [])).toBe('type d’objet inconnu « licorne »');
     expect(validateCommand('addObject', [{ kind: 'toString' }], [])).toBe('type d’objet inconnu « toString »');
     expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0009' }], [], [{ id: 'LAY-0001' }])).toBe('objet à créer : calque LAY-0009 absent');
-    expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0001', x: 0, y: 0, section: 'rect' }], [], [{ id: 'LAY-0001' }])).toBeNull();
+    expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0001', x: 0, y: 0, section: 'rect', b: 300, h: 300 }], [], [{ id: 'LAY-0001' }])).toBeNull();
+    // Dimensions exigées selon la section du poteau.
+    expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'rect' }], [])).toBe('poteau rectangulaire : b et h positifs attendus');
+    expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'rect', b: 300, h: 0 }], [])).toBe('poteau rectangulaire : b et h positifs attendus');
+    expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'circle', b: 300, h: 300 }], [])).toBe('poteau circulaire : diamètre d positif attendu');
+    expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'circle', d: 400 }], [])).toBeNull();
     // Objet complet exigé : un solide sans recette, une ligne sans extrémité, des points invalides sont refusés.
     expect(validateCommand('addObject', [{ kind: 'solid', layerId: 'LAY-0001' }], [], [{ id: 'LAY-0001' }])).toBe('solide : recette attendue');
     expect(validateCommand('addObject', [{ kind: 'line', x1: 0, y1: 0, x2: 1 }], [])).toBe('line : y2 numérique fini attendu');
@@ -45,6 +50,15 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('addObject', [{ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } }], [])).toBeNull();
     expect(validateCommand('addLevel', ['R+1', 'haut'], [])).toBe('nom et altitude attendus');
     expect(validateCommand('transformObjects', [['OBJ-0001'], (o: CadObject) => o], [line])).toBe('fonction en argument : utiliser une commande déclarative');
+  });
+
+  it('scripts : seules les commandes entièrement validées sont ouvertes', () => {
+    expect(scriptCommandError('addObject')).toBeNull();
+    expect(scriptCommandError('undo')).toBeNull();
+    expect(scriptCommandError('addSolids')).toBe('commande non ouverte aux scripts « addSolids »');
+    expect(scriptCommandError('toString')).toBe('commande non ouverte aux scripts « toString »');
+    expect(SCRIPT_COMMANDS).toEqual(expect.arrayContaining(['addObject', 'updateObject', 'removeObjects', 'transform', 'addLevel', 'setActiveLevelId']));
+    expect(validateCommand('undo', [{ type: 'click' }], [])).toBe('annuler : sans argument');
   });
 
   it('chaque type d’objet a sa fiche de validation ; mise à jour validée sur l’objet résultant', () => {

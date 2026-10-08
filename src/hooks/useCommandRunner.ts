@@ -20,8 +20,9 @@ export function useCommandRunner(project: Project) {
   const exec = useCallback(async (type: string, args: unknown[]) => {
     const rendered = new Promise<void>(r => { waiters.current.push(r); });
     const r = projectRef.current.execute(type, args);
-    // Une commande acceptée ou refusée est journalisée : un rendu suit ; une commande inconnue, non.
-    if (r.ok || !r.error.startsWith('commande inconnue')) await rendered;
+    // Une commande acceptée ou refusée est journalisée : un rendu suit ; une commande inconnue ou
+    // non ouverte aux scripts, non.
+    if (r.ok || !/^commande (inconnue|non ouverte)/.test(r.error)) await rendered;
     if (!r.ok) throw new Error(r.error);
     return r.result;
   }, []);

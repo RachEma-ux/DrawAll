@@ -18,7 +18,7 @@ describe('assistant à boucle contrôlée (lot 18.3) — générateur simulé', 
     expect(ok.errors).toEqual([]);
     expect(ok.added.map(o => o.id)).toEqual(['PROP-0001', 'PROP-0002']);
     expect(ok.objects).toHaveLength(3);
-    expect(dryRun(bad.steps, ctx).errors).toEqual(['opération 2 (addObject) : Poteau : largeur et profondeur positives attendues.']);
+    expect(dryRun(bad.steps, ctx).errors).toEqual(['opération 2 (addObject) : poteau rectangulaire : b et h positifs attendus']);
     expect(dryRun([column(0, { layerId: 'LAY-0002' })], ctx).errors).toEqual(['opération 1 (addObject) : calque Figé verrouillé']);
     expect(dryRun([column(0, { layerId: 'LAY-0009' })], ctx).errors[0]).toContain('calque LAY-0009 absent');
     expect(dryRun([{ type: 'reset', args: [] }], ctx).errors).toEqual(['opération 1 (reset) : commande non permise à l’assistant']);
@@ -49,7 +49,7 @@ describe('assistant à boucle contrôlée (lot 18.3) — générateur simulé', 
     if (r.status !== 'ready') return;
     expect(r.corrections).toBe(1);
     expect(r.attempts.map(a => a.errors.length)).toEqual([1, 0]);
-    expect(gen.calls[1]).toMatchObject({ attempt: 1, feedback: ['opération 2 (addObject) : Poteau : largeur et profondeur positives attendues.'] });
+    expect(gen.calls[1]).toMatchObject({ attempt: 1, feedback: ['opération 2 (addObject) : poteau rectangulaire : b et h positifs attendus'] });
   });
 
   it('trois corrections au plus : au-delà, échec, rien n’est proposé à l’exécution', async () => {
@@ -58,7 +58,7 @@ describe('assistant à boucle contrôlée (lot 18.3) — générateur simulé', 
     expect(r.status).toBe('failed');
     expect(gen.calls).toHaveLength(1 + MAX_CORRECTIONS);
     expect(gen.calls.map(c => c.attempt)).toEqual([0, 1, 2, 3]);
-    if (r.status === 'failed') expect(r.errors[0]).toContain('Poteau');
+    if (r.status === 'failed') expect(r.errors[0]).toContain('poteau rectangulaire');
   });
 
   it('questions : la demande ne suffit pas, aucune opération, aucune valeur inventée', async () => {

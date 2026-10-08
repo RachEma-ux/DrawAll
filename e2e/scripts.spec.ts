@@ -65,12 +65,25 @@ test('lot 18.2 — un script fautif n’abîme rien ; le script n’a accès ni 
   await expect(dlg).toContainText('délai de 1 s dépassé');
   await expect.poll(() => currentObjects(page)).toEqual(before);
 
-  // Arrêt à la main.
+  // Commande non ouverte aux scripts (arguments non entièrement validés) : refusée, annulation.
+  dlg = await runCode(page, `${add(0)}\nawait drawall.execute('addSolids', [{ name: 'x' }], 'x');`, 'annule');
+  await expect(dlg).toContainText('commande non ouverte aux scripts « addSolids »');
+  await expect.poll(() => currentObjects(page)).toEqual(before);
+
+  // Arrêt à la main ; pendant l'exécution l'atelier est gelé : ni raccourci ni clic ne le modifient,
+  // et l'annulation ne peut rien perdre d'autre que l'œuvre du script.
   await dlg.getByLabel('Délai (s)').fill('30');
   await dlg.getByLabel('Code du script').fill(`${add(0)}\nawait new Promise(() => {});`);
   await dlg.getByRole('button', { name: 'Exécuter' }).click();
   await expect.poll(async () => (await currentObjects(page)).length).toBe(before.length + 1);
+  await expect(page.getByTestId('atelier-gele')).toBeVisible();
+  await page.locator('body').focus();
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+k');
+  await expect(page.getByPlaceholder(/Rechercher un outil/)).toHaveCount(0);
+  expect((await currentObjects(page)).length).toBe(before.length + 1);
   await dlg.getByRole('button', { name: 'Arrêter' }).click();
+  await expect(page.getByTestId('atelier-gele')).toHaveCount(0);
   await expect(dlg.getByRole('log', { name: 'Sortie du script' })).toHaveAttribute('data-script', 'annule');
   await expect.poll(() => currentObjects(page)).toEqual(before);
 

@@ -4,6 +4,7 @@
 // décision (exécutée, rejetée, échec) est inscrite au journal des hypothèses.
 import { useMemo, useRef, useState } from 'react';
 import { ObjectShape } from '@/components/CanvasView';
+import ExclusiveRun from '@/components/ExclusiveRun';
 import { useCommandRunner, type Project } from '@/hooks/useCommandRunner';
 import { controlledLoop, type Generator, type LoopResult, type Proposal } from '@/lib/assistant/loop';
 import { localGenerator } from '@/lib/assistant/local-generator';
@@ -38,6 +39,7 @@ export default function AssistantPanel({ project, onClose, generator = localGene
   const [busy, setBusy] = useState<'proposer' | 'executer' | null>(null);
   const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
   const cache = useRef(new Map<string, Proposal>());
+  const panelRef = useRef<HTMLDivElement>(null);
   const { projectRef, exec } = useCommandRunner(project);
 
   const propose = async () => {
@@ -78,7 +80,9 @@ export default function AssistantPanel({ project, onClose, generator = localGene
   };
 
   return (
-    <div role="dialog" aria-label="Assistant" className="fixed inset-x-3 top-16 z-50 mx-auto flex max-h-[80vh] max-w-xl flex-col gap-2 overflow-y-auto rounded-md border border-border bg-[#0c1220] p-3 font-mono text-[12px] text-muted-foreground shadow-2xl">
+    <>
+    <ExclusiveRun active={busy === 'executer'} within={panelRef} />
+    <div ref={panelRef} role="dialog" aria-label="Assistant" className="fixed inset-x-3 top-16 z-[70] mx-auto flex max-h-[80vh] max-w-xl flex-col gap-2 overflow-y-auto rounded-md border border-border bg-[#0c1220] p-3 font-mono text-[12px] text-muted-foreground shadow-2xl">
       <div className="flex items-center justify-between">
         <h2 className="text-sm text-foreground">Assistant</h2>
         <button type="button" onClick={onClose} aria-label="Fermer l’assistant" className="rounded-sm px-2 py-0.5 hover:text-foreground">×</button>
@@ -139,5 +143,6 @@ export default function AssistantPanel({ project, onClose, generator = localGene
         </ol>
       </details>
     </div>
+    </>
   );
 }

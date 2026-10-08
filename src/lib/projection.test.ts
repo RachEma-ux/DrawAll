@@ -64,6 +64,22 @@ describe('vues projetées : cadre, cache, placement (lot 16.1)', () => {
     ]);
   });
 
+  it('un export attend le calcul déjà en cours de la même vue (cache rempli au retour)', async () => {
+    const r4: SolidRecipe = { op: 'box', x: 9, y: 9, z: 9 };
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const compute = vi.fn(async () => { await gate; return faceLines; });
+    void requestProjection(r4, 'face', compute);
+    let done = false;
+    const exported = ensureProjections([{ ...solid, recipe: r4 }, proj('face')], compute).then(() => { done = true; });
+    await Promise.resolve(); await Promise.resolve();
+    expect(done).toBe(false);
+    release();
+    await exported;
+    expect(compute).toHaveBeenCalledTimes(1);
+    expect(cachedProjection(r4, 'face')).toEqual({ lines: faceLines });
+  });
+
   it('objet : parent = solide, déplacement libre, emprise = cadre, libellé', () => {
     expect(parentOf(proj('face'))).toBe('OBJ-0001');
     expect(moveObject(proj('face'), 5, 6)).toEqual({ x: 505, y: 6 });

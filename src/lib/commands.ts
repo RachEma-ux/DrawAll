@@ -41,6 +41,7 @@ export interface Journal {
 
 const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
 const str = (v: unknown) => typeof v === 'string' && v.length > 0;
+const positive = (v: unknown) => finite(v) && (v as number) > 0;
 const strs = (v: unknown) => Array.isArray(v) && v.every(str);
 
 function transformError(op: unknown): string | null {
@@ -79,7 +80,11 @@ const SPECS: Record<string, Spec> = {
   room: { nums: ['x', 'y'] },
   slab: { nums: ['thickness'], points: 3 },
   roof: { nums: ['x', 'y', 'w', 'h', 'pitch', 'overhang'] },
-  column: { nums: ['x', 'y'], enums: { section: ['rect', 'circle'] } },
+  column: {
+    nums: ['x', 'y'], enums: { section: ['rect', 'circle'] },
+    // Dimensions selon la section : b × h pour un poteau rectangulaire, d pour un poteau circulaire.
+    extra: o => (o.section === 'rect' ? (positive(o.b) && positive(o.h) ? null : 'poteau rectangulaire : b et h positifs attendus') : positive(o.d) ? null : 'poteau circulaire : diamètre d positif attendu'),
+  },
   beam: { nums: ['x1', 'y1', 'x2', 'y2', 'b', 'h'] },
   solid: { extra: o => (isRecipe(o.recipe) ? null : 'solide : recette attendue') },
   occurrence: { nums: ['x', 'y', 'z', 'angle'], strs: ['sourceId'] },
@@ -114,7 +119,11 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
 /** Toutes les fiches existent (vérifié par les tests) : chaque type connu est validé. */
 export const OBJECT_SPEC_KINDS = Object.keys(SPECS);
 
-/** Validateurs propres à certaines commandes (les autres : arguments sérialisables). */
+/**
+ * Validateurs propres à certaines commandes (les autres : arguments sérialisables). Seules les
+ * commandes validées ici sont ouvertes aux scripts et à l'assistant (`scriptCommandError`) :
+ * l'interface ne passe que des arguments bien formés, un script peut passer n'importe quoi.
+ */
 const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string> }) => string | null> = {
   addObject: ([o], { layerIds }) => {
     const n = o as { kind?: unknown; layerId?: unknown } | null;
@@ -144,7 +153,19 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; obje
   addLayer: ([name]) => (str(name) ? null : 'nom de calque attendu'),
   addLevel: ([name, elevation]) => (str(name) && finite(elevation) ? null : 'nom et altitude attendus'),
   goTo: ([index]) => (Number.isInteger(index) && (index as number) >= 0 ? null : 'rang de version attendu'),
+  setActiveLayerId: ([id]) => (str(id) ? null : 'identifiant de calque attendu'),
+  setActiveLevelId: ([id]) => (str(id) ? null : 'identifiant de niveau attendu'),
+  nameVersion: ([name]) => (str(name) ? null : 'nom de version attendu'),
+  undo: args => (args.length === 0 ? null : 'annuler : sans argument'),
+  redo: args => (args.length === 0 ? null : 'rétablir : sans argument'),
 };
+
+/** Commandes ouvertes aux scripts et à l'assistant : celles dont les arguments sont entièrement validés. */
+export const SCRIPT_COMMANDS = Object.keys(VALIDATORS);
+
+/** Refus d'une commande non ouverte aux scripts (sans validation complète de ses arguments). */
+export const scriptCommandError = (type: string): string | null =>
+  Object.prototype.hasOwnProperty.call(VALIDATORS, type) ? null : `commande non ouverte aux scripts « ${type} »`;
 
 /**
  * Encodage JSON des arguments : `undefined` (champ retiré, argument facultatif) et `Map` gardés

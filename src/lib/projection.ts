@@ -11,7 +11,7 @@ export const VIEW_LABEL: Record<ProjView, string> = { dessus: 'Vue de dessus', f
 
 type Entry = { lines: ProjLines } | { error: string };
 const cache = new Map<string, Entry>();
-const pending = new Set<string>();
+const pending = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 let version = 0;
 
@@ -26,10 +26,14 @@ export function requestProjection(recipe: SolidRecipe, view: ProjView, compute: 
 }
 
 function requestKey(key: string, compute: () => Promise<ProjLines>): Promise<void> {
-  if (cache.has(key) || pending.has(key)) return Promise.resolve();
-  pending.add(key);
-  return compute().then(lines => { cache.set(key, { lines }); }, e => { cache.set(key, { error: e instanceof Error ? e.message : String(e) }); })
+  if (cache.has(key)) return Promise.resolve();
+  // Un calcul déjà en cours est partagé : chaque demandeur attend que le cache soit rempli.
+  const running = pending.get(key);
+  if (running) return running;
+  const p = compute().then(lines => { cache.set(key, { lines }); }, e => { cache.set(key, { error: e instanceof Error ? e.message : String(e) }); })
     .finally(() => { pending.delete(key); version++; for (const l of listeners) l(); });
+  pending.set(key, p);
+  return p;
 }
 
 /** Cadre de la vue dans son repère 2D (x, y du plan), d'après l'encombrement de la recette. */

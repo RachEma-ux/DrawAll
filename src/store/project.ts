@@ -56,7 +56,7 @@ import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications } from '@/lib/publication';
-import { applyTransform, decodeArgs, encodeArgs, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
+import { applyTransform, decodeArgs, encodeArgs, scriptCommandError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
 import { MATE_LABEL, isMate, placeMate, resolveMates, type Mate } from '@/lib/assembly';
 import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
 import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
@@ -1622,6 +1622,9 @@ export function useProject() {
   /** Exécution d'une commande par son nom (scripts, lot 18.2) : refus en clair, jamais d'exception. */
   const execute = (type: string, args: unknown[]): { ok: true; result: unknown } | { ok: false; error: string } => {
     if (!(type in commands)) return { ok: false, error: `commande inconnue « ${type} »` };
+    // Une commande dont les arguments ne sont pas entièrement validés reste réservée à l'interface.
+    const closed = scriptCommandError(type);
+    if (closed) return { ok: false, error: closed };
     const err = validateCommand(type, args, allObjects, layers);
     if (err) { record(type, [], err); return { ok: false, error: `${type} : ${err}` }; }
     return { ok: true, result: (commands[type as CommandName] as (...a: unknown[]) => unknown)(...args) };

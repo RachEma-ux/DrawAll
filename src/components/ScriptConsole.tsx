@@ -1,8 +1,10 @@
 // Console de scripts (lot 18.2) : le script s'exécute dans un Worker, sans accès au stockage, et
 // n'agit sur le projet que par l'API de commandes (lot 18.1), une commande à la fois. Un script qui
 // échoue (exception, commande refusée, délai dépassé, arrêt) est annulé en entier : le projet,
-// journal compris, revient à son état d'avant le script.
+// journal compris, revient à son état d'avant le script. Pendant l'exécution l'atelier est gelé,
+// si bien qu'aucune autre modification ne peut se perdre dans cette annulation.
 import { useEffect, useRef, useState } from 'react';
+import ExclusiveRun from '@/components/ExclusiveRun';
 import { useCommandRunner, type Project } from '@/hooks/useCommandRunner';
 import { runScript } from '@/lib/scripts/runner';
 import type { ScriptRequest } from '@/lib/scripts/protocol';
@@ -25,6 +27,7 @@ export default function ScriptConsole({ project, onClose }: { project: Project; 
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<'reussi' | 'annule' | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const { projectRef, exec } = useCommandRunner(project);
   useEffect(() => () => stopRef.current?.(), []);
 
@@ -55,7 +58,9 @@ export default function ScriptConsole({ project, onClose }: { project: Project; 
   };
 
   return (
-    <div role="dialog" aria-label="Console de scripts" className="fixed inset-x-3 top-16 z-50 mx-auto flex max-h-[80vh] max-w-xl flex-col gap-2 overflow-y-auto rounded-md border border-border bg-[#0c1220] p-3 font-mono text-[12px] text-muted-foreground shadow-2xl">
+    <>
+    <ExclusiveRun active={running} within={panelRef} />
+    <div ref={panelRef} role="dialog" aria-label="Console de scripts" className="fixed inset-x-3 top-16 z-[70] mx-auto flex max-h-[80vh] max-w-xl flex-col gap-2 overflow-y-auto rounded-md border border-border bg-[#0c1220] p-3 font-mono text-[12px] text-muted-foreground shadow-2xl">
       <div className="flex items-center justify-between">
         <h2 className="text-sm text-foreground">Console de scripts</h2>
         <button type="button" onClick={onClose} aria-label="Fermer la console" className="rounded-sm px-2 py-0.5 hover:text-foreground">×</button>
@@ -79,5 +84,6 @@ export default function ScriptConsole({ project, onClose }: { project: Project; 
         ))}
       </ol>
     </div>
+    </>
   );
 }
