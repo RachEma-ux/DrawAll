@@ -26,6 +26,7 @@ import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
 import { expandToGroups } from '@/lib/groups';
+import { kernelVolume } from '@/lib/kernel/client';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
@@ -653,6 +654,21 @@ function Workbench() {
     project.applyPatches([{ id: a.id, patch: patchA }, { id: b.id, patch: patchB }], added, mode === 'fillet' ? 'Congé' : 'Chanfrein');
   }, [project, flash, cornerParams]);
 
+  // Essai du noyau 3D (lot 11.2) : chargement à la demande dans un Worker, volume de référence.
+  const kernelTrial = useCallback(async () => {
+    flash('Noyau 3D : chargement…');
+    const t0 = performance.now();
+    try {
+      const { volume, loadMs } = await kernelVolume({ op: 'cut', a: { op: 'box', x: 100, y: 50, z: 20 }, b: { op: 'cylinder', r: 10, h: 40, at: [50, 25, -10] } });
+      const total = Math.round(performance.now() - t0);
+      setKernelResult({ volume, loadMs: Math.round(loadMs), totalMs: total });
+      flash(`Noyau 3D prêt (module chargé en ${Math.round(loadMs)} ms, ${total} ms en tout) — pavé percé : ${volume.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} mm³`);
+    } catch (e) {
+      flash(`Noyau 3D indisponible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [flash]);
+  const [kernelResult, setKernelResult] = useState<{ volume: number; loadMs: number; totalMs: number } | null>(null);
+
   // Groupes (lot 10.5) : désigner un membre sur le dessin désigne tout le groupe.
   const selectWithGroups = useCallback((ids: string[]) => project.setSelectedIds(expandToGroups(project.objects, ids)), [project]);
   const groupSelection = useCallback(() => {
@@ -896,6 +912,7 @@ function Workbench() {
     { id: 'redo', title: 'Rétablir', hint: 'Revenir à la microversion suivante', keywords: ['retablir', 'redo'], run: project.redo },
     { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
+    { id: 'kernel-trial', title: 'Essai du noyau 3D (P0)', hint: 'Charge OCCT (≈ 7 Mo compressés, une fois) et calcule un pavé percé', keywords: ['noyau', '3d', 'occt', 'essai', 'volume', 'p0'], run: () => { void kernelTrial(); } },
     { id: 'edit-group', title: 'Grouper la sélection', hint: 'Les objets forment un groupe (Ctrl+G)', keywords: ['grouper', 'groupe', 'group', 'assembler'], run: groupSelection },
     { id: 'edit-ungroup', title: 'Dégrouper', hint: 'Dissout les groupes de la sélection (Ctrl+Maj+G)', keywords: ['degrouper', 'dégrouper', 'ungroup', 'groupe'], run: ungroupSelection },
     { id: 'edit-dup', title: 'Dupliquer la sélection', hint: 'Copie décalée de 20 mm (Ctrl+D)', keywords: ['dupliquer', 'copier', 'copie', 'duplicate', 'copy'], run: duplicateSelection },
@@ -1549,6 +1566,11 @@ function Workbench() {
             {/* Barre d'état */}
             <div className="flex h-7 shrink-0 items-center gap-4 overflow-x-auto whitespace-nowrap border-t border-border bg-[#0c1220]/90 px-3 font-mono text-[10px] text-muted-foreground">
               {!online && <span data-testid="hors-ligne" className="text-amber-300">Hors ligne — travail conservé sur l’appareil</span>}
+              {kernelResult && (
+                <span data-testid="noyau-3d" data-volume={kernelResult.volume} data-chargement={kernelResult.loadMs} title={`Noyau 3D OCCT chargé en ${kernelResult.loadMs} ms (${kernelResult.totalMs} ms avec le premier calcul)`} className="text-emerald-300">
+                  noyau 3D prêt
+                </span>
+              )}
               {project.storageWarning && <span data-testid="quota" className="text-red-300">{project.storageWarning}</span>}
               <span className="text-cyan-400">
                 {cursor.x === null ? '—' : `X ${showCoord(cursor.x)}`} · {cursor.y === null ? '—' : `Y ${showCoord(cursor.y)}`}

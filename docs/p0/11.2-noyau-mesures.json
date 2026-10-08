@@ -1,0 +1,101 @@
+{
+  "moteur": "Node v22.22.0",
+  "date": "2026-10-08",
+  "paquet": "replicad-opencascadejs 1.1.0 (OCCT, LGPL-2.1) + replicad 1.1.0 (MIT)",
+  "fichierWasmOctets": 22980267,
+  "chargementMs": 254,
+  "memoireApresChargementMo": {
+    "rss": 96.6,
+    "arrayBuffers": 23
+  },
+  "cas": [
+    {
+      "cas": "pavé 100 × 50 × 20",
+      "difficile": false,
+      "attendu": 100000,
+      "obtenu": 99999.99999999997,
+      "ecartRelatif": 2.91e-16,
+      "ms": 28.3
+    },
+    {
+      "cas": "cylindre R 10, h 30",
+      "difficile": false,
+      "attendu": 9424.77796076938,
+      "obtenu": 9424.77796076938,
+      "ecartRelatif": 0,
+      "ms": 2.6
+    },
+    {
+      "cas": "pavé percé de part en part (Ø 20)",
+      "difficile": false,
+      "attendu": 93716.81469282041,
+      "obtenu": 93716.81469282041,
+      "ecartRelatif": 0,
+      "ms": 88
+    },
+    {
+      "cas": "extrusion d’un profil en L",
+      "difficile": false,
+      "attendu": 22500,
+      "obtenu": 22500,
+      "ecartRelatif": 0,
+      "ms": 4.8
+    },
+    {
+      "cas": "révolution d’un rectangle (tube R 10 à 20, h 30)",
+      "difficile": false,
+      "attendu": 28274.333882308136,
+      "obtenu": 28274.333882308143,
+      "ecartRelatif": 2.57e-16,
+      "ms": 7.3
+    },
+    {
+      "cas": "union à face commune (deux pavés accolés)",
+      "difficile": true,
+      "attendu": 100000,
+      "obtenu": 99999.99999999997,
+      "ecartRelatif": 2.91e-16,
+      "ms": 32.5
+    },
+    {
+      "cas": "paroi mince de 0,1 mm",
+      "difficile": true,
+      "attendu": 2994.0040000000736,
+      "obtenu": 2994.00400000003,
+      "ecartRelatif": 1.46e-14,
+      "ms": 20.2
+    },
+    {
+      "cas": "cylindre tangent à une face (contact sur une génératrice)",
+      "difficile": true,
+      "attendu": 106283.18530717959,
+      "obtenu": 106283.18530717958,
+      "ecartRelatif": 1.37e-16,
+      "ms": 29.5
+    },
+    {
+      "cas": "intersection de deux cylindres orthogonaux (Steinmetz, R 10)",
+      "difficile": true,
+      "attendu": 5333.333333333333,
+      "obtenu": 5333.333333396844,
+      "ecartRelatif": 1.19e-11,
+      "ms": 48.3
+    },
+    {
+      "cas": "congé R 5 sur toutes les arêtes d’un pavé 100 × 50 × 20",
+      "difficile": true,
+      "attendu": 96519.17306316257,
+      "obtenu": 96519.17306316257,
+      "ecartRelatif": 0,
+      "ms": 129.7
+    },
+    {
+      "cas": "coque de 2 mm ouverte en haut (pavé 100 × 50 × 20)",
+      "difficile": true,
+      "attendu": 20512,
+      "obtenu": 20511.999999999985,
+      "ecartRelatif": 7.09e-16,
+      "ms": 36.4
+    }
+  ]
+}
