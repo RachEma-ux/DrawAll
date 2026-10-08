@@ -208,3 +208,15 @@ describe('liaisons d’assemblage à la suppression', () => {
     expect((kept[1] as { mate?: unknown }).mate).toEqual({ type: 'coincidence', to: 'B' });
   });
 });
+
+describe('liaisons d’assemblage dans la simulation', () => {
+  it('déplacer une occurrence cible repositionne l’occurrence qui lui est liée, comme à l’enregistrement', () => {
+    const solid = { ...ctx.objects[0], id: 'S', kind: 'solid', recipe: { op: 'box', x: 10, y: 10, z: 10 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const occ = (id: string, x: number, extra: Record<string, unknown> = {}) => ({ ...ctx.objects[0], id, kind: 'occurrence', sourceId: 'S', x, y: 0, z: 0, angle: 0, ...extra }) as unknown as CadObject;
+    const c = { ...ctx, objects: [solid, occ('A', 0), occ('B', 100, { mate: { type: 'fixe', to: 'A', rel: [100, 0, 0, 0] } })] };
+    const r = dryRun([{ type: 'transform', args: [['A'], { kind: 'move', dx: 50, dy: 0 }, 'x'] }], c);
+    expect(r.errors).toEqual([]);
+    expect(r.objects.find(o => o.id === 'B')).toMatchObject({ x: 150, y: 0 });
+    expect(previewDiff(c.objects, r.objects, 'NIV-0001').modified.map(o => o.id).sort()).toEqual(['A', 'B']);
+  });
+});

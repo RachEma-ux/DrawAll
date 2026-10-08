@@ -38,6 +38,15 @@ describe('analyse d’impact (lot 14.3)', () => {
     expect(i.removedWith.map(x => x.id)).toEqual(['C1']);
   });
 
+  it('liaisons d’assemblage : l’occurrence liée est repositionnée (modification) ou perd sa liaison (suppression)', () => {
+    const occ = (id: string, extra: Record<string, unknown> = {}) => ({ ...base, id, name: id, kind: 'occurrence', sourceId: 'S', x: 0, y: 0, z: 0, angle: 0, ...extra }) as unknown as CadObject;
+    const objs = [...objects, occ('A'), occ('B', { mate: { type: 'fixe', to: 'A', rel: [0, 0, 0, 0] } }), occ('C', { mate: { type: 'fixe', to: 'B', rel: [0, 0, 0, 0] } })];
+    expect(impactOf(['A'], 'modification', { ...ctx, objects: objs }).affected.map(x => [x.id, x.reason])).toEqual([['B', 'repositionné par sa liaison à A'], ['C', 'repositionné par sa liaison à B']]);
+    const del = impactOf(['A'], 'suppression', { ...ctx, objects: objs });
+    expect(del.removedWith).toEqual([]);
+    expect(del.affected.map(x => [x.id, x.reason])).toEqual([['B', 'perd sa liaison à A']]);
+  });
+
   it('modification d’un mur : associés suivis, rien d’emporté', () => {
     const i = impactOf(['W1'], 'modification', ctx);
     expect(i.removedWith).toEqual([]);

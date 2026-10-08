@@ -49,6 +49,7 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'rect', x: 0, y: 0, w: 10, h: -5 }], [])).toBe('rect : h positif attendu');
     expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'wall', x1: 0, y1: 0, x2: 1, y2: 0, thickness: 0, justification: 'axe' }], [])).toBe('wall : thickness positif attendu');
     expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'circle', cx: -5, cy: -5, r: 2 }], [])).toBeNull();
+    expect(validateCommand('addObject', [{ classification: 'structure', kind: 'beam', x1: 5, y1: 5, x2: 5, y2: 5, b: 200, h: 400 }], [])).toBe('poutre : deux points distincts attendus');
     // Champs communs : classification connue, hachure permise.
     expect(validateCommand('addObject', [{ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 }], [])).toBe('line : classification parmi non-classifie, architecture, structure, mecanique, electrique attendue');
     expect(validateCommand('addObject', [{ classification: 'licorne', kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 }], [])).toMatch(/^line : classification parmi/);
@@ -79,6 +80,14 @@ describe('API de commandes (lot 18.1)', () => {
     expect(add({ ...occ, sourceId: 'S', mate: { type: 'fixe', to: 'X', rel: [0, 0, 0, 0] } }, [solid])).toBe('occurrence : liaison vers X absente');
     // Liaison incomplète (faces manquantes) : refusée avant toute résolution.
     expect(add({ ...occ, sourceId: 'S', mate: { type: 'coaxiale', to: 'X' } }, [solid])).toBe('occurrence : liaison mal formée (type, faces et cible attendus)');
+    // Liaison vers une pièce (solide défini comme pièce) : permise, comme dans l'atelier ; vers un solide simple : non.
+    const part = { ...solid, id: 'P', partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    expect(add({ ...occ, sourceId: 'P', mate: { type: 'fixe', to: 'P', rel: [0, 0, 0, 0] } }, [part])).toBeNull();
+    expect(add({ ...occ, sourceId: 'S', mate: { type: 'fixe', to: 'S', rel: [0, 0, 0, 0] } }, [solid])).toBe('occurrence : liaison vers S absente');
+    // Pièce rangée dans une zone : la zone doit exister.
+    const PZ = { ...P, zones: [{ id: 'ZON-0001' }] };
+    expect(validateCommand('addObject', [{ classification: 'architecture', layerId: 'LAY-0001', kind: 'room', x: 0, y: 0, zoneId: 'ZON-0009' }], [line], L, PZ)).toBe('room : zone ZON-0009 absente');
+    expect(validateCommand('addObject', [{ classification: 'architecture', layerId: 'LAY-0001', kind: 'room', x: 0, y: 0, zoneId: 'ZON-0001' }], [line], L, PZ)).toBeNull();
     // Jeux de propriétés : forme relue telle quelle seulement.
     const ln = { kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 };
     expect(add({ ...ln, psets: {} })).toBe('line : jeux de propriétés mal formés (nom, propriétés nommées, valeurs texte, nombre ou booléen)');

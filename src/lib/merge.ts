@@ -227,6 +227,17 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
       out.constraints = (out.constraints as Parameters<typeof constraintObjects>[0][]).filter(k => !gone.has(k.id) && !constraintObjects(k).some(r => gone.has(r)));
     }
   }
+  // Rattachements de pièces revus après les choix : une pièce retenue (de l'une ou l'autre variante)
+  // dont la zone n'existe plus dans le résultat reste sans zone, jamais rattachée à une zone absente.
+  if (out.objects) {
+    const zones = new Set(((out.zones as WithId[] | undefined) ?? []).map(z => z.id));
+    out.objects = (out.objects as CadObject[]).map(o => {
+      if (o.kind !== 'room' || !o.zoneId || zones.has(o.zoneId)) return o;
+      const { zoneId: _z, ...rest } = o;
+      void _z;
+      return rest as CadObject;
+    });
+  }
   return out as MergeResult['merged'];
 }
 

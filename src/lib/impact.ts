@@ -77,6 +77,18 @@ export function impactOf(ids: string[], mode: 'suppression' | 'modification', ct
     if (hit) add(o, o.table ? 'tableau recalculé' : 'nomenclature recalculée');
   }
 
+  // Liaisons d'assemblage : une occurrence liée à un objet touché est repositionnée par sa liaison
+  // (de proche en proche) ; si l'objet est supprimé, elle garde sa place et perd sa liaison.
+  const moved = new Set(touched.map(o => o.id));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const o of objects) {
+      if (o.kind !== 'occurrence' || !o.mate || !moved.has(o.mate.to) || seen.has(o.id)) continue;
+      add(o, mode === 'suppression' ? `perd sa liaison à ${o.mate.to}` : `repositionné par sa liaison à ${o.mate.to}`);
+      if (mode === 'modification') { moved.add(o.id); grew = true; }
+    }
+  }
+
   // Contraintes.
   const all = new Set([...touched.map(o => o.id), ...affected.map(a => a.id)]);
   const constraints = (ctx.constraints ?? []).filter(k => constraintObjects(k).some(id => all.has(id))).map(k => k.id);

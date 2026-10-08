@@ -5,6 +5,7 @@
 // hypothèses du générateur sont rendues avec la proposition. Fonctions pures, sauf l'appel au générateur.
 import type { CadObject, Layer } from '@/types/cad';
 import { KIND_LABEL, withDependents, withoutDanglingMates } from '@/types/cad';
+import { resolveMates } from '@/lib/assembly';
 import { onLevel } from '@/lib/levels';
 import { applyTransform, scriptCommandError, validateCommand, type TransformOp } from '@/lib/commands';
 import { beamError, columnError } from '@/lib/structure';
@@ -33,6 +34,7 @@ export interface AssistantContext {
   /** Niveaux et définitions de blocs du projet (références des objets proposés). */
   levels?: { id: string }[];
   blocks?: { id: string }[];
+  zones?: { id: string }[];
 }
 
 export interface GeneratorRequest {
@@ -93,7 +95,7 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
     if (!Array.isArray(s.args)) { errors.push(`${at} : arguments attendus`); return; }
     const closed = scriptCommandError(s.type, s.args);
     if (closed) { errors.push(`${at} : ${closed}`); return; }
-    const err = validateCommand(s.type, s.args, objects, ctx.layers, { levels: ctx.levels, blocks: ctx.blocks });
+    const err = validateCommand(s.type, s.args, objects, ctx.layers, { levels: ctx.levels, blocks: ctx.blocks, zones: ctx.zones });
     if (err) { errors.push(`${at} : ${err}`); return; }
     if (s.type === 'addObject') {
       const o = s.args[0] as Record<string, unknown>;
@@ -125,6 +127,8 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
       if (e) { errors.push(`${at} : ${e}`); return; }
       objects = objects.map(o => (o.id === id ? next : o));
     }
+    // Comme l'enregistrement d'une version : les occurrences liées suivent leur cible.
+    objects = resolveMates(objects).objects;
   });
   return { errors, objects, added };
 }

@@ -86,6 +86,8 @@ export async function canvasPoint(page: Page, fx: number, fy: number) {
 
 /** Remplace le projet local par des objets donnés (projet de démonstration vidé), puis recharge. */
 export async function loadObjects(page: Page, objects: Record<string, unknown>[]) {
+  // Le projet est enregistré peu après l'ouverture : l'attendre avant de le réécrire.
+  await page.waitForFunction(() => localStorage.getItem('drawall-projet-v1') !== null);
   await page.evaluate(objs => {
     const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
     const v = s.versions[s.pointer];

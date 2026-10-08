@@ -91,7 +91,7 @@ const SPECS: Record<string, Spec> = {
     // Dimensions selon la section : b × h pour un poteau rectangulaire, d pour un poteau circulaire.
     extra: o => (o.section === 'rect' ? (positive(o.b) && positive(o.h) ? null : 'poteau rectangulaire : b et h positifs attendus') : positive(o.d) ? null : 'poteau circulaire : diamètre d positif attendu'),
   },
-  beam: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['b', 'h'] },
+  beam: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['b', 'h'], extra: o => (Math.hypot((o.x2 as number) - (o.x1 as number), (o.y2 as number) - (o.y1 as number)) > 0 ? null : 'poutre : deux points distincts attendus') },
   solid: { extra: o => (isRecipe(o.recipe) ? null : 'solide : recette attendue') },
   occurrence: { nums: ['x', 'y', 'z', 'angle'], strs: ['sourceId'] },
   projection: { nums: ['x', 'y'], strs: ['sourceId'], enums: { view: ['dessus', 'face', 'cote'] } },
@@ -134,16 +134,17 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
 /** Type attendu de l'objet désigné, pour les références typées (ouverture → mur, occurrence → pièce…). */
 const REF_KIND: Partial<Record<string, string>> = { opening: 'wall', occurrence: 'solid', projection: 'solid' };
 
-type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string> };
+type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string> };
 
 /**
  * Références d'un objet : niveau, définition de bloc, objets désignés (parent, repère de coupe, cible
  * d'une liaison) présents et du bon type. Un objet orphelin serait enregistré sans être jamais dessiné.
  */
-function referenceError(o: Record<string, unknown>, { objects, levelIds, blockIds }: Ctx): string | null {
+function referenceError(o: Record<string, unknown>, { objects, levelIds, blockIds, zoneIds }: Ctx): string | null {
   const kind = o.kind as string;
   if (o.levelId !== undefined && levelIds && !(str(o.levelId) && levelIds.has(o.levelId as string))) return `${kind} : niveau ${String(o.levelId)} absent`;
   if (kind === 'blockRef' && blockIds && !blockIds.has(o.blockId as string)) return `blockRef : bloc ${String(o.blockId)} absent`;
+  if (kind === 'room' && o.zoneId !== undefined && zoneIds && !(str(o.zoneId) && zoneIds.has(o.zoneId as string))) return `room : zone ${String(o.zoneId)} absente`;
   const byId = new Map(objects.map(x => [x.id, x]));
   const c = o as unknown as CadObject;
   const refs = parentsOf(c);
@@ -157,7 +158,9 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
   if (kind === 'occurrence' && mate !== undefined) {
     // Liaison complète (type, faces, cible) avant de la résoudre.
     if (!isMate(mate)) return 'occurrence : liaison mal formée (type, faces et cible attendus)';
-    if (byId.get(mate.to as string)?.kind !== 'occurrence') return `occurrence : liaison vers ${String(mate.to)} absente`;
+    // Cible : une autre occurrence ou une pièce (solide défini comme pièce), comme dans l'atelier.
+    const target = byId.get(mate.to as string);
+    if (!(target?.kind === 'occurrence' || (target?.kind === 'solid' && !!target.partDef))) return `occurrence : liaison vers ${String(mate.to)} absente`;
   }
   return null;
 }
@@ -269,11 +272,11 @@ export function decodeArgs(v: unknown): unknown {
 }
 
 /** Une commande est-elle valide (arguments journalisables et cohérents avec le projet) ? */
-export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: Pick<Layer, 'id'>[], project?: { levels?: { id: string }[]; blocks?: { id: string }[] }): string | null {
+export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: Pick<Layer, 'id'>[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[] }): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];
   const ids = (l: { id: string }[] | undefined) => (l ? new Set(l.map(x => x.id)) : undefined);
-  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), levelIds: ids(project?.levels), blockIds: ids(project?.blocks) }) : null;
+  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones) }) : null;
 }
 
 /** Empreinte comparable d'une version : contenu du projet, sans horodatage ni libellé. */

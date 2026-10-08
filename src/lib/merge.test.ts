@@ -114,6 +114,20 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect((theirsWins.objects![0] as { zoneId?: string }).zoneId).toBe('ZON-0001');
   });
 
+  it('pièce en conflit et zone supprimée : après les choix, jamais de rattachement à une zone absente', () => {
+    const Z = { id: 'Z', name: 'Z', color: '#000000' }, W = { id: 'W', name: 'W', color: '#ffffff' };
+    const room = { ...base0, id: 'R1', name: 'Séjour', kind: 'room', x: 0, y: 0, zoneId: 'Z' } as CadObject;
+    const base = v(0, [room], { zones: [Z, W] });
+    const ours = v(1, [{ ...room, zoneId: 'W' } as CadObject], { zones: [Z, W] });
+    const theirs = v(1, [{ ...room, name: 'Salon' } as CadObject], { zones: [W] });
+    const r = merge3(base, ours, theirs);
+    const out = resolve(r, Object.fromEntries(r.conflicts.map(c => [conflictKey(c), 'leur' as const])));
+    if ('error' in out) throw new Error(out.error);
+    const zones = new Set(out.zones!.map(z => z.id));
+    expect(out.objects!.every(o => o.kind !== 'room' || !o.zoneId || zones.has(o.zoneId))).toBe(true);
+    expect(out.objects![0]).toMatchObject({ id: 'R1', name: 'Salon' });
+  });
+
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
     const base = v(0, [line('A', 1)]);
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);
