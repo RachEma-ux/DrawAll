@@ -8,7 +8,7 @@ Cette branche contient une application full-stack :
 
 - **Atelier 2D** : murs (épaisseur, axe ou nu, jonctions L/T/croix nettoyées), ouvertures (portes, fenêtres hébergées par un mur) et pièces (surface au centième de m², associative aux murs) sur des niveaux (altitude, copie de niveau, fond de plan du niveau inférieur), symboles de plan (nord, repères de coupe, cotes de niveau) et bibliothèque de blocs bâtiment, cotes tolérancées (±, écarts, classes et ajustements ISO 286) et états de surface, vues de dessus et de côté liées à la face (premier ou troisième dièdre, arêtes cachées et axes), vues en coupe hachurées automatiquement (A–A) depuis un repère de coupe, nomenclature (repère, désignation, matériau, quantité) et repères de pièces tenus à jour, lignes, rectangles, cercles, arcs (3 points ou centre), polylignes, textes, calques, blocs, hachures, cotes associatives (rayon ou diamètre au choix) et cotes par points (en série, cumulées, angulaires, de niveau) et mesures ; matériaux et profils de dessin versionnés (le profil change le motif, jamais le matériau) ; propriétés de trait ISO 128-2 (couleur, type, épaisseur) par calque et par objet, « du calque » par défaut ; édition par ajuster (couper à une arête), prolonger (jusqu’à une arête), congé (rayon saisi), chanfrein (deux distances), copier-coller (presse-papiers interne) et réseaux rectangulaire et polaire.
 - **Précision de dessin** : accrochage objet activable type par type (extrémités, milieux, centres, intersections, coins, quadrants, insertion, perpendiculaire, tangent, proche), grille réglable (1 à 1 000 mm), mode ortho, saisie de points absolue, relative (`@dx;dy`) et polaire (`@L<angle`), unité d’affichage mm, cm ou m (modèle toujours en millimètres) ; mesures d’aire et de périmètre (inspecteur et outil « Aire » par points), zoom, panoramique et ajustement de vue.
-- **Interopérabilité DXF** : import `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE` (courbes comprises) avec conversion d’unités ; export DXF R2000 lisible par les lecteurs stricts, hachures comprises ; rapport conservé / transformé / perdu à chaque échange.
+- **Interopérabilité DXF** : import `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE` (courbes comprises), textes, blocs (`INSERT`), cotes (`DIMENSION`), hachures, splines et ellipses avec conversion d’unités ; export DXF R2000 lisible par les lecteurs stricts, hachures comprises ; rapport conservé / transformé / perdu à chaque échange.
 - **Comptes et persistance cloud** : connexion Kimi, projets en base MySQL, révisions optimistes et résolution explicite des conflits.
 - **Feuilles** : mise en page A4–A0, cadre, fenêtres à l’échelle (ISO 5455) déplaçables au geste, calques par fenêtre ; cartouche (projet, titre, échelle, date, indice émis et figé sur la version, auteur, méthode de projection) ; export PDF vectoriel aux dimensions exactes de la feuille et impression.
 - **Historique** : microversions, annulation/rétablissement, versions nommées et diagnostics de cohérence.
@@ -65,7 +65,7 @@ Les variables attendues sont documentées dans `.env.example`. Ne jamais committ
 
 Le format DXF est pris en charge de façon volontairement limitée et explicite :
 
-- import : `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE`, `TEXT`, `MTEXT` ; les arcs sont conservés tels quels ; les segments courbes de polyligne (`bulge`) sont approchés avec un écart de corde ≤ 0,05 mm ; les entités en repère symétrique (extrusion 0,0,−1) sont replacées ;
+- import : `LINE`, `CIRCLE`, `ARC`, `LWPOLYLINE`, `TEXT`, `MTEXT`, `INSERT` (blocs conservés quand l’occurrence est simple, éclatés sinon), `DIMENSION` (géométrie), `HATCH` (contours, îlots, aplat ou traits), `SPLINE` et `ELLIPSE` ; les arcs sont conservés tels quels ; courbes et segments courbes de polyligne (`bulge`) approchés avec un écart de corde ≤ 0,05 mm ; les entités en repère symétrique (extrusion 0,0,−1) sont replacées ; jeu de fichiers de référence dans `src/lib/__fixtures__/dxf/` ;
 - unités : l’unité déclarée par le fichier (`$INSUNITS`) est convertie en millimètres ; un fichier sans unité fait demander l’unité ;
 - export : DXF R2000 (`AC1015`) en millimètres — primitives, hachures (`HATCH`), calques, types de ligne ISO 128-2 (`LTYPE`), épaisseurs et couleurs (calque ou objet) ; cotes converties en traits + texte et occurrences de blocs éclatées ;
 - chaque import et export affiche un rapport de ce qui est conservé, transformé ou perdu ;
@@ -76,7 +76,7 @@ Détail et matrice : [`docs/DrawAll_v4.1_Conventions_Dessin.md`](docs/DrawAll_v4
 ## Limites connues
 
 - Le moteur est un moteur SVG 2D, pas un noyau B-Rep 3D.
-- Les blocs sont aplatis à l’export DXF ; les attributs de blocs et références externes ne sont pas encore pris en charge.
+- Les blocs sont aplatis à l’export DXF ; les attributs de blocs (`ATTRIB`) et références externes ne sont pas encore pris en charge.
 - La collaboration en temps réel, le partage par droits et la comparaison visuelle de versions restent à implémenter.
 - Le bundle principal dépasse légèrement 500 kB ; un découpage par routes pourra être ajouté.
 

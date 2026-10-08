@@ -89,7 +89,7 @@ export default function Header(p: Props) {
       {p.mode === 'atelier' && (
         <>
           <button onClick={p.onImportDxf}
-            title="Importer LINE, CIRCLE et LWPOLYLINE depuis DXF"
+            title="Importer un DXF : traits, cercles, arcs, polylignes, textes, blocs, cotes, hachures, splines, ellipses"
             className="rounded-sm border border-cyan-400/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300 transition-colors hover:bg-cyan-400/10">
             Importer DXF
           </button>

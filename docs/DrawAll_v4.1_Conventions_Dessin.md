@@ -275,7 +275,9 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 ### 7.1 Règles
 
 - Export au format **DXF R2000 (AC1015)**, unité déclarée millimètre (`$INSUNITS = 4`), lisible par les lecteurs stricts (vérifié avec ezdxf à chaque intégration continue).
-- Import des entités LINE, CIRCLE, ARC, LWPOLYLINE, TEXT et MTEXT, y compris les segments courbes (`bulge`) et les entités en repère symétrique (extrusion 0,0,−1).
+- Import des entités LINE, CIRCLE, ARC, LWPOLYLINE, TEXT, MTEXT, INSERT (blocs, imbrications comprises), DIMENSION (géométrie), HATCH, SPLINE et ELLIPSE (lot 6.1), y compris les segments courbes (`bulge`) et les entités en repère symétrique (extrusion 0,0,−1). Une entité d'un bloc posée sur le calque 0 prend le calque de l'occurrence.
+- Courbes approchées (spline, ellipse, arcs de contour de hachure, courbures) : écart de corde ≤ 0,05 mm par subdivision adaptative ; l'écart maximal effectif est annoncé dans le rapport.
+- Jeu de fichiers de référence de l'import : `src/lib/__fixtures__/dxf/` (écrit par ezdxf, `scripts/make-dxf-fixtures.py`), relu par les tests à chaque intégration.
 - Chaque import et chaque export produit un rapport : **conservé / transformé / perdu**.
 - Les caractères hors ASCII (accents, Ø, ±, m², noms de calques) s'écrivent `\U+XXXX` (convention DXF R2000) et sont décodés à l'import.
 
@@ -290,15 +292,17 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | Segment courbe de polyligne | Approché en polyligne (≤ 0,05 mm) | — |
 | Largeur de polyligne | Perdue (signalée) | — |
 | Rectangle | — | Transformé en polyligne fermée |
-| Hachure | Non lue (signalée) | Conservée (HATCH _USER ou SOLID : angle, pas, origine, îlots) |
-| Cote | Non lue | Transformée en traits + texte ; association perdue |
-| Occurrence de bloc | Non lue (signalée) | Éclatée en entités simples |
+| Hachure | Conservée (HATCH : contour polyligne ou arêtes ligne / arc / ellipse / spline, îlots ; aplat SOLID ; traits parallèles ou croisés à l'angle et au pas de la première famille, motif prédéfini simplifié et signalé) | Conservée (HATCH _USER ou SOLID : angle, pas, origine, îlots) |
+| Cote | Transformée (DIMENSION : géométrie de son bloc — traits, flèches, texte ; non associative) | Transformée en traits + texte ; association perdue |
+| Occurrence de bloc | Conservée si simple (INSERT sans rotation, échelle uniforme positive, bloc de traits, cercles, arcs, polylignes) ; sinon éclatée (rotation, échelle non uniforme, symétrie, imbrication, textes ou hachures dans le bloc) ; MINSERT : première occurrence seulement (signalé) | Éclatée en entités simples |
+| Spline | Approchée en polyligne (B-spline rationnelle, ≤ 0,05 mm ; points d'ajustement reliés si pas de points de contrôle) | — |
+| Ellipse | Exacte si circulaire (cercle ou arc) ; sinon approchée en polyligne (≤ 0,05 mm) | — |
 | Calques | Nom, couleur, type et épaisseur de trait conservés | Nom, couleur, type et épaisseur de trait, visibilité, verrouillage |
 | Propriétés de trait d'un objet | Conservées (types usuels reconnus, ACI 1–9) | Conservées (6, 370, 420 ; BYLAYER sinon) |
 | Identifiants, classification, historique | — | Perdus (non représentables en DXF) |
 | Texte sur une ligne | Conservé (TEXT : contenu, hauteur, rotation, alignement ; %%c %%d %%p décodés) | Conservé (TEXT) |
 | Texte sur plusieurs lignes | Conservé (MTEXT : mise en forme simplifiée en texte brut) | Conservé (MTEXT, point d'attache en haut) |
-| Autres entités (SPLINE, INSERT, DIMENSION…) | Ignorées et signalées | — |
+| Autres entités (POINT, SOLID, 3DFACE, ATTRIB, POLYLINE ancienne…) | Ignorées et signalées | — |
 
 ### 7.3 À décider
 

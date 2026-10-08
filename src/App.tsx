@@ -317,6 +317,7 @@ function Workbench() {
       layerStart: project.state.layerCounter,
       createdSeq: project.current.seq,
       existingLayers: project.layers,
+      blockStart: project.state.blockCounter,
     };
     let result = parseDxf(text, options);
     if (result.unitMissing) {
@@ -331,7 +332,7 @@ function Workbench() {
       }
       result = parseDxf(text, { ...options, sourceUnit: unit.key });
     }
-    const count = project.importObjects(result.objects, result.layers, `Importer ${file.name}`);
+    const count = project.importObjects(result.objects, result.layers, `Importer ${file.name}`, result.blocks);
     const notes = result.warnings.filter(w => !w.startsWith('Entités DXF ignorées') && !w.startsWith('Le fichier ne déclare pas'));
     window.alert([formatExchangeReport(`Import DXF — ${file.name} (${count} objet${count > 1 ? 's' : ''})`, result.report), ...notes].join('\n'));
     if (count > 0) setMode('atelier');
@@ -683,7 +684,7 @@ function Workbench() {
     { id: 'cloud-list', title: 'Ouvrir Mes projets cloud', hint: 'Charger, renommer ou supprimer les projets du compte', keywords: ['projets', 'cloud', 'charger', 'compte'], run: () => setCloudOpen(true) },
     { id: 'toggle-snap', title: 'Basculer l’accrochage objet', hint: 'Extrémités, milieux, centres, quadrants et intersections (F9)', keywords: ['snap', 'accrochage', 'precision'], run: () => setSnapEnabled(v => !v) },
     { id: 'toggle-ortho', title: 'Basculer le mode ortho', hint: 'Contraint le tracé horizontalement ou verticalement (F8)', keywords: ['ortho', 'horizontal', 'vertical', 'precision'], run: () => setOrthoEnabled(v => !v) },
-    { id: 'import-dxf', title: 'Importer un fichier DXF', hint: 'LINE, CIRCLE et LWPOLYLINE — conversion vers les objets DrawAll', keywords: ['dxf', 'import', 'autocad', 'interoperabilite'], run: () => dxfInputRef.current?.click() },
+    { id: 'import-dxf', title: 'Importer un fichier DXF', hint: 'Traits, cercles, arcs, polylignes, textes, blocs (INSERT), cotes, hachures, splines et ellipses — rapport d’échange', keywords: ['dxf', 'import', 'autocad', 'interoperabilite'], run: () => dxfInputRef.current?.click() },
     { id: 'bom', title: 'Insérer la nomenclature', hint: 'Tableau repère / désignation / matériau / quantité, calculé depuis les pièces', keywords: ['nomenclature', 'bom', 'pieces', 'repere', 'quantite', 'tableau'], run: () => { setMode('atelier'); project.addBom(); } },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
     { id: 'export', title: 'Exporter le paquet du projet', hint: 'Manifeste versionné + objets + unités (JSON)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json'], run: exportPackage },

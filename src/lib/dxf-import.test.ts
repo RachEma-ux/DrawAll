@@ -1,0 +1,74 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import type { CadObject, Layer } from '@/types/cad';
+import { ARC_TOLERANCE_MM, parseDxf } from './dxf';
+
+// Jeu de fichiers de référence (scripts/make-dxf-fixtures.py, écrits par ezdxf).
+const fixture = (name: string) => readFileSync(join(__dirname, '__fixtures__', 'dxf', name), 'utf8');
+const layers: Layer[] = [{ id: 'LAY-0001', name: '0', color: '#ffffff', visible: true, locked: false }];
+const read = (name: string) => parseDxf(fixture(name), { objectStart: 0, layerStart: 1, createdSeq: 0, existingLayers: layers, blockStart: 0 });
+const kinds = (objs: CadObject[]) => objs.reduce<Record<string, number>>((m, o) => ({ ...m, [o.kind]: (m[o.kind] ?? 0) + 1 }), {});
+
+describe('import DXF complet (lot 6.1) — jeu de référence', () => {
+  it('blocs : occurrence simple conservée comme bloc, tournée ou imbriquée éclatée', () => {
+    const r = read('blocs.dxf');
+    // VIS_M8 ×1 et ×2 (échelle uniforme) : blocs conservés ; tournée à 90° : éclatée ; PLAQUE (bloc imbriqué + texte) : éclatée.
+    expect(r.blocks.map(b => b.name)).toEqual(['VIS_M8']);
+    const refs = r.objects.filter(o => o.kind === 'blockRef');
+    expect(refs.map(o => o.kind === 'blockRef' && [o.x, o.y, o.scale])).toEqual([[10, -10, 1], [50, -10, 2]]);
+    // Vis tournée : cercle centré sur le point d'insertion, ligne devenue verticale.
+    const turned = r.objects.filter(o => o.kind === 'line' && Math.abs(o.x1 - 100) < 1e-9 && Math.abs(o.x2 - 100) < 1e-9);
+    expect(turned).toHaveLength(1);
+    // Plaque : contour, vis imbriquée (cercle + ligne) et texte, placés à l'insertion (0, 100).
+    const text = r.objects.find(o => o.kind === 'text');
+    expect(text).toMatchObject({ content: 'P1', x: 40, y: -130 });
+    expect(r.objects.some(o => o.kind === 'circle' && o.cx === 20 && o.cy === -130 && o.r === 4)).toBe(true);
+    expect(r.report.kept.join(' ')).toMatch(/Blocs : 2 occurrence\(s\) conservée\(s\)/);
+    expect(r.report.transformed.join(' ')).toMatch(/Blocs : 2 occurrence\(s\) éclatée\(s\)/);
+  });
+
+  it('cotes DIMENSION : géométrie dessinée (traits, texte), non associative', () => {
+    const r = read('cotes.dxf');
+    const k = kinds(r.objects);
+    expect(k.line).toBeGreaterThanOrEqual(3);
+    expect(r.objects.some(o => o.kind === 'text' && o.content.includes('100'))).toBe(true);
+    expect(r.report.transformed.join(' ')).toMatch(/Cotes DIMENSION : 1/);
+  });
+
+  it('hachures : aplat avec îlot circulaire, motif ANSI31 sur contour par arêtes (ligne + arc)', () => {
+    const r = read('hachures.dxf');
+    const solid = r.objects.find(o => o.hatch === 'solid')!;
+    expect(solid.kind).toBe('polyline');
+    expect(solid.holes).toHaveLength(1);
+    const island = r.objects.find(o => o.id === solid.holes![0])!;
+    // Îlot : cercle de rayon 10 approché, sommets sur le cercle.
+    if (island.kind !== 'polyline') throw new Error('îlot attendu');
+    for (let i = 0; i + 1 < island.points.length; i += 2) expect(Math.hypot(island.points[i] - 50, island.points[i + 1] + 30)).toBeCloseTo(10, 6);
+    const ansi = r.objects.find(o => o.hatch === 'diagonal')!;
+    expect(ansi.hatchParams).toMatchObject({ angle: 45, unit: 'modele' });
+    expect(ansi.hatchParams!.spacing).toBeCloseTo(3.175 * 2, 6);
+    if (ansi.kind !== 'polyline') throw new Error('contour attendu');
+    // Contour : le demi-cercle atteint x = 330.
+    expect(Math.max(...ansi.points.filter((_, i) => i % 2 === 0))).toBeCloseTo(330, 6);
+  });
+
+  it('courbes : spline et ellipses approchées dans la tolérance ; ellipse circulaire exacte', () => {
+    const r = read('courbes.dxf');
+    expect(kinds(r.objects)).toEqual({ polyline: 3, circle: 1 });
+    const ellipse = r.objects[1];
+    if (ellipse.kind !== 'polyline') throw new Error('polyligne attendue');
+    // Sommets sur l'ellipse, à l'arrondi des coordonnées près (10⁻⁶ mm).
+    for (let i = 0; i + 1 < ellipse.points.length; i += 2) expect(((ellipse.points[i] - 100) / 20) ** 2 + (ellipse.points[i + 1] / 10) ** 2).toBeCloseTo(1, 6);
+    expect(r.objects[3]).toMatchObject({ kind: 'circle', cx: 200, cy: 0, r: 10 });
+    const curves = r.report.transformed.find(t => t.startsWith('Courbes : 1 spline'))!;
+    const err = Number(curves.match(/écart maximal ([\d,]+) mm/)![1].replace(',', '.'));
+    expect(err).toBeLessThanOrEqual(ARC_TOLERANCE_MM);
+  });
+
+  it('textes : TEXT et MTEXT', () => {
+    const r = read('textes.dxf');
+    expect(r.objects.map(o => o.kind === 'text' && o.content)).toEqual(['Plan du rez', 'Ligne 1\nLigne 2']);
+    expect(r.objects[0]).toMatchObject({ align: 'center' });
+  });
+});

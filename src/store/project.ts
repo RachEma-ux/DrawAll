@@ -667,7 +667,7 @@ export function useProject() {
     return id;
   }, [blocks, state.counter, activeLayerId, current.seq, allObjects, commit, setSelectedId, stampLevel]);
 
-  const importObjects = useCallback((importedObjects: CadObject[], importedLayers: Layer[], label = 'Importer DXF') => {
+  const importObjects = useCallback((importedObjects: CadObject[], importedLayers: Layer[], label = 'Importer DXF', importedBlocks: BlockDef[] = []) => {
     if (importedObjects.length === 0) return 0;
     const mergedLayers = [...layers];
     for (const layer of importedLayers) {
@@ -685,15 +685,18 @@ export function useProject() {
       layerId: layerIdAlias.get(o.layerId) ?? o.layerId,
       createdSeq: current.seq,
     } as CadObject));
+    // Blocs importés (lot 6.1) : leurs primitives suivent la même correspondance de calques.
+    const newBlocks = importedBlocks.map(b => ({ ...b, primitives: b.primitives.map(p => ({ ...p, layerId: layerIdAlias.get(p.layerId) ?? p.layerId })) }));
     commit(label, {
       objects: [...allObjects, ...stamped],
       layers: mergedLayers,
+      ...(newBlocks.length ? { blocks: [...blocks, ...newBlocks], blockCounter: Math.max(state.blockCounter, ...newBlocks.map(b => numericSuffix(b.id, 'BLQ'))) } : {}),
       counter: Math.max(state.counter, ...stamped.map(o => numericSuffix(o.id, 'OBJ'))),
       layerCounter: Math.max(state.layerCounter, ...mergedLayers.map(l => numericSuffix(l.id, 'LAY'))),
     });
     setSelectedId(stamped[stamped.length - 1]?.id ?? null);
     return stamped.length;
-  }, [layers, allObjects, state.counter, state.layerCounter, current.seq, commit, setSelectedId, stampLevel]);
+  }, [layers, allObjects, blocks, state.counter, state.layerCounter, state.blockCounter, current.seq, commit, setSelectedId, stampLevel]);
 
   /** Bloc de la bibliothèque bâtiment : ajouté au projet s'il n'y est pas encore ; son identifiant. */
   const addLibraryBlock = useCallback((key: string) => {
