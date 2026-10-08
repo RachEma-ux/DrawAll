@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CadObject, ProjectionObj, SolidObj } from '@/types/cad';
 import { createDefaultLayers, dimensionOf, parentOf } from '@/types/cad';
 import type { ProjLines, SolidRecipe } from './kernel/recipe';
-import { exportToDxf } from './dxf';
+import { exportDxf, exportToDxf } from './dxf';
 import { moveObject, objectBounds } from './geometry';
 import { cachedProjection, defaultPlacement, ensureProjections, placedView, projectionPrimitives, projectionsVersion, requestProjection, subscribeProjections, viewFrame } from './projection';
 
@@ -42,6 +42,7 @@ describe('vues projetées : cadre, cache, placement (lot 16.1)', () => {
     // Échanges : la vue s'exporte en lignes.
     const dxf = exportToDxf([solid, proj('face')] as CadObject[], createDefaultLayers(), []);
     expect(dxf.match(/\nLINE\n/g)?.length).toBe(3);
+    expect(exportDxf([solid, proj('face')] as CadObject[], createDefaultLayers(), []).report.transformed.some(t => t.startsWith('Vues projetées : 1 →'))).toBe(true);
   });
 
   it('erreur du noyau gardée et montrée ; vue sans solide : rien', async () => {

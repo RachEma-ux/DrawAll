@@ -120,7 +120,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { solid: 0, structure: 0, roof: 0, slab: 0, room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, ellipse: 0, spline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { projection: 0, solid: 0, structure: 0, roof: 0, slab: 0, room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, ellipse: 0, spline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -413,7 +413,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
     // Solide (lot 15.2) : sa trace en plan (LWPOLYLINE, CIRCLE ; parties retirées en interrompu).
     if (object.kind === 'solid') { counts.solid++; for (const p of solidPrimitives(object)) writeOne(p, layer); continue; }
     // Vue projetée (lot 16.1) : arêtes vues en LINE, cachées en LINE interrompue.
-    if (object.kind === 'projection') { for (const p of projectionPrimitives(object, objects.find(o => o.id === object.sourceId))) writeOne(p, layer); continue; }
+    if (object.kind === 'projection') { counts.projection++; for (const p of projectionPrimitives(object, objects.find(o => o.id === object.sourceId))) writeOne(p, layer); continue; }
     if (object.kind === 'slab') counts.slab++;
     // Dalle (lot 13.1) : contour fermé en LWPOLYLINE.
     writeOne(object.kind === 'slab' ? slabAsPolyline(object) as PrimitiveObject : object, layer);
@@ -443,6 +443,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.symbol) report.transformed.push(`Symboles (nord, repères de coupe, cotes de niveau, états de surface) : ${counts.symbol} → traits, cercles, surfaces pleines (SOLID) et textes, à la taille papier de l'échelle 1:${Math.round(hatchScale * 1000) / 1000}.`);
   if (counts.room) report.transformed.push(`Pièces : ${counts.room} → contour (LWPOLYLINE) et étiquette nom + surface (TEXT) ; la surface n'est plus recalculée.`);
   if (counts.opening) report.transformed.push(`Ouvertures : ${counts.opening} → traits et arcs (baies coupées dans les murs) ; le lien au mur est perdu.`);
+  if (counts.projection) report.transformed.push(`Vues projetées : ${counts.projection} → arêtes (LINE, cachées en interrompu) ; le lien au solide est perdu, la vue n'est plus recalculée.`);
   if (counts.solid) report.transformed.push(`Solides : ${counts.solid} → trace en plan (LWPOLYLINE, CIRCLE ; parties retirées en interrompu) ; le volume et la recette sont perdus.`);
   if (counts.structure) report.transformed.push(`Poteaux et poutres : ${counts.structure} → sections (LWPOLYLINE, CIRCLE) et nus (LINE interrompue) ; sections et hauteurs ne sont plus éditables comme éléments de structure.`);
   if (counts.roof) report.transformed.push(`Toitures : ${counts.roof} → rive (LWPOLYLINE), faîtage, arêtiers et flèches (LINE) ; type, pente, débord et axe ne sont plus éditables comme toiture.`);
