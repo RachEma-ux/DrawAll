@@ -394,7 +394,15 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - Sur le plan : repère à taille d'écran fixe (crayon, ou pastille si une photo est jointe), désignable avant les objets qu'il recouvre.
 - Les notes ne sont ni dessinées sur les feuilles ni exportées (PDF, SVG, DXF) ; le rapport DXF les compte ; elles sont conservées dans le projet et son paquet.
 
-## 10. Références
+## 10. Fiabilité
+
+### 10.1 Historique compact (règle, lot 8.1)
+
+- Chaque modification crée une microversion. En mémoire, les versions partagent les objets inchangés (aucune copie complète).
+- Enregistrement (stockage local, IndexedDB, serveur) par différences : la première version et la version courante sont écrites en entier ; chaque autre version ne porte que ce qui change par rapport à la précédente (objets ajoutés ou modifiés, identifiants retirés, ordre s'il change, autres champs remplacés s'ils changent). Un projet enregistré en versions entières (avant ce lot) se relit tel quel.
+- Preuve : 1 000 modifications d'un projet de 200 objets tiennent en moins de 2 Mo ; l'aller-retour reconstruit chaque version à l'identique.
+
+## 11. Références
 
 | Sujet | Référence |
 | --- | --- |

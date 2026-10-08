@@ -23,6 +23,7 @@ import {
   polylineExtents,
   supportedDimensionStyles,
 } from '@/types/cad';
+import { decodeHistory, encodeHistory } from '@/lib/history';
 import { loadProject, quotaWarning, saveProject, shouldResume, storageUsage } from '@/lib/offline';
 import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
@@ -177,6 +178,19 @@ export function normalizeProjectState(raw: unknown): ProjectState {
   const p = raw as Partial<ProjectState> | null;
   if (p && Array.isArray(p.versions) && p.versions.length > 0) {
     const fallbackLayers = normalizeLayers((p.versions[0] as Partial<MicroVersion>).layers);
+    // Objets partagés entre versions (historique par différences, lot 8.1) : normalisés une fois par
+    // contexte (calques, niveaux), ils restent partagés dans l'état chargé.
+    const cache = new WeakMap<object, Map<string, CadObject | null>>();
+    const normalizeShared = (o: CadObject, layers: Layer[], context: string, onKnown: (o: CadObject) => CadObject): CadObject | null => {
+      if (!o || typeof o !== 'object') return null;
+      let byContext = cache.get(o);
+      if (!byContext) { byContext = new Map(); cache.set(o, byContext); }
+      if (byContext.has(context)) return byContext.get(context)!;
+      const n = normalizeObject(o, layers);
+      const out = n ? onKnown(n) : null;
+      byContext.set(context, out);
+      return out;
+    };
     const versions = p.versions
       .filter((v): v is MicroVersion => !!v && typeof v.seq === 'number' && typeof v.label === 'string' && Array.isArray(v.objects))
       .map(v => {
@@ -190,13 +204,14 @@ export function normalizeProjectState(raw: unknown): ProjectState {
           delete rest.levelId;
           return known[0].id === DEFAULT_LEVEL.id ? rest : { ...rest, levelId: known[0].id };
         };
+        const context = `${layers.map(l => `${l.id}:${l.name}`).join(',')}|${known.map(l => l.id).join(',')}`;
         const vRest: MicroVersion = { ...v };
         delete vRest.levels;
         return {
           ...vRest,
           ...(levels ? { levels } : {}),
           time: typeof v.time === 'number' ? v.time : Date.now(),
-          objects: v.objects.map(o => normalizeObject(o, layers)).filter((o): o is CadObject => !!o).map(onKnown),
+          objects: v.objects.map(o => normalizeShared(o, layers, context, onKnown)).filter((o): o is CadObject => !!o),
           layers,
           blocks: normalizeBlocks(v.blocks, layers),
           // Une fenêtre sur un niveau inconnu montre le premier niveau.
@@ -210,9 +225,12 @@ export function normalizeProjectState(raw: unknown): ProjectState {
       });
     if (versions.length > 0) {
       const pointer = Math.max(0, Math.min(versions.length - 1, Number(p.pointer ?? versions.length - 1)));
-      const allObjects = versions.flatMap(v => v.objects);
-      const allLayers = versions.flatMap(v => v.layers);
-      const allBlocks = versions.flatMap(v => v.blocks);
+      // Objets distincts (partagés entre versions) ; maximum calculé sans étaler de grands tableaux
+      // en arguments (un long historique dépasserait la pile d'appels).
+      const allObjects = new Set(versions.flatMap(v => v.objects));
+      const allLayers = new Set(versions.flatMap(v => v.layers));
+      const allBlocks = new Set(versions.flatMap(v => v.blocks));
+      const maxOf = <T,>(items: Iterable<T>, f: (x: T) => number, floor: number) => { let m = floor; for (const x of items) { const v = f(x); if (v > m) m = v; } return m; };
       const currentLayers = versions[pointer].layers;
       const activeLayerId = currentLayers.some(l => l.id === p.activeLayerId)
         ? p.activeLayerId!
@@ -220,9 +238,9 @@ export function normalizeProjectState(raw: unknown): ProjectState {
       return {
         versions,
         pointer,
-        counter: Math.max(Number(p.counter ?? 0), ...allObjects.map(o => numericSuffix(o.id, 'OBJ')), 0),
-        layerCounter: Math.max(Number(p.layerCounter ?? 0), ...allLayers.map(l => numericSuffix(l.id, 'LAY')), currentLayers.length),
-        blockCounter: Math.max(Number(p.blockCounter ?? 0), ...allBlocks.map(b => numericSuffix(b.id, 'BLQ')), 0),
+        counter: maxOf(allObjects, o => numericSuffix(o.id, 'OBJ'), Math.max(Number(p.counter ?? 0) || 0, 0)),
+        layerCounter: maxOf(allLayers, l => numericSuffix(l.id, 'LAY'), Math.max(Number(p.layerCounter ?? 0) || 0, currentLayers.length)),
+        blockCounter: maxOf(allBlocks, b => numericSuffix(b.id, 'BLQ'), Math.max(Number(p.blockCounter ?? 0) || 0, 0)),
         activeLayerId,
         ...(typeof p.activeLevelId === 'string' ? { activeLevelId: p.activeLevelId } : {}),
         ...(normalizeAssets(p.assets) ? { assets: normalizeAssets(p.assets) } : {}),
@@ -269,7 +287,7 @@ export function normalizeAssets(raw: unknown): Record<string, Asset> | undefined
 function load(): ProjectState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return normalizeProjectState(JSON.parse(raw));
+    if (raw) return normalizeProjectState(decodeHistory(JSON.parse(raw)));
   } catch { /* cache illisible : réinitialisation */ }
   return seedProject();
 }
@@ -355,7 +373,7 @@ export function useProject() {
     loadProject()
       .then(saved => {
         if (!alive || !shouldResume(saved, localHasProject, localSavedAt)) return;
-        try { setState(normalizeProjectState(JSON.parse(saved!.json))); } catch { /* copie illisible : état local gardé */ }
+        try { setState(normalizeProjectState(decodeHistory(JSON.parse(saved!.json)))); } catch { /* copie illisible : état local gardé */ }
       })
       .catch(() => { /* IndexedDB indisponible : stockage local seul */ })
       .finally(() => { if (alive) setHydrated(true); });
@@ -366,7 +384,8 @@ export function useProject() {
   // deux (stockage plein) est signalé au lieu d'être ignoré ; l'occupation du quota est suivie.
   useEffect(() => {
     if (!hydrated) return;
-    const json = JSON.stringify(state);
+    // Historique par différences (lot 8.1) : la version courante reste entière et lisible.
+    const json = JSON.stringify(encodeHistory(state));
     const savedAt = Date.now();
     let localOk = true;
     // La date accompagne l'état dans le stockage local : la reprise compare les deux copies.
@@ -892,7 +911,9 @@ export function useProject() {
   }, [setSelectedId]);
 
   const loadState = useCallback((next: unknown) => {
-    setState(normalizeProjectState(next));
+    // Historique entier ou par différences (lot 8.1).
+    const decoded = next && typeof next === 'object' && Array.isArray((next as { versions?: unknown }).versions) ? decodeHistory(next as { versions: unknown[] }) : next;
+    setState(normalizeProjectState(decoded));
     setSelectedId(null);
   }, [setSelectedId]);
 
