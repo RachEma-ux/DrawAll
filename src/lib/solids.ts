@@ -104,6 +104,7 @@ export function recipeBounds(r: SolidRecipe): { min: Vec3; max: Vec3 } {
       return box(pts);
     }
     case 'compound': { const bs = r.parts.map(recipeBounds); return box(bs.flatMap(b => [b.min, b.max])); }
+    case 'step': return { min: [...r.bounds.min] as Vec3, max: [...r.bounds.max] as Vec3 };
     case 'polyhedron': return box(r.faces.flat());
     case 'loft': return box(r.sections.flatMap(s => ('circle' in s
       ? [[s.circle.cx - s.circle.r, s.circle.cy - s.circle.r, s.z], [s.circle.cx + s.circle.r, s.circle.cy + s.circle.r, s.z]]
@@ -190,6 +191,8 @@ export function solidTrace(r: SolidRecipe, hidden = false): Trace[] {
       return [...base, { pts: hull2([...moved.before, ...moved.after].map(p => [p[0], p[1]] as P2)), hidden: hidden || r.distance < 0 }];
     }
     case 'compound': return r.parts.flatMap(p => solidTrace(p, hidden));
+    // Solide importé : arêtes vues de dessus, relevées à l'import.
+    case 'step': return r.trace.map(l => ({ pts: Array.from({ length: l.length / 2 }, (_, i) => [l[2 * i], l[2 * i + 1]] as P2), hidden, open: true }));
     case 'polyhedron': return r.faces.map(f => ({ pts: f.map(p => [p[0], p[1]] as P2), hidden }));
     // Lissage : le contour de chaque section.
     case 'loft': return r.sections.map(s => ('circle' in s ? { circle: s.circle, hidden } : { pts: s.points, hidden }));
@@ -229,7 +232,7 @@ export const scaleSolid = (r: SolidRecipe, cx: number, cy: number, factor: numbe
 export function recipeSteps(r: SolidRecipe): string[] {
   const label: Record<SolidRecipe['op'], string> = {
     box: 'pavé', cylinder: 'cylindre', extrude: 'extrusion', revolve: 'révolution', union: 'union', cut: 'différence', intersect: 'intersection',
-    fillet: 'congé', shell: 'coque', sweep: 'balayage', loft: 'lissage', pushpull: 'pousser / tirer', compound: 'assemblage', polyhedron: 'faces', translate: 'déplacement', rotate: 'rotation', mirror: 'symétrie', scale: 'échelle',
+    fillet: 'congé', shell: 'coque', sweep: 'balayage', loft: 'lissage', pushpull: 'pousser / tirer', compound: 'assemblage', polyhedron: 'faces', step: 'import STEP', translate: 'déplacement', rotate: 'rotation', mirror: 'symétrie', scale: 'échelle',
   };
   const out: string[] = [];
   const walk = (x: SolidRecipe) => {
@@ -277,6 +280,11 @@ export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
         return profile(o.points) || (!!c && typeof c === 'object' && num(c.cx) && num(c.cy) && num(c.r, true));
       };
       return Array.isArray(x.sections) && x.sections.length >= 2 && x.sections.every(sec) && typeof x.ruled === 'boolean';
+    }
+    case 'step': {
+      const b = x.bounds as { min?: unknown; max?: unknown } | undefined;
+      return typeof x.data === 'string' && x.data.startsWith('ISO-10303-21;') && !!b && v3(b.min) && v3(b.max)
+        && Array.isArray(x.trace) && x.trace.every(l => Array.isArray(l) && l.length % 2 === 0 && l.every(n => num(n)));
     }
     case 'compound': return Array.isArray(x.parts) && x.parts.length > 0 && x.parts.every(p => isRecipe(p, depth + 1));
     case 'polyhedron': return Array.isArray(x.faces) && x.faces.length > 0 && x.faces.every(f => Array.isArray(f) && f.length >= 3 && f.every(v3));

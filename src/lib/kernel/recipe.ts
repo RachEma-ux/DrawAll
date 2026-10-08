@@ -66,6 +66,11 @@ export type SolidRecipe =
   | { op: 'compound'; parts: SolidRecipe[] }
   /** Faces planes données par leurs sommets (lot 16.2 : pans de toiture). */
   | { op: 'polyhedron'; faces: Vec3[][] }
+  /**
+   * Solide importé d'un fichier STEP (lot 17.2) : `data` est le fichier STEP du seul solide ; encombrement
+   * et trace en plan (vue de dessus) sont relevés par le noyau à l'import.
+   */
+  | { op: 'step'; data: string; bounds: { min: Vec3; max: Vec3 }; trace: number[][]; name?: string }
   /** Déplacement (lot 15.2). */
   | { op: 'translate'; of: SolidRecipe; by: Vec3 }
   /** Rotation de `angle` degrés autour de la verticale passant par `about` (lot 15.2). */

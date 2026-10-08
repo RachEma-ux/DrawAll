@@ -46,6 +46,7 @@ jobs:
           PDF_FIXTURES_DIR: ${{ runner.temp }}/pdf
           SVG_FIXTURES_DIR: ${{ runner.temp }}/svg
           IFC_FIXTURES_DIR: ${{ runner.temp }}/ifc
+          STEP_FIXTURES_DIR: ${{ runner.temp }}/step
 
       - name: Lire les DXF exportés avec ezdxf
         run: |
@@ -64,6 +65,12 @@ jobs:
         run: |
           python3 -m pip install --quiet ifcopenshell==0.9.0
           python3 scripts/check-ifc.py "${{ runner.temp }}/ifc"
+
+      - name: Relire le STEP exporté avec un lecteur tiers, gmsh (AP242 éd. 3, volumes)
+        run: |
+          sudo apt-get install -y -q libglu1-mesa libxcursor1 libxinerama1 libxft2
+          python3 -m pip install --quiet gmsh==4.15.2
+          python3 scripts/check-step.py "${{ runner.temp }}/step"
 
       - name: Build
         run: npm run build

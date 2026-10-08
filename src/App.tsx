@@ -42,7 +42,9 @@ import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
 import type { GeoConstraint, PolylineObj, RoofObj } from '@/types/cad';
 import { expandToGroups } from '@/lib/groups';
-import { kernelProject, kernelProjectCamera, kernelVolume } from '@/lib/kernel/client';
+import { kernelExportStep, kernelImportStep, kernelProject, kernelProjectCamera, kernelVolume } from '@/lib/kernel/client';
+import { effectiveSolid } from '@/lib/solids';
+import type { SolidRecipe } from '@/lib/kernel/recipe';
 import { ensureProjections, projectionsVersion, setProjectionLevels, subscribeProjections } from '@/lib/projection';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
@@ -57,7 +59,7 @@ import { areaM2, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
-import { formatElevation, levelBelow, onLevel } from '@/lib/levels';
+import { formatElevation, levelBelow, levelIdOf, onLevel } from '@/lib/levels';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import { exportIfc } from '@/lib/ifc';
 import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint, mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
@@ -210,6 +212,7 @@ function Workbench() {
   // Navigateur du projet : toujours présent, pliable ; plié par défaut sur petit écran.
   const [navOpen, setNavOpen] = useState(() => !(typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT));
   const dxfInputRef = useRef<HTMLInputElement>(null);
+  const stepInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const onResize = () => {
@@ -370,6 +373,37 @@ function Workbench() {
     ];
     window.setTimeout(() => window.alert(lines.join('\n')), 0);
   }, [project.allObjects, project.levels, cloudName]);
+
+  // STEP AP242 édition 3 (lot 17.2) : solides et occurrences, à l'altitude de leur niveau.
+  const exportStepFile = useCallback(async () => {
+    const name = cloudName.trim() || 'drawall-projet';
+    const parts = project.allObjects.flatMap(o => {
+      const s = effectiveSolid(o, project.allObjects);
+      if (!s) return [];
+      const z = (project.levels ?? []).find(l => l.id === levelIdOf(o))?.elevation ?? 0;
+      return [{ name: o.name, recipe: z ? { op: 'translate' as const, of: s.recipe, by: [0, 0, z] as [number, number, number] } : s.recipe }];
+    });
+    if (!parts.length) { window.alert('Export STEP : aucun solide dans le projet.'); return; }
+    try {
+      const content = await kernelExportStep(parts, `${name}.step`, new Date());
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([content], { type: 'model/step' }));
+      a.download = `${name}.step`;
+      a.click();
+      const href = a.href;
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+      window.setTimeout(() => window.alert(`Export STEP AP242 édition 3 (millimètres) : ${parts.length} solide(s).`), 0);
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }, [project.allObjects, project.levels, cloudName]);
+  const importStepFile = useCallback(async (file: File) => {
+    try {
+      const r = await kernelImportStep(await file.text());
+      const items = r.solids.flatMap((s, i) => (s.recipe ? [{ name: `${file.name.replace(/\.[^.]+$/, '')} ${i + 1}`, recipe: s.recipe as SolidRecipe }] : []));
+      if (items.length) project.addSolids(items, 'Importer STEP');
+      const lines = [`Import STEP : ${r.status}${r.error ? ` — ${r.error}` : ''}`, `${items.length} solide(s) importé(s).`, ...r.losses.map(l => `– ${l}`)];
+      window.alert(lines.join('\n'));
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }, [project]);
 
   const exportDxf = useCallback(async () => {
     await ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
@@ -1145,6 +1179,8 @@ function Workbench() {
     })),
     { id: 'schedule-assemblage', title: 'Insérer la nomenclature d’assemblage', hint: 'Repère, désignation et quantité de chaque pièce (pièce type et occurrences), mise à jour à chaque modification', keywords: ['nomenclature', 'assemblage', 'pieces', 'occurrences', 'repere', 'quantite', 'bom'], run: () => { setMode('atelier'); project.addBom('assemblage'); } },
     { id: 'export-ifc', title: 'Exporter en IFC 4.3', hint: 'Étages, murs, dalles, baies, portes, fenêtres, espaces, toitures, poteaux, poutres, propriétés et quantités (IFC4X3_ADD2)', keywords: ['ifc', 'bim', 'export', 'ifc4', 'openbim', 'maquette numerique'], run: exportIfcFile },
+    { id: 'export-step', title: 'Exporter les solides en STEP (AP242 édition 3)', hint: 'Solides et occurrences de pièces, en millimètres, relisibles par les modeleurs 3D', keywords: ['step', 'stp', 'ap242', 'export', 'solides', '3d', 'cao'], run: () => { void exportStepFile(); } },
+    { id: 'import-step', title: 'Importer des solides STEP', hint: 'Chaque solide du fichier devient un solide du projet ; pertes signalées', keywords: ['step', 'stp', 'ap242', 'ap214', 'import', 'solides', '3d', 'cao'], run: () => stepInputRef.current?.click() },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
     { id: 'export', title: 'Exporter le paquet du projet', hint: 'Projet entier : historique, niveaux, feuilles, styles, ressources (JSON, relu à l’identique)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json', 'sauvegarde'], run: exportPackage },
     { id: 'import-package', title: 'Restaurer un projet depuis son paquet', hint: 'Remplace le projet courant par celui du paquet DrawAll (historique compris)', keywords: ['restaurer', 'importer', 'paquet', 'json', 'sauvegarde', 'ouvrir'], run: () => packageInputRef.current?.click() },
@@ -2066,6 +2102,18 @@ function Workbench() {
         onChange={e => {
           const file = e.target.files?.[0];
           if (file) void importUnderlay(file);
+          e.currentTarget.value = '';
+        }}
+      />
+      <input
+        ref={stepInputRef}
+        type="file"
+        accept=".step,.stp"
+        aria-label="Fichier STEP à importer"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (file) void importStepFile(file);
           e.currentTarget.value = '';
         }}
       />

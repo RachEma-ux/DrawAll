@@ -1,9 +1,12 @@
 // Lot 15.2 : volumes de référence des solides construits par l'atelier, calculés par OCCT et comparés
 // aux formules (aire × hauteur, Pappus-Guldin, perçages), à 10⁻⁶ près en relatif.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadKernel } from './occt';
 import { cameraLooking, meshVolume, type PathSeg, type SolidRecipe, type SweepProfile } from './recipe';
 import { buildingRecipe } from '../building3d';
+import { AP242_ED3, AP242_SUBSET, declaredSchema, entityTypes } from './step-ap242';
 import { extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, occurrenceRecipe, pushPullRecipe, shellRecipe, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
 
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.abs(b);
@@ -292,5 +295,54 @@ describe('pièces et occurrences (lot 16.3) : la forme suit la pièce type', asy
     expect(m.vertices.some((_, i) => i % 3 === 0 && Math.abs(m.vertices[i] + 500) < 1e-6 && Math.abs(m.vertices[i + 1] - 300) < 1e-6)).toBe(true);
     const drilled = { ...def, recipe: take(holeRecipe(recipe, 1150, 2050, 40)) };
     expect(rel(k.volume(occurrenceRecipe(occ, drilled)!), 300 * 100 * 50 - Math.PI * 400 * 50)).toBeLessThan(1e-6);
+  });
+});
+
+describe('STEP AP242 édition 3 (lot 17.2) : export, relecture, import en recettes', async () => {
+  const k = await loadKernel();
+  const parts: { name: string; recipe: SolidRecipe }[] = [
+    { name: 'Pavé percé', recipe: take(holeRecipe(take(extrudeRecipe(sq(0, 0, 100, 50), 20)), 50, 25, 20)) },
+    { name: 'Axe Ø 40', recipe: { op: 'cylinder', r: 20, h: 200, at: [300, 0, 0] } },
+    { name: 'Tube', recipe: take(revolveRecipe(sq(0, 100, 1000, 200), { x: 0, y: 0 }, { x: 1000, y: 0 }, 360)) },
+  ];
+  const volumes = parts.map(p => k.volume(p.recipe));
+  const out = k.exportStep(parts, 'solides.step', new Date('2026-10-08T12:00:00Z'));
+
+  it('en-tête de l’édition 3, sous-ensemble B-rep vérifié, noms des pièces', () => {
+    if ('error' in out) throw new Error(out.error);
+    expect(declaredSchema(out.content)).toBe(AP242_ED3);
+    expect(out.content).not.toMatch(/442 1 1 4/);
+    expect(out.content).toContain("'ap242_managed_model_based_3d_engineering',2022,");
+    expect([...entityTypes(out.content)].every(t => AP242_SUBSET.has(t))).toBe(true);
+    expect(out.content).toContain("PRODUCT('Axe \\X2\\00D8\\X0\\ 40'");
+  });
+
+  it('réimport : mêmes volumes à 10⁻⁶ près ; recettes « step » reconstruites, encombrement relevé', () => {
+    if ('error' in out) throw new Error(out.error);
+    const r = k.importStep(out.content, true);
+    expect(r.losses).toEqual([]);
+    expect(r.status).toBe('importé');
+    expect(r.solids).toHaveLength(3);
+    const got = r.solids.map(s => s.volume).sort((a, b) => a - b), want = [...volumes].sort((a, b) => a - b);
+    got.forEach((v, i) => expect(rel(v, want[i])).toBeLessThan(1e-6));
+    for (const s of r.solids) {
+      const rec = s.recipe!;
+      expect(declaredSchema(rec.data)).toBe(AP242_ED3);
+      expect(rel(k.volume(rec), s.volume)).toBeLessThan(1e-6);
+      expect(rec.trace.length).toBeGreaterThan(0);
+      // Recette importée déplacée : le volume ne change pas.
+      expect(rel(k.volume({ op: 'translate', of: rec, by: [1000, 0, 0] }), s.volume)).toBeLessThan(1e-6);
+    }
+    const axe = r.solids.find(s => Math.abs(s.volume - Math.PI * 400 * 200) < 1)!.recipe!;
+    expect(axe.bounds.min.map(v => Math.round(v))).toEqual([280, -20, 0]);
+    expect(axe.bounds.max.map(v => Math.round(v))).toEqual([320, 20, 200]);
+  });
+
+  it('fichier de référence écrit pour le lecteur tiers (STEP_FIXTURES_DIR)', () => {
+    const dir = process.env.STEP_FIXTURES_DIR;
+    if (!dir || 'error' in out) return;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'solides.step'), out.content);
+    writeFileSync(join(dir, 'solides.step.expected.json'), JSON.stringify({ schema: AP242_ED3, volumes: [...volumes].sort((a, b) => a - b) }, null, 2));
   });
 });

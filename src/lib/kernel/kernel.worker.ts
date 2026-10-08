@@ -11,7 +11,9 @@ self.onmessage = async (e: MessageEvent<KernelRequest>) => {
     const d = e.data;
     const result = d.type === 'volume' ? kernel.volume(d.recipe) : d.type === 'mesh' ? kernel.mesh(d.recipe, d.tolerance)
       : d.type === 'project' ? kernel.project(d.recipe, d.view)
-      : d.type === 'projectCamera' ? kernel.projectCamera(d.recipe, d.camera, d.clip) : kernel.boundaryDeviation(d.recipe, d.points);
+      : d.type === 'projectCamera' ? kernel.projectCamera(d.recipe, d.camera, d.clip)
+      : d.type === 'exportStep' ? kernel.exportStep(d.parts, d.fileName, new Date(d.date))
+      : d.type === 'importStep' ? kernel.importStep(d.text, true) : kernel.boundaryDeviation(d.recipe, d.points);
     (self as unknown as Worker).postMessage({ id, ok: true, result, loadMs: kernel.loadMs } satisfies KernelResponse);
   } catch (err) {
     (self as unknown as Worker).postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) } satisfies KernelResponse);

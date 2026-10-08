@@ -437,6 +437,14 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Rapport** : éléments exportés par classe, et ce qui ne l'est pas, avec sa raison : élément sans hauteur, baie sans hauteur, pièce non fermée, solide du noyau (échange STEP, lot 17.2).
 - **Preuve** : en CI, le fichier de référence est relu par IfcOpenShell 0.9.0. Le schéma, les étages et les propriétés sont vérifiés ; chaque volume et chaque surface lus dans la géométrie retrouvent la quantité exportée à 10⁻⁶ près, un cylindre étant lu comme son prisme inscrit.
 
+### 7.6 STEP AP242 édition 3 (règle, lot 17.2)
+
+- **Export** : commande « Exporter les solides en STEP (AP242 édition 3) ». Chaque solide et chaque occurrence de pièce est écrit sous sa forme posée, à l'altitude de son niveau, en millimètres, nommé comme dans le projet.
+- **Édition 3** : le noyau (Open CASCADE) écrit l'AP242 sous l'identifiant de l'édition 1. DrawAll vérifie que le fichier ne contient que le sous-ensemble B-rep et produit commun aux éditions 1 à 3. Il déclare ensuite l'édition 3 : identifiant `{ 1 0 10303 442 3 1 4 }`, protocole d'application de 2022. Une entité hors de ce sous-ensemble fait refuser l'export, en la nommant : rien n'est déclaré sans être vérifié.
+- **Texte** : ASCII imprimable seulement ; les caractères accentués sont encodés en `\X2\…\X0\` (ISO 10303-21). Ni couleur ni calque n'est écrit.
+- **Import** : commande « Importer des solides STEP » (AP203, AP214 ou AP242). Chaque solide transféré devient un solide du projet, au calque actif. Sa recette garde le fichier du seul solide, avec son encombrement et sa trace de dessus relevés à l'import. Il se déplace, tourne, se perce et se combine comme les autres. Les pertes sont rapportées (lot 11.4).
+- **Preuve** : en CI, le fichier de référence est relu par un lecteur tiers, gmsh 4.15.2. Le schéma déclaré doit être celui de l'édition 3 (une édition antérieure est refusée) et chaque volume lu doit égaler celui du noyau DrawAll à 10⁻⁶ près.
+
 ### 7.4 À décider
 
 - Version DXF visée par défaut (R2000 retenue pour sa compatibilité ; R2018 possible).

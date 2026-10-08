@@ -9,6 +9,7 @@
 | `@automerge/automerge` 3.5.0 | Essai CRDT (lot 11.5), candidat non retenu | MIT | Dépendance de développement de l'essai seulement |
 | `three` 0.179.1 | Rendu WebGL2 de la vue 3D (lot 15.1) | MIT | Chargé à la demande à l'ouverture de la vue 3D (morceau séparé) |
 | IfcOpenShell 0.9.0 (Python) | Relecture de l'IFC exporté en CI (lot 17.1) | LGPL-3.0 | Outil de contrôle en CI seulement : absent de l'application livrée |
+| gmsh 4.15.2 (Python) | Lecteur tiers du STEP exporté en CI (lot 17.2) | GPL-2.0-or-later | Outil de contrôle en CI seulement : absent de l'application livrée |
 
 ## OCCT : conditions de la LGPL (décision du maître d'ouvrage, 8 octobre 2026)
 

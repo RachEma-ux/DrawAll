@@ -3,10 +3,11 @@
 // séparé, chargé à la demande et remplaçable (décision de licence du maître d'ouvrage, feuille de
 // route §7). Ce fichier n'est importé que par le Worker du noyau et par les tests.
 import opencascade from 'replicad-opencascadejs';
-import { FaceFinder, ProjectionCamera, makeCompound, makePolygon, assembleWire, basicFaceExtrusion, cast, makeProjectedEdges, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
+import { FaceFinder, ProjectionCamera, createAssembly, makeCompound, makePolygon, assembleWire, basicFaceExtrusion, cast, makeProjectedEdges, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
 import { PROJ_CAMERAS, type Camera, type Clip, type EdgeRef, type FaceRef, type LoftSection, type MeshResult, type PathSeg, type ProjLines, type ProjView, type SolidRecipe, type SweepProfile, type Vec3 } from './recipe';
 import { inventory, parseStepFile, type StepInventory } from './step-file';
 import { cleanProjection } from './hlr-clean';
+import { toAp242Ed3 } from './step-ap242';
 import { edgeLabel, faceLabel, featureSupports, pointOnSupport, supportOf, surfaceTypeOf, type RefReport, type Support, type Supports } from './references';
 
 /** Référence non résolue : l'opération n'est pas appliquée, la référence est à réparer (lot 11.3). */
@@ -27,8 +28,11 @@ export interface Kernel {
    * une référence est à réparer est sautée (son solide d'entrée passe tel quel) ; rien n'est réattribué.
    */
   references(recipe: SolidRecipe): RefReport[];
-  /** Import d'un fichier STEP : solides transférés (en mm) et compte rendu des pertes (lot 11.4). */
-  importStep(text: string): StepImportReport;
+  /**
+   * Import d'un fichier STEP : solides transférés (en mm) et compte rendu des pertes (lot 11.4) ;
+   * avec `withParts`, chaque solide est aussi rendu en recette réutilisable (lot 17.2).
+   */
+  importStep(text: string, withParts?: boolean): StepImportReport;
   /**
    * Plus grand écart (mm) entre les points donnés et le bord du solide (sa face la plus proche) :
    * contrôle qu'un lissage passe bien par ses sections (lot 15.4).
@@ -36,13 +40,15 @@ export interface Kernel {
   boundaryDeviation(recipe: SolidRecipe, points: Vec3[]): number;
   /** Vue projetée du solide, arêtes cachées séparées (lot 16.1). */
   project(recipe: SolidRecipe, view: ProjView): ProjLines;
+  /** Export STEP AP242 éd. 3 de solides nommés (lot 17.2). */
+  exportStep(parts: { name: string; recipe: SolidRecipe }[], fileName: string, date: Date): { content: string } | { error: string };
   /** Projection par une caméra quelconque, éventuellement après coupe (lot 16.2). */
   projectCamera(recipe: SolidRecipe, camera: Camera, clip?: Clip): ProjLines;
   /** Durée du chargement du module (ms). */
   loadMs: number;
 }
 
-export interface StepSolid { volume: number; valid: boolean; center: Vec3; size: Vec3 }
+export interface StepSolid { volume: number; valid: boolean; center: Vec3; size: Vec3; recipe?: Extract<SolidRecipe, { op: 'step' }> }
 
 export interface StepImportReport {
   status: 'importé' | 'importé avec pertes' | 'échec';
@@ -93,6 +99,7 @@ function build(r: SolidRecipe, report?: RefReport[]): Shape3D {
       : polygon(r.profile).sketchOnPlane('XZ').revolve([0, 0, 1], { angle: r.angle }) as Shape3D;
     case 'sweep': return sweep(r.profile, r.path, r.z ?? 0);
     case 'loft': return lofted(r.sections, r.ruled);
+    case 'step': return readStepShape(r.data);
     case 'compound': {
       const parts = r.parts.map(p => build(p, report));
       try { return makeCompound(parts) as Shape3D; } finally { for (const p of parts) p.delete(); }
@@ -339,7 +346,11 @@ function makeKernel(loadMs: number): Kernel {
         return { vertices: Array.from(m.vertices), triangles: Array.from(m.triangles) };
       } finally { s.delete(); }
     },
-    importStep: text => importStep(text),
+    importStep: (text, withParts) => importStep(text, withParts),
+    exportStep: (parts, fileName, date) => {
+      const shapes = parts.map(p => ({ name: p.name, shape: build(p.recipe) }));
+      try { return toAp242Ed3(writeStep(shapes), fileName, date); } finally { for (const s of shapes) s.shape.delete(); }
+    },
     project: (r, view) => projectWith(build(r), PROJ_CAMERAS[view]),
     projectCamera: (r, camera, clip) => {
       const s = build(r);
@@ -375,7 +386,50 @@ const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
 const r9 = (v: number) => { const x = Math.round(v * 1e9) / 1e9; return x === 0 ? 0 : x; };
 
 /** Lit un fichier STEP par le noyau ; la lecture du texte complète ce que le noyau ne rend pas. */
-function importStep(text: string): StepImportReport {
+/** Écrit des solides nommés en STEP AP242 (en-tête du noyau, édition 1 ; réécrit ensuite). */
+function writeStep(parts: { name: string; shape: Shape3D }[]): string {
+  const oc = getOC();
+  const doc = createAssembly(parts as never);
+  const session = new oc.XSControl_WorkSession();
+  const writer = new oc.STEPCAFControl_Writer(session, false);
+  const progress = new oc.Message_ProgressRange();
+  const file = `export-${Math.random().toString(36).slice(2)}.step`;
+  try {
+    writer.SetNameMode(true);
+    // Ni couleurs ni calques : DrawAll n'en attribue pas aux solides (rien d'écrit qui ne soit relu).
+    writer.SetColorMode(false);
+    writer.SetLayerMode(false);
+    oc.Interface_Static.SetIVal('write.step.schema', 5);
+    oc.Interface_Static.SetCVal('write.step.unit', 'MM');
+    oc.Interface_Static.SetIVal('write.step.assembly', 2);
+    if (!writer.Perform(doc.wrapped, file, progress)) throw new Error('Export STEP refusé par le noyau.');
+    return oc.FS.readFile(`/${file}`, { encoding: 'utf8' }) as string;
+  } finally {
+    try { oc.FS.unlink(`/${file}`); } catch { /* fichier non écrit */ }
+    progress.delete(); writer.delete(); session.delete(); doc.delete();
+  }
+}
+
+const stepCache = new Map<string, Shape3D>();
+/** Forme d'un fichier STEP d'un seul solide (mise en cache : la recette est relue à chaque calcul). */
+function readStepShape(data: string): Shape3D {
+  let s = stepCache.get(data);
+  if (!s) {
+    const oc = getOC();
+    const file = `recette-${Math.random().toString(36).slice(2)}.step`;
+    oc.FS.writeFile(`/${file}`, new TextEncoder().encode(data));
+    const reader = new oc.STEPControl_Reader();
+    try {
+      if (reader.ReadFile(file) !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new Error('Solide STEP illisible.');
+      reader.TransferRoots(new oc.Message_ProgressRange());
+      s = cast(reader.OneShape()) as Shape3D;
+    } finally { reader.delete(); oc.FS.unlink(`/${file}`); }
+    stepCache.set(data, s);
+  }
+  return s.clone() as Shape3D;
+}
+
+function importStep(text: string, withParts = false): StepImportReport {
   const t0 = performance.now();
   const losses: string[] = [];
   let inv: StepInventory | undefined, parseError: string | undefined;
@@ -406,7 +460,18 @@ function importStep(text: string): StepImportReport {
         const solid = cast(s) as Shape3D;
         const check = new oc.BRepCheck_Analyzer(s, true, false, false);
         const bb = solid.boundingBox;
-        solids.push({ volume: r6(measureVolume(solid)), valid: check.IsValid(), center: bb.center.map(r6) as Vec3, size: [r6(bb.width), r6(bb.height), r6(bb.depth)] });
+        const entry: StepSolid = { volume: r6(measureVolume(solid)), valid: check.IsValid(), center: bb.center.map(r6) as Vec3, size: [r6(bb.width), r6(bb.height), r6(bb.depth)] };
+        if (withParts) {
+          // Recette réutilisable : le solide seul, réécrit en AP242, son encombrement et sa trace de dessus.
+          const name = `Solide importé ${solids.length + 1}`;
+          const one = toAp242Ed3(writeStep([{ name, shape: solid }]), `${name}.step`, new Date(0));
+          if ('content' in one) {
+            const top = projectWith(solid.clone() as Shape3D, PROJ_CAMERAS.dessus);
+            const [[x0, y0, z0], [x1, y1, z1]] = bb.bounds;
+            entry.recipe = { op: 'step', data: one.content, name, bounds: { min: [x0, y0, z0], max: [x1, y1, z1] }, trace: top.visible };
+          }
+        }
+        solids.push(entry);
         check.delete(); bb.delete(); solid.delete();
       }
       shape.delete();

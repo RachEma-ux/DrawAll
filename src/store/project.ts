@@ -56,7 +56,7 @@ import { buildPublication, normalizePublications } from '@/lib/publication';
 import { MATE_LABEL, isMate, placeMate, resolveMates, type Mate } from '@/lib/assembly';
 import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
 import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
-import type { ProjView } from '@/lib/kernel/recipe';
+import type { ProjView, SolidRecipe } from '@/lib/kernel/recipe';
 import type { ElevationView } from '@/types/cad';
 
 const STORAGE_KEY = 'drawall-projet-v1';
@@ -877,6 +877,20 @@ export function useProject() {
     return null;
   }, [allObjects, commit]);
 
+  /** Solides importés (lot 17.2), sur le calque actif, en une seule version. */
+  const addSolids = useCallback((items: { name: string; recipe: SolidRecipe }[], label: string) => {
+    if (!items.length) return [];
+    let counter = state.counter;
+    const made = items.map(({ name, recipe }) => {
+      counter += 1;
+      const id = `OBJ-${String(counter).padStart(4, '0')}`;
+      return stampLevel({ id, name, kind: 'solid', classification: 'non-classifie', layerId: activeLayerId, hatch: 'none', createdSeq: current.seq, recipe } as CadObject);
+    });
+    commit(`${label} ${made.map(o => o.id).join(', ')}`, { objects: [...allObjects, ...made], counter });
+    setSelectedIds(made.map(o => o.id));
+    return made.map(o => o.id);
+  }, [allObjects, state.counter, current.seq, commit, activeLayerId, stampLevel, setSelectedIds]);
+
   /** Façades et coupes du bâtiment (lot 16.2), posées sous lui, en une seule version. */
   const addElevations = useCallback((views: { view: ElevationView; markId?: string }[]) => {
     const placed = elevationPlacement(allObjects, views);
@@ -1526,7 +1540,7 @@ export function useProject() {
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations, makePart, addOccurrence, setMate,
+    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations, makePart, addOccurrence, setMate, addSolids,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,

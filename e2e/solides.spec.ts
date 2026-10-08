@@ -318,3 +318,35 @@ test('lot 16.4 — liaison appui plan suivie, nomenclature d’assemblage et vue
   await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/);
   expect(errors).toEqual([]);
 });
+
+test('lot 17.2 — export STEP AP242 édition 3 puis réimport : mêmes solides', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  const panel = await extrudeAt(page, info, 500, 0, '300');
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+  let report = '';
+  page.on('dialog', d => { report = d.message(); d.accept().catch(() => {}); });
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('step');
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 90_000 }), page.getByText('Exporter les solides en STEP (AP242 édition 3)', { exact: true }).click()]);
+  const path = (await download.path())!;
+  const { readFileSync } = await import('node:fs');
+  const step = readFileSync(path, 'utf8');
+  expect(step).toContain("FILE_SCHEMA(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }'));");
+  await expect.poll(() => report).toContain('1 solide(s)');
+
+  // Réimport du fichier : un deuxième solide, de même volume.
+  report = '';
+  await page.getByLabel('Fichier STEP à importer').setInputFiles(path);
+  await expect.poll(() => report, { timeout: 90_000 }).toContain('Import STEP : importé');
+  const solids = (await currentObjects(page)).filter(o => o.kind === 'solid');
+  expect(solids).toHaveLength(2);
+  expect(solids[1].recipe).toMatchObject({ op: 'step' });
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('solides 3d');
+  await page.getByText('Solides 3D', { exact: true }).click();
+  expect(Math.abs((await shownVolume(page)) - 1.5e8) / 1.5e8).toBeLessThan(1e-6);
+  expect(errors).toEqual([]);
+});
