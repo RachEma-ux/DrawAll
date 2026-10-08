@@ -2,13 +2,15 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import { CLASSIFICATION_META, KIND_LABEL, parentsOf, type CadObject, type Layer, type MicroVersion } from '@/types/cad';
+import { CLASSIFICATION_META, KIND_LABEL, parentsOf, type CadObject, type CutObj, type Layer, type MicroVersion, type RoofObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isMate } from './assembly';
 import { normalizePsets } from './properties';
 import { isRecipe } from './solids';
 import { isValidSpline, type SplineGeom } from './spline';
 import { faceOf } from './views';
+import { cutView } from './cuts';
+import { roofError, roofInput } from './roof';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
 export type TransformOp =
@@ -95,7 +97,7 @@ const SPECS: Record<string, Spec> = {
   opening: { nums: ['position'], pos: ['width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] } },
   room: { nums: ['x', 'y'] },
   slab: { pos: ['thickness'], points: 3 },
-  roof: { nums: ['x', 'y', 'pitch', 'overhang'], pos: ['w', 'h'] },
+  roof: { nums: ['x', 'y', 'pitch', 'overhang'], pos: ['w', 'h'], enums: { roofType: ['un-pan', 'deux-pans', 'quatre-pans'], axis: ['x', 'y'] }, extra: o => (o.highSide !== undefined && o.highSide !== 'min' && o.highSide !== 'max' ? 'toiture : côté haut min ou max attendu' : roofError(roofInput(o as unknown as RoofObj))) },
   column: {
     nums: ['x', 'y'], enums: { section: ['rect', 'circle'] },
     // Dimensions selon la section : b × h pour un poteau rectangulaire, d pour un poteau circulaire.
@@ -108,8 +110,8 @@ const SPECS: Record<string, Spec> = {
       // Définition de pièce (facultative) : numéro, origine (x, y, z) et angle finis.
       const d = o.partDef as { no?: unknown; origin?: unknown; angle?: unknown } | undefined;
       if (d === undefined) return null;
-      const ok = !!d && typeof d === 'object' && finite(d.no) && Array.isArray(d.origin) && d.origin.length === 3 && d.origin.every(finite) && finite(d.angle);
-      return ok ? null : 'solide : définition de pièce mal formée (numéro, origine x y z, angle)';
+      const ok = !!d && typeof d === 'object' && Number.isInteger(d.no) && (d.no as number) > 0 && Array.isArray(d.origin) && d.origin.length === 3 && d.origin.every(finite) && finite(d.angle);
+      return ok ? null : 'solide : définition de pièce mal formée (numéro entier positif, origine x y z, angle)';
     },
   },
   occurrence: { nums: ['x', 'y', 'z', 'angle'], strs: ['sourceId'] },
@@ -179,6 +181,8 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
   if (hole) return `${kind} : trou ${hole} absent`;
   // Occurrence : sa source est une pièce (solide défini comme pièce), sinon elle n'aurait aucune géométrie.
   if (kind === 'occurrence') { const src = byId.get(o.sourceId as string); if (src?.kind === 'solid' && !src.partDef) return `occurrence : ${src.id} n’est pas une pièce (définir la pièce d’abord)`; }
+  // Coupe : évaluable comme dans l'atelier (contour fermé, repère, profondeur).
+  if (kind === 'cut') { const r = cutView(o as unknown as CutObj, byId.get(o.sourceId as string), byId.get(o.markId as string), objects, 1, 1); if (!r.ok) return `coupe : ${r.error}`; }
   // Vues liées : la source doit offrir une face fermée.
   if (kind === 'views') { const src = byId.get(o.sourceId as string); if (src && !faceOf(src, objects)) return `vues : ${src.id} n’offre pas de face fermée`; }
   const mate = (o as { mate?: unknown }).mate as { to?: unknown } | undefined;
@@ -232,8 +236,9 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
   addLayer: ([name]) => (str(name) ? null : 'nom de calque attendu'),
   addLevel: ([name, elevation]) => (str(name) && finite(elevation) ? null : 'nom et altitude attendus'),
   goTo: ([index]) => (Number.isInteger(index) && (index as number) >= 0 ? null : 'rang de version attendu'),
-  setActiveLayerId: ([id]) => (str(id) ? null : 'identifiant de calque attendu'),
-  setActiveLevelId: ([id]) => (str(id) ? null : 'identifiant de niveau attendu'),
+  // Calque et niveau désignés : existants (le changement serait sinon ignoré sans le dire).
+  setActiveLayerId: ([id], { layerIds }) => (!str(id) ? 'identifiant de calque attendu' : layerIds && !layerIds.has(id as string) ? `calque ${String(id)} absent` : null),
+  setActiveLevelId: ([id], { levelIds }) => (!str(id) ? 'identifiant de niveau attendu' : levelIds && !levelIds.has(id as string) ? `niveau ${String(id)} absent` : null),
   nameVersion: ([name]) => (str(name) ? null : 'nom de version attendu'),
   undo: args => (args.length === 0 ? null : 'annuler : sans argument'),
   redo: args => (args.length === 0 ? null : 'rétablir : sans argument'),

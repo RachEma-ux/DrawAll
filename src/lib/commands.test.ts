@@ -81,8 +81,22 @@ describe('API de commandes (lot 18.1)', () => {
     const plain = { ...line, id: 'Q', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } } as unknown as CadObject;
     expect(add({ ...occ, sourceId: 'Q' }, [plain])).toBe('occurrence : Q n’est pas une pièce (définir la pièce d’abord)');
     // Définition de pièce mal formée : refusée.
-    expect(add({ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: {} })).toBe('solide : définition de pièce mal formée (numéro, origine x y z, angle)');
+    expect(add({ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: {} })).toBe('solide : définition de pièce mal formée (numéro entier positif, origine x y z, angle)');
     expect(add({ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 2, origin: [0, 0, 0], angle: 90 } })).toBeNull();
+    expect(add({ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1.5, origin: [0, 0, 0], angle: 0 } })).toMatch(/numéro entier positif/);
+    expect(add({ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: -1, origin: [0, 0, 0], angle: 0 } })).toMatch(/numéro entier positif/);
+    // Toiture : type et axe requis, pente et débord admissibles.
+    const roof = { kind: 'roof', x: 0, y: 0, w: 8000, h: 6000, roofType: 'deux-pans', axis: 'x', pitch: 30, overhang: 500 };
+    expect(add(roof)).toBeNull();
+    expect(add({ ...roof, roofType: undefined })).toBe('roof : roofType parmi un-pan, deux-pans, quatre-pans attendu');
+    expect(add({ ...roof, pitch: 90 })).toBe('Toiture : pente entre 0 et 90° (exclus) attendue.');
+    expect(add({ ...roof, overhang: -1 })).toBe('Toiture : débord positif ou nul attendu.');
+    // Coupe : évaluable (contour fermé, repère) ; une ligne n'est pas une face.
+    const mark = { ...line, id: 'M', kind: 'section', x1: 50, y1: -100, x2: 50, y2: 100, label: 'A' } as unknown as CadObject;
+    const face = { ...line, id: 'F', kind: 'rect', x: 0, y: 0, w: 100, h: 50 } as unknown as CadObject;
+    const cut = { kind: 'cut', depth: 20, gap: 10, sourceId: 'F', markId: 'M' };
+    expect(add(cut, [face, mark])).toBeNull();
+    expect(add({ ...cut, sourceId: 'OBJ-0001' }, [line, mark])).toBe('coupe : OBJ-0001 n\'est pas un contour fermé.');
     // Vues liées : profondeur positive, au moins une vue demandée, source à face fermée.
     const rect = { ...line, id: 'RC', kind: 'rect', x: 0, y: 0, w: 100, h: 50 } as unknown as CadObject;
     const views = { kind: 'views', sourceId: 'RC', depth: 20, gap: 10, top: true, side: false };
@@ -126,6 +140,10 @@ describe('API de commandes (lot 18.1)', () => {
   });
 
   it('scripts : seules les commandes entièrement validées sont ouvertes', () => {
+    // Calque et niveau actifs : existants.
+    expect(validateCommand('setActiveLayerId', ['LAY-0009'], [], [{ id: 'LAY-0001' }])).toBe('calque LAY-0009 absent');
+    expect(validateCommand('setActiveLevelId', ['NIV-0009'], [], [], { levels: [{ id: 'NIV-0001' }] })).toBe('niveau NIV-0009 absent');
+    expect(validateCommand('setActiveLevelId', ['NIV-0001'], [], [], { levels: [{ id: 'NIV-0001' }] })).toBeNull();
     expect(scriptCommandError('addObject')).toBeNull();
     expect(scriptCommandError('undo')).toBeNull();
     expect(scriptCommandError('addSolids')).toBe('commande non ouverte aux scripts « addSolids »');
