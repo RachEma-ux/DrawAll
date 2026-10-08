@@ -34,6 +34,7 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
   switch (o.kind) {
     case 'line':
     case 'wall':
+    case 'beam':
     case 'section': {
       const p = stretchPoints([o.x1, o.y1, o.x2, o.y2], w, dx, dy);
       return p && { x1: p[0], y1: p[1], x2: p[2], y2: p[3] };
@@ -80,6 +81,7 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
     case 'bom':
     case 'balloon':
     case 'room':
+    case 'column':
       return inside(w, o.x, o.y) ? moveObject(o, dx, dy) : null;
     case 'note':
       return !o.targetId && inside(w, o.x, o.y) ? moveObject(o, dx, dy) : null;

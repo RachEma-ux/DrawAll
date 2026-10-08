@@ -11,6 +11,7 @@ import type { BlockDef, CadObject, Layer, OpeningObj, PrimitiveObject, TextAlign
 import { textLines } from '@/lib/text';
 import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
+import { structurePrimitives } from '@/lib/structure';
 import { norm360 } from '@/lib/arc';
 import { affineEllipse } from '@/lib/ellipse';
 import { isValidSpline, knotsOf } from '@/lib/spline';
@@ -397,6 +398,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
     }
     // Toiture (lot 13.2) : rive en LWPOLYLINE fermée, faîtage, arêtiers et flèches en LINE.
     if (object.kind === 'roof') { counts.roof++; for (const p of roofPrimitives(object, roofInput(object))) writeOne(p, layer); continue; }
+    // Poteau : LWPOLYLINE fermée ou CIRCLE ; poutre : LINE en trait interrompu (lot 13.4).
+    if (object.kind === 'column' || object.kind === 'beam') { for (const p of structurePrimitives(object)) writeOne(p, layer); continue; }
     if (object.kind === 'slab') counts.slab++;
     // Dalle (lot 13.1) : contour fermé en LWPOLYLINE.
     writeOne(object.kind === 'slab' ? slabAsPolyline(object) as PrimitiveObject : object, layer);
