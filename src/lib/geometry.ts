@@ -983,3 +983,19 @@ export function notePosition(note: NoteObj, objects: CadObject[], blocks: BlockD
   const b = target && target.kind !== 'note' ? objectBounds(target, blocks, objects) : null;
   return b ? { x: b.minX + note.x, y: b.minY + note.y } : { x: note.x, y: note.y };
 }
+
+/**
+ * Note jointe dont l'objet vient d'être transformé : le point noté subit la même transformation
+ * (rotation, symétrie, échelle, déplacement), puis est ré-exprimé par rapport à la nouvelle emprise
+ * de l'objet. `before` et `after` : objets avant et après la transformation ; null si rien à changer.
+ */
+export function reanchorNote(note: NoteObj, transform: (o: CadObject) => Partial<CadObject> | null, before: CadObject[], after: CadObject[], blocks: BlockDef[]): Partial<NoteObj> | null {
+  if (!note.targetId) return null;
+  const abs = notePosition(note, before, blocks);
+  const patch = transform({ ...note, targetId: undefined, x: abs.x, y: abs.y } as CadObject) as Partial<NoteObj> | null;
+  if (!patch) return null;
+  const target = after.find(o => o.id === note.targetId);
+  const b = target ? objectBounds(target, blocks, after) : null;
+  if (!b) return null;
+  return { x: round((patch.x ?? abs.x) - b.minX), y: round((patch.y ?? abs.y) - b.minY) };
+}

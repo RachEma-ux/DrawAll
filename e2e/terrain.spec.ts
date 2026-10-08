@@ -208,3 +208,22 @@ test('lot 7.3 — note sur un point, au doigt', async ({ page }, info) => {
   expect(Math.abs(Number(note.x) - 2000)).toBeLessThan(60);
   await expect(page.getByTestId('canvas').locator('g[data-note]')).toHaveCount(1);
 });
+
+test('lot 7.3 — supprimer une photo libère sa place dans le projet', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'inspecteur en colonne : recette bureau');
+  await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 4000, h: 3000 }]);
+  await chooseTool(page, /^Note/);
+  page.once('dialog', d => d.accept('Joint à refaire'));
+  await tapModel(page, info, 2000, 0);
+  await page.getByLabel('Photo de la note').setInputFiles(join(process.cwd(), 'e2e', 'fixtures', 'fond-de-plan.png'));
+  const assets = () => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('drawall-projet-v1')!).assets ?? {}));
+  await expect.poll(assets).toHaveLength(1);
+  page.once('dialog', d => d.accept());
+  await page.getByRole('button', { name: /^Supprimer la photo/ }).click();
+  await expect.poll(assets).toHaveLength(0);
+  expect(((await currentObjects(page)).find(o => o.kind === 'note') as { photoIds?: string[] }).photoIds).toEqual([]);
+  // Annuler ne fait pas réapparaître de référence vers une image absente.
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => ((await currentObjects(page)).find(o => o.kind === 'note') as { photoIds?: string[] } | undefined)?.photoIds ?? []).toEqual([]);
+});

@@ -1,8 +1,8 @@
 // Copies multiples : réseaux rectangulaire et polaire, collage. Fonctions pures.
 // Une « pose » transforme une copie d'un objet ; elle ne crée pas d'identifiant (c'est le
 // rôle du magasin de projet, qui garantit l'unicité).
-import { parentOf, parentsOf, withParents, type CadObject } from '@/types/cad';
-import { moveObject, rotateObject } from '@/lib/geometry';
+import { parentOf, parentsOf, withParents, type BlockDef, type CadObject } from '@/types/cad';
+import { moveObject, notePosition, objectBounds, rotateObject } from '@/lib/geometry';
 
 /** Transformation appliquée à une copie : renvoie la modification, ou null si impossible. */
 export type Placement = (o: CadObject) => Partial<CadObject> | null;
@@ -111,7 +111,7 @@ export function polarArray(count: number, total: number, cx: number, cy: number,
  * Une cote suit sa cible et une ouverture son mur : elle est copiée seulement si sa cible ou son
  * mur l'est aussi, et pointe alors vers cette copie. Les objets qu'une pose ne sait pas transformer sont omis.
  */
-export function cloneAll(sources: CadObject[], placements: Placement[], counter: number, seq: number): { objects: CadObject[]; counter: number } {
+export function cloneAll(sources: CadObject[], placements: Placement[], counter: number, seq: number, blocks: BlockDef[] = []): { objects: CadObject[]; counter: number } {
   const out: CadObject[] = [];
   // Objets associatifs (cote, ouverture, vues) : copiés après leur parent, rattachés à sa copie.
   const shapes = sources.filter(o => parentsOf(o).length === 0);
@@ -140,8 +140,18 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
       progress = false;
       const next: CadObject[] = [];
       for (const d of pending) {
-        const attached = withParents(d, p => ids.get(p));
+        let attached = withParents(d, p => ids.get(p));
         if (!attached) { next.push(d); continue; }
+        if (attached.kind === 'note' && d.kind === 'note' && d.targetId) {
+          // Note jointe : le point noté subit la pose (rotation d'un réseau polaire…), puis est
+          // ré-exprimé par rapport à l'emprise de la copie de son objet.
+          const abs = notePosition(d, sources, blocks);
+          const patch = place({ ...d, targetId: undefined, x: abs.x, y: abs.y } as CadObject) as { x?: number; y?: number } | null;
+          const copyId = attached.targetId;
+          const copy = out.find(o => o.id === copyId);
+          const b = copy ? objectBounds(copy, blocks, out) : null;
+          if (patch && b) attached = { ...attached, x: Math.round(((patch.x ?? abs.x) - b.minX) * 1e6) / 1e6, y: Math.round(((patch.y ?? abs.y) - b.minY) * 1e6) / 1e6 };
+        }
         counter += 1;
         const id = `OBJ-${String(counter).padStart(4, '0')}`;
         ids.set(d.id, id);

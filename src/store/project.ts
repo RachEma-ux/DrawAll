@@ -33,7 +33,7 @@ import { DEFAULT_LEVEL, copyLevelObjects, levelIdOf, levelsOf, onLevel } from '@
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
 import { nextIndexLetter } from '@/lib/titleblock';
 import { cutView } from '@/lib/cuts';
-import { objectBounds, projectBounds } from '@/lib/geometry';
+import { objectBounds, projectBounds, reanchorNote } from '@/lib/geometry';
 import { linkedViews } from '@/lib/views';
 
 const STORAGE_KEY = 'drawall-projet-v1';
@@ -465,11 +465,18 @@ export function useProject() {
       if (patch) patches.set(o.id, patch);
     }
     if (patches.size === 0) return 0;
-    commit(`${label} (${patches.size} objet${patches.size > 1 ? 's' : ''})`, {
-      objects: allObjects.map(o => (patches.has(o.id) ? ({ ...o, ...patches.get(o.id) } as CadObject) : o)),
-    });
+    let next = allObjects.map(o => (patches.has(o.id) ? ({ ...o, ...patches.get(o.id) } as CadObject) : o));
+    // Notes jointes aux objets transformés : le point noté suit la même transformation.
+    const notes = new Map<string, Partial<CadObject>>();
+    for (const o of allObjects) {
+      if (o.kind !== 'note' || !o.targetId || !patches.has(o.targetId)) continue;
+      const p = reanchorNote(o, fn, allObjects, next, blocks);
+      if (p) notes.set(o.id, p);
+    }
+    if (notes.size) next = next.map(o => (notes.has(o.id) ? ({ ...o, ...notes.get(o.id) } as CadObject) : o));
+    commit(`${label} (${patches.size} objet${patches.size > 1 ? 's' : ''})`, { objects: next });
     return patches.size;
-  }, [allObjects, layers, commit]);
+  }, [allObjects, layers, blocks, commit]);
 
   /**
    * Ajoute des copies de `sources` (objets du projet ou contenu du presse-papiers) pour chaque
@@ -482,7 +489,7 @@ export function useProject() {
       .map(o => (layers.some(l => l.id === o.layerId) || !active ? o : ({ ...o, layerId: active.id } as CadObject)))
       .filter(o => !layers.find(l => l.id === o.layerId)?.locked);
     if (usable.length === 0 || placements.length === 0) return [];
-    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq);
+    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks);
     const clones = cloned.map(stampLevel);
     if (clones.length === 0) return [];
     commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
@@ -491,7 +498,7 @@ export function useProject() {
     });
     setSelectedIds(clones.map(c => c.id));
     return clones.map(c => c.id);
-  }, [allObjects, layers, activeLayerId, state.counter, current.seq, commit, setSelectedIds, stampLevel]);
+  }, [allObjects, layers, blocks, activeLayerId, state.counter, current.seq, commit, setSelectedIds, stampLevel]);
 
   /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
   const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
@@ -704,7 +711,16 @@ export function useProject() {
     const note = allObjects.find(o => o.id === noteId);
     if (note?.kind !== 'note') return;
     const photoIds = (note.photoIds ?? []).filter(p => p !== assetId);
-    commit(`Photo retirée de ${noteId}`, { objects: allObjects.map(o => (o.id === noteId ? ({ ...note, photoIds } as CadObject) : o)) });
+    commit(`Photo supprimée de ${noteId}`, { objects: allObjects.map(o => (o.id === noteId ? ({ ...note, photoIds } as CadObject) : o)) });
+    // Suppression définitive : la photo quitte le projet et tout son historique (la place est
+    // libérée ; une annulation ne ferait pas réapparaître une référence vers une image absente).
+    setState(s => {
+      const purge = (objects: CadObject[]) => objects.map(o => (o.kind === 'note' && o.photoIds?.includes(assetId) ? ({ ...o, photoIds: o.photoIds.filter(p => p !== assetId) } as CadObject) : o));
+      const stillUsed = s.versions.some(v => v.objects.some(o => o.kind === 'underlay' && o.assetId === assetId));
+      const assets = { ...(s.assets ?? {}) };
+      if (!stillUsed) delete assets[assetId];
+      return { ...s, versions: s.versions.map(v => ({ ...v, objects: purge(v.objects) })), assets };
+    });
   }, [allObjects, commit]);
 
   /** Repère (bulle) d'une pièce, posé en haut à droite de son emprise. */

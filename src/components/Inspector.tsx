@@ -340,7 +340,8 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
                     ? <img src={assets[id].dataUrl} alt={`Photo ${assets[id].name}`} className="h-16 w-full rounded-sm object-cover" />
                     : <span className="block h-16 rounded-sm border border-red-400/40 p-1 text-[9px] text-red-300">photo absente</span>}
                   {onRemoveNotePhoto && (
-                    <button aria-label={`Retirer la photo ${id}`} onClick={() => onRemoveNotePhoto(obj.id, id)}
+                    <button aria-label={`Supprimer la photo ${id}`} title="Supprimer la photo du projet (libère la place ; définitif)"
+                      onClick={() => { if (window.confirm('Supprimer définitivement cette photo du projet ? La place est libérée ; l’annulation ne la fera pas revenir.')) onRemoveNotePhoto(obj.id, id); }}
                       className="absolute right-0.5 top-0.5 rounded-sm bg-black/70 px-1 text-[10px] text-red-300">×</button>
                   )}
                 </figure>
