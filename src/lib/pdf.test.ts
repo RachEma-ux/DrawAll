@@ -95,3 +95,13 @@ describe('cote à trait propre (lot 2.4)', () => {
     expect(out).toContain(`[${(2.16 * MM_TO_PT).toFixed(3).replace(/0+$/, '')} `);
   });
 });
+
+describe('niveau d’une fenêtre (lot 4.4)', () => {
+  it('une fenêtre sans niveau valide montre le premier niveau, comme l’aperçu', () => {
+    // Le rez (NIV-0001) a été supprimé : la fenêtre sans niveau montre l'étage restant.
+    const upper = objects.map(o => ({ ...o, levelId: 'NIV-0002' }) as CadObject);
+    const levels = [{ id: 'NIV-0002', name: 'Étage 1', elevation: 2800 }];
+    const out = sheetToPdf({ sheet, objects: upper, levels, layers, blocks: [], versions, pointer: 0, date: new Date(Date.UTC(2026, 9, 7, 12)) });
+    expect(out).toContain(pdfString('Séjour 24,5 m²'));
+  });
+});

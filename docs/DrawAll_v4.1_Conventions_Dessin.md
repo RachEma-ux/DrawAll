@@ -268,6 +268,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - Surface affichée en m² au centième (contour intérieur des murs, piliers et gaines non déduits). La règle de surface du projet (SIA 416 par défaut, ou loi Carrez — décision §7) est rappelée avec ses réserves : ce qui dépend des hauteurs, gaines ou marches n'est pas évalué en 2D.
 - Étiquette : nom (3,5 mm papier) et surface (2,5 mm) au centre de gravité. DXF : contour (LWPOLYLINE) et étiquette (TEXT) ; la surface n'est plus recalculée.
 
+### 8.4 Niveaux (règle, lot 4.4)
+
+- Un niveau (identifiant NIV-, jamais réutilisé) a un nom et l'altitude de son plancher en mm par rapport au ±0,00 du projet, affichée en mètres signés (« +2,80 m »). Les niveaux sont versionnés avec le projet ; un projet antérieur a un seul niveau, « Rez-de-chaussée » à ±0,00.
+- Chaque objet appartient à un niveau ; les calques sont communs à tous les niveaux. L'atelier montre et édite le niveau actif seulement (sélection, accrochage, pièces, murs et ouvertures) ; le niveau immédiatement inférieur peut s'afficher en fond de plan estompé, ni sélectionnable ni accrochable.
+- Copier un niveau crée un niveau neuf avec des copies de tous ses objets (identifiants neufs, ouvertures, cotes et îlots rattachés aux copies) ; les deux niveaux s'éditent ensuite séparément. Supprimer un niveau supprime ses objets ; le dernier niveau ne se supprime pas.
+- Feuilles : chaque fenêtre désigne le niveau qu'elle montre (PDF compris). DXF : un fichier par niveau — l'export porte sur le niveau actif et le rapport d'échange nomme les niveaux non exportés.
+
 ## 9. Références
 
 | Sujet | Référence |

@@ -7,6 +7,7 @@ import {
   type CadObject,
   type DimensionStyle,
   type Layer,
+  type Level,
   type MicroVersion,
   type NewCadObject,
   type PrimitiveObject,
@@ -23,6 +24,7 @@ import { arcBounds } from '@/lib/arc';
 import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
 import { LINE_TYPES } from '@/lib/linestyle';
 import { profileById } from '@/lib/materials';
+import { DEFAULT_LEVEL, copyLevelObjects, levelIdOf, levelsOf, onLevel } from '@/lib/levels';
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
 import { nextIndexLetter } from '@/lib/titleblock';
 
@@ -109,6 +111,7 @@ export function normalizeSheets(raw: unknown, layers: Layer[]): Sheet[] {
           center: { x: num(v.center?.x, 0), y: num(v.center?.y, 0) },
           hiddenLayerIds: Array.isArray(v.hiddenLayerIds) ? v.hiddenLayerIds.filter(id => layers.some(l => l.id === id)) : [],
           ...(v.context === 'vue' || v.context === 'coupe' ? { context: v.context } : {}),
+          ...(typeof v.levelId === 'string' ? { levelId: v.levelId } : {}),
         })),
       ...(sh.titleBlock && typeof sh.titleBlock === 'object' ? {
         titleBlock: {
@@ -166,13 +169,29 @@ export function normalizeProjectState(raw: unknown): ProjectState {
       .filter((v): v is MicroVersion => !!v && typeof v.seq === 'number' && typeof v.label === 'string' && Array.isArray(v.objects))
       .map(v => {
         const layers = normalizeLayers(v.layers ?? fallbackLayers);
+        const levels = normalizeLevels(v.levels);
+        const known = levelsOf(levels);
+        // Un objet rattaché à un niveau inconnu va sur le premier niveau (jamais invisible).
+        const onKnown = (o: CadObject): CadObject => {
+          if (known.some(l => l.id === levelIdOf(o))) return o;
+          const rest = { ...o };
+          delete rest.levelId;
+          return known[0].id === DEFAULT_LEVEL.id ? rest : { ...rest, levelId: known[0].id };
+        };
+        const vRest: MicroVersion = { ...v };
+        delete vRest.levels;
         return {
-          ...v,
+          ...vRest,
+          ...(levels ? { levels } : {}),
           time: typeof v.time === 'number' ? v.time : Date.now(),
-          objects: v.objects.map(o => normalizeObject(o, layers)).filter((o): o is CadObject => !!o),
+          objects: v.objects.map(o => normalizeObject(o, layers)).filter((o): o is CadObject => !!o).map(onKnown),
           layers,
           blocks: normalizeBlocks(v.blocks, layers),
-          sheets: normalizeSheets(v.sheets, layers),
+          // Une fenêtre sur un niveau inconnu montre le premier niveau.
+          sheets: normalizeSheets(v.sheets, layers).map(sh => ({
+            ...sh,
+            viewports: sh.viewports.map(vp => (known.some(l => l.id === levelIdOf(vp)) ? vp : { ...vp, levelId: known[0].id })),
+          })),
           ...(typeof v.profileId === 'string' ? { profileId: v.profileId } : {}),
           ...(v.surfaceRule === 'carrez' || v.surfaceRule === 'sia-416' ? { surfaceRule: v.surfaceRule } : {}),
         };
@@ -193,10 +212,22 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         layerCounter: Math.max(Number(p.layerCounter ?? 0), ...allLayers.map(l => numericSuffix(l.id, 'LAY')), currentLayers.length),
         blockCounter: Math.max(Number(p.blockCounter ?? 0), ...allBlocks.map(b => numericSuffix(b.id, 'BLQ')), 0),
         activeLayerId,
+        ...(typeof p.activeLevelId === 'string' ? { activeLevelId: p.activeLevelId } : {}),
       };
     }
   }
   return seedProject();
+}
+
+/** Niveaux d'une version : identifiant, nom et altitude valides ; aucun doublon. */
+export function normalizeLevels(raw: unknown): Level[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: Level[] = [];
+  for (const l of raw) {
+    if (!l || typeof l !== 'object' || typeof (l as Level).id !== 'string' || out.some(x => x.id === (l as Level).id)) continue;
+    out.push({ id: (l as Level).id, name: typeof (l as Level).name === 'string' ? (l as Level).name : (l as Level).id, elevation: num((l as Level).elevation, 0) });
+  }
+  return out.length ? out : undefined;
 }
 
 function load(): ProjectState {
@@ -211,6 +242,8 @@ interface SnapshotPatch {
   sheets?: Sheet[];
   profileId?: string;
   surfaceRule?: 'sia-416' | 'carrez';
+  levels?: Level[];
+  activeLevelId?: string;
   objects?: CadObject[];
   layers?: Layer[];
   blocks?: BlockDef[];
@@ -264,7 +297,16 @@ export function useProject() {
   }, [state]);
 
   const current = state.versions[state.pointer];
-  const objects = current.objects;
+  const allObjects = current.objects;
+  // Niveaux (lot 4.4) : l'interface ne voit et n'édite que les objets du niveau actif.
+  const levels = useMemo(() => levelsOf(current.levels), [current.levels]);
+  const activeLevelId = levels.some(l => l.id === state.activeLevelId) ? state.activeLevelId! : levels[0].id;
+  const objects = useMemo(() => onLevel(allObjects, activeLevelId), [allObjects, activeLevelId]);
+  /** Rattache un nouvel objet au niveau actif (aucune marque pour le niveau par défaut). */
+  const stampLevel = useCallback(<T extends { levelId?: string }>(o: T): T => {
+    if (activeLevelId === DEFAULT_LEVEL.id) { const rest = { ...o }; delete rest.levelId; return rest; }
+    return { ...o, levelId: activeLevelId };
+  }, [activeLevelId]);
   const layers = current.layers;
   const blocks = current.blocks;
   const sheets = useMemo(() => current.sheets ?? [], [current.sheets]);
@@ -284,6 +326,7 @@ export function useProject() {
         sheets: patch.sheets ?? cur.sheets ?? [],
         ...((patch.profileId ?? cur.profileId) ? { profileId: patch.profileId ?? cur.profileId } : {}),
         ...((patch.surfaceRule ?? cur.surfaceRule) ? { surfaceRule: patch.surfaceRule ?? cur.surfaceRule } : {}),
+        ...((patch.levels ?? cur.levels) ? { levels: patch.levels ?? cur.levels } : {}),
       };
       return {
         versions: [...s.versions.slice(0, s.pointer + 1), mv],
@@ -292,46 +335,47 @@ export function useProject() {
         layerCounter: patch.layerCounter ?? s.layerCounter,
         blockCounter: patch.blockCounter ?? s.blockCounter,
         activeLayerId: patch.activeLayerId ?? s.activeLayerId,
+        ...((patch.activeLevelId ?? s.activeLevelId) ? { activeLevelId: patch.activeLevelId ?? s.activeLevelId } : {}),
       };
     });
   }, []);
 
   const addObject = useCallback((partial: NewCadObject, name?: string) => {
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
-    const obj = { ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject;
+    const obj = stampLevel({ ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject);
     commit(`Créer ${KIND_LABEL[obj.kind].toLowerCase()} ${id}`, {
-      objects: [...objects, obj],
+      objects: [...allObjects, obj],
       counter: state.counter + 1,
     });
     setSelectedId(id);
     return id;
-  }, [state.counter, current.seq, objects, commit, setSelectedId]);
+  }, [state.counter, current.seq, allObjects, commit, setSelectedId, stampLevel]);
 
   const updateObject = useCallback((id: string, patch: Partial<CadObject>, label = 'Modifier') => {
-    commit(`${label} ${id}`, { objects: objects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)) });
-  }, [objects, commit]);
+    commit(`${label} ${id}`, { objects: allObjects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)) });
+  }, [allObjects, commit]);
 
   const removeObjects = useCallback((ids: string[]) => {
     if (ids.length === 0) return;
     const removed = new Set(ids);
     // Les cotes associatives dont la cible disparaît partent avec elle.
     // Les ouvertures d'un mur supprimé partent avec lui.
-    for (const o of objects) {
+    for (const o of allObjects) {
       if (o.kind === 'opening' && removed.has(o.hostId)) removed.add(o.id);
     }
-    for (const o of objects) {
+    for (const o of allObjects) {
       if (o.kind === 'dimension' && removed.has(o.targetId)) removed.add(o.id);
     }
     commit(ids.length === 1 ? `Supprimer ${ids[0]}` : `Supprimer ${ids.length} objets`, {
-      objects: objects.filter(o => !removed.has(o.id)),
+      objects: allObjects.filter(o => !removed.has(o.id)),
     });
     setSelectedIds([]);
-  }, [objects, commit, setSelectedIds]);
+  }, [allObjects, commit, setSelectedIds]);
 
   /** Applique une transformation géométrique pure à chaque objet de la sélection. */
   const transformObjects = useCallback((ids: string[], fn: (o: CadObject) => Partial<CadObject> | null, label: string) => {
     const editable = ids
-      .map(id => objects.find(o => o.id === id))
+      .map(id => allObjects.find(o => o.id === id))
       .filter((o): o is CadObject => !!o && !layers.find(l => l.id === o.layerId)?.locked && o.kind !== 'dimension');
     if (editable.length === 0) return 0;
     const patches = new Map<string, Partial<CadObject>>();
@@ -341,10 +385,10 @@ export function useProject() {
     }
     if (patches.size === 0) return 0;
     commit(`${label} (${patches.size} objet${patches.size > 1 ? 's' : ''})`, {
-      objects: objects.map(o => (patches.has(o.id) ? ({ ...o, ...patches.get(o.id) } as CadObject) : o)),
+      objects: allObjects.map(o => (patches.has(o.id) ? ({ ...o, ...patches.get(o.id) } as CadObject) : o)),
     });
     return patches.size;
-  }, [objects, layers, commit]);
+  }, [allObjects, layers, commit]);
 
   /**
    * Ajoute des copies de `sources` (objets du projet ou contenu du presse-papiers) pour chaque
@@ -357,27 +401,28 @@ export function useProject() {
       .map(o => (layers.some(l => l.id === o.layerId) || !active ? o : ({ ...o, layerId: active.id } as CadObject)))
       .filter(o => !layers.find(l => l.id === o.layerId)?.locked);
     if (usable.length === 0 || placements.length === 0) return [];
-    const { objects: clones, counter } = cloneAll(usable, placements, state.counter, current.seq);
+    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq);
+    const clones = cloned.map(stampLevel);
     if (clones.length === 0) return [];
     commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
-      objects: [...objects, ...clones],
+      objects: [...allObjects, ...clones],
       counter,
     });
     setSelectedIds(clones.map(c => c.id));
     return clones.map(c => c.id);
-  }, [objects, layers, activeLayerId, state.counter, current.seq, commit, setSelectedIds]);
+  }, [allObjects, layers, activeLayerId, state.counter, current.seq, commit, setSelectedIds, stampLevel]);
 
   /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
   const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
-    return addCopies(withDependencies(objects, ids), [translation(dx, dy)], 'Dupliquer');
-  }, [objects, addCopies]);
+    return addCopies(withDependencies(allObjects, ids), [translation(dx, dy)], 'Dupliquer');
+  }, [allObjects, addCopies]);
 
   /**
    * Applique une édition (ajuster / prolonger) en une seule version : modification de l'objet,
    * suppression éventuelle et morceaux ajoutés, qui héritent du calque et de la classification.
    */
   const applyEdit = useCallback((id: string, edit: { patch: Partial<CadObject> | null; remove: boolean; added: Partial<CadObject>[] }, label: string) => {
-    const source = objects.find(o => o.id === id);
+    const source = allObjects.find(o => o.id === id);
     if (!source) return false;
     let counter = state.counter;
     const added = edit.added.map(partial => {
@@ -388,36 +433,36 @@ export function useProject() {
     const removed = new Set<string>();
     if (edit.remove) {
       removed.add(id);
-      for (const o of objects) if (o.kind === 'dimension' && o.targetId === id) removed.add(o.id);
+      for (const o of allObjects) if (o.kind === 'dimension' && o.targetId === id) removed.add(o.id);
     }
-    const next = objects
+    const next = allObjects
       .filter(o => !removed.has(o.id))
       .map(o => (o.id === id && edit.patch ? ({ ...o, ...edit.patch } as CadObject) : o));
     commit(`${label} ${id}`, { objects: [...next, ...added], counter });
     if (edit.remove) setSelectedIds(added.map(o => o.id));
     return true;
-  }, [objects, state.counter, current.seq, commit, setSelectedIds]);
+  }, [allObjects, state.counter, current.seq, commit, setSelectedIds]);
 
   /**
    * Modifie plusieurs objets et en ajoute d'autres en une seule version (congé, chanfrein).
    * Chaque objet ajouté hérite du calque et de la classification de son objet source.
    */
   const applyPatches = useCallback((patches: { id: string; patch: Partial<CadObject> }[], added: { from: string; partial: Partial<CadObject> }[], label: string) => {
-    if (patches.some(p => !objects.some(o => o.id === p.id))) return false;
+    if (patches.some(p => !allObjects.some(o => o.id === p.id))) return false;
     let counter = state.counter;
     const created = added.map(({ from, partial }) => {
-      const source = objects.find(o => o.id === from)!;
+      const source = allObjects.find(o => o.id === from)!;
       counter += 1;
       const newId = `OBJ-${String(counter).padStart(4, '0')}`;
-      const inherited = { classification: source.classification, layerId: source.layerId, hatch: 'none' as const };
+      const inherited = { classification: source.classification, layerId: source.layerId, hatch: 'none' as const, ...(source.levelId ? { levelId: source.levelId } : {}) };
       return { ...inherited, ...partial, id: newId, name: `${source.name} (${newId})`, createdSeq: current.seq } as CadObject;
     });
     const byId = new Map(patches.map(p => [p.id, p.patch]));
-    const next = objects.map(o => (byId.has(o.id) ? ({ ...o, ...byId.get(o.id) } as CadObject) : o));
+    const next = allObjects.map(o => (byId.has(o.id) ? ({ ...o, ...byId.get(o.id) } as CadObject) : o));
     commit(`${label} ${patches.map(p => p.id).join(' + ')}`, { objects: [...next, ...created], counter });
     setSelectedIds(created.map(o => o.id));
     return true;
-  }, [objects, state.counter, current.seq, commit, setSelectedIds]);
+  }, [allObjects, state.counter, current.seq, commit, setSelectedIds]);
 
   const removeObject = useCallback((id: string) => {
     removeObjects([id]);
@@ -450,14 +495,14 @@ export function useProject() {
   }, [layers, activeLayerId, commit]);
 
   const removeLayer = useCallback((id: string) => {
-    if (layers.length <= 1 || objects.some(o => o.layerId === id)) return false;
+    if (layers.length <= 1 || allObjects.some(o => o.layerId === id)) return false;
     const nextLayers = layers.filter(l => l.id !== id);
     commit(`Supprimer calque ${id}`, {
       layers: nextLayers,
       activeLayerId: activeLayerId === id ? nextLayers[0].id : undefined,
     });
     return true;
-  }, [layers, objects, activeLayerId, commit]);
+  }, [layers, allObjects, activeLayerId, commit]);
 
   const setActiveLayerId = useCallback((id: string) => {
     const layer = layers.find(l => l.id === id);
@@ -466,7 +511,7 @@ export function useProject() {
   }, [layers]);
 
   const addDimension = useCallback((targetId: string) => {
-    const target = objects.find(o => o.id === targetId);
+    const target = allObjects.find(o => o.id === targetId);
     if (!target) return null;
     const style: DimensionStyle | undefined = supportedDimensionStyles(target)[0];
     if (!style) return null;
@@ -479,17 +524,18 @@ export function useProject() {
       layerId: target.layerId,
       hatch: 'none',
       createdSeq: current.seq,
+      ...(target.levelId ? { levelId: target.levelId } : {}),
       targetId,
       style,
       offset: 40,
     };
-    commit(`Coter ${targetId}`, { objects: [...objects, dim], counter: state.counter + 1 });
+    commit(`Coter ${targetId}`, { objects: [...allObjects, dim], counter: state.counter + 1 });
     setSelectedId(id);
     return id;
-  }, [objects, state.counter, current.seq, commit, setSelectedId]);
+  }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
 
   const createBlockFromObject = useCallback((objectId: string) => {
-    const source = objects.find(o => o.id === objectId);
+    const source = allObjects.find(o => o.id === objectId);
     if (!source || (source.kind !== 'line' && source.kind !== 'rect' && source.kind !== 'circle' && source.kind !== 'arc' && source.kind !== 'polyline')) return null;
     const blockId = `BLQ-${String(state.blockCounter + 1).padStart(4, '0')}`;
     const origin = primitiveOrigin(source);
@@ -509,20 +555,20 @@ export function useProject() {
       createdSeq: current.seq,
     };
     commit(`Créer bloc ${blockId}`, {
-      objects: objects.map(o => (o.id === objectId ? ref : o)),
+      objects: allObjects.map(o => (o.id === objectId ? ref : o)),
       blocks: [...blocks, block],
       counter: state.counter + 1,
       blockCounter: state.blockCounter + 1,
     });
     setSelectedId(refId);
     return blockId;
-  }, [objects, blocks, state.blockCounter, state.counter, current.seq, commit, setSelectedId]);
+  }, [allObjects, blocks, state.blockCounter, state.counter, current.seq, commit, setSelectedId]);
 
   const insertBlock = useCallback((blockId: string, x: number, y: number) => {
     const block = blocks.find(b => b.id === blockId);
     if (!block) return null;
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
-    const ref: CadObject = {
+    const ref: CadObject = stampLevel({
       id,
       name: `${block.name} — occurrence`,
       kind: 'blockRef',
@@ -534,11 +580,11 @@ export function useProject() {
       x,
       y,
       scale: 1,
-    };
-    commit(`Insérer bloc ${blockId}`, { objects: [...objects, ref], counter: state.counter + 1 });
+    } as CadObject);
+    commit(`Insérer bloc ${blockId}`, { objects: [...allObjects, ref], counter: state.counter + 1 });
     setSelectedId(id);
     return id;
-  }, [blocks, state.counter, activeLayerId, current.seq, objects, commit, setSelectedId]);
+  }, [blocks, state.counter, activeLayerId, current.seq, allObjects, commit, setSelectedId, stampLevel]);
 
   const importObjects = useCallback((importedObjects: CadObject[], importedLayers: Layer[], label = 'Importer DXF') => {
     if (importedObjects.length === 0) return 0;
@@ -553,29 +599,29 @@ export function useProject() {
       const existing = layers.find(l => l.name.toLocaleLowerCase('fr-FR') === layer.name.toLocaleLowerCase('fr-FR'));
       layerIdAlias.set(layer.id, existing?.id ?? layer.id);
     }
-    const stamped = importedObjects.map(o => ({
+    const stamped = importedObjects.map(o => stampLevel({
       ...o,
       layerId: layerIdAlias.get(o.layerId) ?? o.layerId,
       createdSeq: current.seq,
-    }));
+    } as CadObject));
     commit(label, {
-      objects: [...objects, ...stamped],
+      objects: [...allObjects, ...stamped],
       layers: mergedLayers,
       counter: Math.max(state.counter, ...stamped.map(o => numericSuffix(o.id, 'OBJ'))),
       layerCounter: Math.max(state.layerCounter, ...mergedLayers.map(l => numericSuffix(l.id, 'LAY'))),
     });
     setSelectedId(stamped[stamped.length - 1]?.id ?? null);
     return stamped.length;
-  }, [layers, objects, state.counter, state.layerCounter, current.seq, commit, setSelectedId]);
+  }, [layers, allObjects, state.counter, state.layerCounter, current.seq, commit, setSelectedId, stampLevel]);
 
   const removeBlock = useCallback((blockId: string) => {
     commit(`Supprimer bloc ${blockId}`, {
       blocks: blocks.filter(b => b.id !== blockId),
-      objects: objects.filter(o => !(o.kind === 'blockRef' && o.blockId === blockId)),
+      objects: allObjects.filter(o => !(o.kind === 'blockRef' && o.blockId === blockId)),
     });
-    const selected = objects.find(o => selectedIds.includes(o.id));
+    const selected = allObjects.find(o => selectedIds.includes(o.id));
     if (selected?.kind === 'blockRef' && selected.blockId === blockId) setSelectedIds([]);
-  }, [blocks, objects, commit, selectedIds, setSelectedIds]);
+  }, [blocks, allObjects, commit, selectedIds, setSelectedIds]);
 
   const undo = useCallback(() => setState(s => ({ ...s, pointer: Math.max(0, s.pointer - 1) })), []);
   const redo = useCallback(() => setState(s => ({ ...s, pointer: Math.min(s.versions.length - 1, s.pointer + 1) })), []);
@@ -616,11 +662,11 @@ export function useProject() {
 
   const diagnostics = useMemo(() => {
     const out: { level: 'info' | 'avertissement'; text: string }[] = [];
-    const unclassified = objects.filter(o => o.classification === 'non-classifie' && o.kind !== 'dimension');
+    const unclassified = allObjects.filter(o => o.classification === 'non-classifie' && o.kind !== 'dimension');
     if (unclassified.length > 0) {
       out.push({ level: 'avertissement', text: `${unclassified.length} objet(s) sans classification métier — lectures indisponibles (${unclassified.map(o => o.id).join(', ')}).` });
     }
-    for (const o of objects) {
+    for (const o of allObjects) {
       if (o.kind === 'line' && Math.hypot(o.x2 - o.x1, o.y2 - o.y1) <= GEOMETRY_EPSILON) {
         out.push({ level: 'avertissement', text: `${o.id} : ligne de longueur nulle — géométrie à réparer.` });
       }
@@ -628,7 +674,7 @@ export function useProject() {
         out.push({ level: 'avertissement', text: `${o.id} : rectangle dégénéré — géométrie à réparer.` });
       }
       if (o.kind === 'dimension') {
-        const target = objects.find(t => t.id === o.targetId);
+        const target = allObjects.find(t => t.id === o.targetId);
         if (!target) {
           out.push({ level: 'avertissement', text: `${o.id} : cote orpheline — cible ${o.targetId} absente.` });
         } else if (!supportedDimensionStyles(target).includes(o.style)) {
@@ -646,7 +692,7 @@ export function useProject() {
     }
     if (out.length === 0) out.push({ level: 'info', text: 'Aucun problème détecté sur la révision courante.' });
     return out;
-  }, [objects, layers, blocks, state.pointer, state.versions.length]);
+  }, [allObjects, layers, blocks, state.pointer, state.versions.length]);
 
   // ─── Feuilles et fenêtres ────────────────────────────────────────────────────
   // Identifiants jamais réutilisés, même après suppression puis annulation.
@@ -687,10 +733,12 @@ export function useProject() {
       scale: vp.scale ?? STANDARD_SCALES.find(s => s.paper === 1 && s.model === 50)!,
       center: vp.center ?? { x: 0, y: 0 },
       hiddenLayerIds: vp.hiddenLayerIds ?? [],
+      // Une fenêtre désigne toujours un niveau existant (par défaut, le niveau affiché).
+      levelId: vp.levelId && levels.some(l => l.id === vp.levelId) ? vp.levelId : activeLevelId,
     };
     commit(`Créer fenêtre ${id} sur ${sheetId}`, { sheets: sheets.map(sh => (sh.id === sheetId ? { ...sh, viewports: [...sh.viewports, viewport] } : sh)) });
     return id;
-  }, [sheets, allViewportIds, commit]);
+  }, [sheets, allViewportIds, levels, activeLevelId, commit]);
 
   const updateViewport = useCallback((sheetId: string, id: string, patch: Partial<Omit<Viewport, 'id'>>, label = 'Modifier fenêtre') => {
     const sheet = sheets.find(sh => sh.id === sheetId);
@@ -720,7 +768,62 @@ export function useProject() {
     commit(`Règle de surface : ${rule === 'carrez' ? 'loi Carrez' : 'SIA 416'}`, { surfaceRule: rule });
   }, [surfaceRule, commit]);
 
+  // ─── Niveaux (lot 4.4) ───────────────────────────────────────────────────────
+  const allLevelIds = useMemo(() => versions.flatMap(v => levelsOf(v.levels).map(l => l.id)), [versions]);
+
+  const setActiveLevelId = useCallback((id: string) => {
+    if (!levels.some(l => l.id === id) || id === activeLevelId) return;
+    setState(s => ({ ...s, activeLevelId: id }));
+    setSelectedIds([]);
+  }, [levels, activeLevelId, setSelectedIds]);
+
+  const addLevel = useCallback((name: string, elevation: number) => {
+    const id = nextId('NIV', allLevelIds);
+    commit(`Créer niveau ${name}`, { levels: [...levels, { id, name, elevation }], activeLevelId: id });
+    setSelectedIds([]);
+    return id;
+  }, [levels, allLevelIds, commit, setSelectedIds]);
+
+  const updateLevel = useCallback((id: string, patch: Partial<Omit<Level, 'id'>>) => {
+    if (!levels.some(l => l.id === id)) return;
+    commit(`Modifier niveau ${id}`, { levels: levels.map(l => (l.id === id ? { ...l, ...patch } : l)) });
+  }, [levels, commit]);
+
+  /** Supprime un niveau et ses objets ; le dernier niveau ne se supprime pas. */
+  const removeLevel = useCallback((id: string) => {
+    if (levels.length <= 1 || !levels.some(l => l.id === id)) return false;
+    const rest = levels.filter(l => l.id !== id);
+    const kept = allObjects.filter(o => levelIdOf(o) !== id);
+    const gone = new Set(allObjects.filter(o => levelIdOf(o) === id).map(o => o.id));
+    // Une cote ou une ouverture qui dépendait d'un objet supprimé part avec lui.
+    const objectsLeft = kept.filter(o => !(o.kind === 'dimension' && gone.has(o.targetId)) && !(o.kind === 'opening' && gone.has(o.hostId)));
+    commit(`Supprimer niveau ${id}`, {
+      levels: rest,
+      objects: objectsLeft,
+      sheets: sheets.map(sh => ({ ...sh, viewports: sh.viewports.map(v => (levelIdOf(v) === id ? { ...v, levelId: levelsOf(rest)[0].id } : v)) })),
+      activeLevelId: activeLevelId === id ? levelsOf(rest)[0].id : undefined,
+    });
+    setSelectedIds([]);
+    return true;
+  }, [levels, allObjects, sheets, activeLevelId, commit, setSelectedIds]);
+
+  /** Crée un niveau à partir d'un autre : mêmes objets, identifiants neufs, à l'altitude donnée. */
+  const copyLevel = useCallback((fromId: string, name: string, elevation: number) => {
+    if (!levels.some(l => l.id === fromId)) return null;
+    const id = nextId('NIV', allLevelIds);
+    const { objects: copies, counter } = copyLevelObjects(allObjects, fromId, id, state.counter, current.seq);
+    commit(`Copier niveau ${levels.find(l => l.id === fromId)!.name} vers ${name}`, {
+      levels: [...levels, { id, name, elevation }],
+      objects: [...allObjects, ...copies],
+      counter,
+      activeLevelId: id,
+    });
+    setSelectedIds([]);
+    return id;
+  }, [levels, allLevelIds, allObjects, state.counter, current.seq, commit, setSelectedIds]);
+
   return {
+    levels, activeLevelId, setActiveLevelId, addLevel, updateLevel, removeLevel, copyLevel, allObjects,
     profile, setProfileId, surfaceRule, setSurfaceRule,
     state, objects, layers, blocks, activeLayerId, sheets,
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,

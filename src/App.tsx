@@ -32,6 +32,7 @@ import { areaM2, detectRoom, formatM2 } from '@/lib/rooms';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
+import { formatElevation, levelBelow, onLevel } from '@/lib/levels';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint, mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
 
@@ -112,7 +113,13 @@ function Workbench() {
   // le modèle (project.objects) n'est pas modifié.
   const [viewContext, setViewContext] = useState<ViewContext>('coupe');
   const shownObjects = useMemo(() => withProfile(project.objects, project.profile, viewContext, project.blocks), [project.objects, project.profile, viewContext, project.blocks]);
-  // Blocs : leurs primitives à matériau suivent aussi le profil (le modèle n'est pas modifié).
+  // Fond de plan (lot 4.4) : le niveau immédiatement inférieur, estompé, sous le niveau actif.
+  const [underlayOn, setUnderlayOn] = useState(true);
+  const levelUnder = levelBelow(project.levels, project.activeLevelId);
+  const underlayObjects = useMemo(
+    () => (underlayOn && levelUnder ? withProfile(onLevel(project.allObjects, levelUnder.id), project.profile, viewContext, project.blocks) : undefined),
+    [underlayOn, levelUnder, project.allObjects, project.profile, viewContext, project.blocks],
+  );
   const shownBlocks = useMemo(() => withProfileBlocks(project.blocks, project.profile, viewContext), [project.blocks, project.profile, viewContext]);
   // Incrémenté quand le projet est remplacé : le canevas oublie alors son dernier point posé.
   const [projectKey, setProjectKey] = useState(0);
@@ -266,7 +273,9 @@ function Workbench() {
       unites: 'millimetre',
       calques: project.layers,
       blocs: project.blocks,
-      objets: project.objects,
+      // Tous les niveaux : le paquet contient le projet entier, pas seulement le niveau affiché.
+      objets: project.allObjects,
+      niveaux: project.levels,
       feuilles: project.sheets,
     };
     const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
@@ -281,6 +290,12 @@ function Workbench() {
     // Pas de hachure papier : convertis à l'échelle de la première fenêtre de feuille, sinon 1:1.
     const vp = project.sheets.flatMap(sh => sh.viewports)[0];
     const { content, report } = exportDxfFile(shownObjects, project.layers, shownBlocks, { hatchPaperScale: vp ? vp.scale.model / vp.scale.paper : 1 });
+    // Un fichier DXF par niveau : seul le niveau actif est exporté, et le rapport le dit.
+    if (project.levels.length > 1) {
+      const active = project.levels.find(l => l.id === project.activeLevelId)!;
+      const others = project.levels.filter(l => l.id !== active.id);
+      report.transformed.unshift(`Niveau exporté : ${active.name} seulement ; non exportés : ${others.map(l => l.name).join(', ')} (exporter chaque niveau depuis ce niveau).`);
+    }
     const blob = new Blob([content], { type: 'application/dxf' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -290,7 +305,7 @@ function Workbench() {
     if (report.transformed.length > 0 || report.lost.length > 0) {
       window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report));
     }
-  }, [cloudName, shownObjects, shownBlocks, project.layers, project.sheets]);
+  }, [cloudName, shownObjects, shownBlocks, project.layers, project.sheets, project.levels, project.activeLevelId]);
 
   const importDxfFile = useCallback(async (file: File) => {
     const text = await file.text();
@@ -693,6 +708,14 @@ function Workbench() {
       onInsertBlock={prepareBlockInsertion}
       onCreateBlock={createBlockFromSelection}
       onRemoveBlock={project.removeBlock}
+      layerUsed={id => project.allObjects.some(o => o.layerId === id)}
+      levels={project.levels}
+      activeLevelId={project.activeLevelId}
+      onSetActiveLevel={project.setActiveLevelId}
+      onAddLevel={project.addLevel}
+      onUpdateLevel={project.updateLevel}
+      onRemoveLevel={project.removeLevel}
+      onCopyLevel={project.copyLevel}
       onCollapse={() => setNavOpen(false)}
     />
   );
@@ -749,7 +772,9 @@ function Workbench() {
       {mode === 'feuilles' ? (
         <SheetEditor
           sheets={project.sheets}
-          objects={project.objects}
+          objects={project.allObjects}
+          levels={project.levels}
+          activeLevelId={project.activeLevelId}
           profile={project.profile}
           layers={project.layers}
           blocks={project.blocks}
@@ -970,6 +995,7 @@ function Workbench() {
             <div className="relative min-h-0 flex-1">
               <CanvasView
                 objects={shownObjects}
+                underlay={underlayObjects}
                 layers={project.layers}
                 blocks={shownBlocks}
                 activeLayerId={project.activeLayerId}
@@ -997,6 +1023,7 @@ function Workbench() {
                 pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
                 gridSize={gridSize}
                 projectKey={projectKey}
+                levelKey={project.activeLevelId}
                 snapTypes={snapTypes}
                 colorMode={colorMode}
                 displayUnit={displayUnit}
@@ -1169,6 +1196,21 @@ function Workbench() {
                   {GRID_SIZES.map(g => <option key={g} value={g}>{fmt(g)} mm</option>)}
                 </select>
               </label>
+              {project.levels.length > 1 && (
+                <label className="flex items-center gap-1">
+                  niveau
+                  <select aria-label="Niveau affiché" value={project.activeLevelId} onChange={e => project.setActiveLevelId(e.target.value)}
+                    className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                    {project.levels.map(l => <option key={l.id} value={l.id}>{l.name} ({formatElevation(l.elevation)})</option>)}
+                  </select>
+                </label>
+              )}
+              {levelUnder && (
+                <label className="flex items-center gap-1" title={`Afficher ${levelUnder.name} estompé sous le niveau actif`}>
+                  <input type="checkbox" aria-label="Fond de plan du niveau inférieur" checked={underlayOn} onChange={e => setUnderlayOn(e.target.checked)} />
+                  fond de plan
+                </label>
+              )}
               <span>{project.objects.length} objet{project.objects.length > 1 ? 's' : ''}</span>
               {hasSelection && <span className="text-cyan-300">{selection.length} sélectionné{selection.length > 1 ? 's' : ''}</span>}
               <span>{project.layers.find(l => l.id === project.activeLayerId)?.name ?? 'Calque'}</span>

@@ -2,7 +2,7 @@
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OpeningObj, WallObj, BlockDef, CadObject, Layer, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
+import type { OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
@@ -10,6 +10,7 @@ import { pdfBytes, sheetToPdf } from '@/lib/pdf';
 import { withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { wallsGeometry } from '@/lib/wall';
 import { roomPolygons } from '@/lib/rooms';
+import { formatElevation, onLevel, viewportLevelId } from '@/lib/levels';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
   PAPER_FORMATS, STANDARD_SCALES, fitScale, formatScale, layerVisibleInViewport, parseScale, printableArea,
@@ -18,7 +19,11 @@ import {
 
 interface Props {
   sheets: Sheet[];
+  /** Objets de tous les niveaux : chaque fenêtre montre celui qu'elle désigne. */
   objects: CadObject[];
+  levels: Level[];
+  /** Niveau affiché dans l'atelier : celui d'une nouvelle fenêtre. */
+  activeLevelId: string;
   layers: Layer[];
   blocks: BlockDef[];
   view: ViewReading;
@@ -62,12 +67,19 @@ export default function SheetEditor(p: Props) {
   const area = sheet ? printableArea(sheet) : null;
   const issues = sheet ? sheetIssues(sheet) : [];
   // Cadrage : seulement les objets que les fenêtres dessinent (calques visibles).
-  const bounds = useMemo(() => projectBounds(p.objects.filter(o => p.layers.find(l => l.id === o.layerId)?.visible !== false), p.blocks), [p.objects, p.layers, p.blocks]);
-  // Objets tels que dessinés en coupe et en vue (motifs du profil, pièces voisines alternées).
-  const byContext = useMemo(() => ({
-    coupe: withProfile(p.objects, p.profile, 'coupe', p.blocks),
-    vue: withProfile(p.objects, p.profile, 'vue', p.blocks),
-  }), [p.objects, p.profile, p.blocks]);
+  // Cadrage par niveau : une fenêtre se cadre sur le niveau qu'elle montre.
+  const boundsByLevel = useMemo(() => new Map(p.levels.map(l => [l.id,
+    projectBounds(onLevel(p.objects, l.id).filter(o => p.layers.find(x => x.id === o.layerId)?.visible !== false), p.blocks)])), [p.objects, p.levels, p.layers, p.blocks]);
+  // Par niveau : objets tels que dessinés en coupe et en vue (motifs du profil, pièces voisines
+  // alternées) et objets du niveau.
+  const byLevel = useMemo(() => new Map(p.levels.map(l => {
+    const objs = onLevel(p.objects, l.id);
+    return [l.id, {
+      coupe: withProfile(objs, p.profile, 'coupe', p.blocks),
+      vue: withProfile(objs, p.profile, 'vue', p.blocks),
+      objs,
+    }];
+  })), [p.objects, p.levels, p.profile, p.blocks]);
   const blocksByContext = useMemo(() => ({
     coupe: withProfileBlocks(p.blocks, p.profile, 'coupe'),
     vue: withProfileBlocks(p.blocks, p.profile, 'vue'),
@@ -99,7 +111,7 @@ export default function SheetEditor(p: Props) {
   /** PDF vectoriel aux dimensions exactes de la feuille : téléchargé, ou ouvert pour impression à 100 %. */
   const exportPdf = (print: boolean) => {
     if (!sheet) return;
-    const pdf = sheetToPdf({ sheet, objects: p.objects, layers: p.layers, blocks: p.blocks, versions: p.versions, pointer: p.pointer, profile: p.profile });
+    const pdf = sheetToPdf({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, versions: p.versions, pointer: p.pointer, profile: p.profile });
     const blob = new Blob([pdfBytes(pdf)], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     if (print) {
@@ -127,9 +139,11 @@ export default function SheetEditor(p: Props) {
     const w = n === 0 ? area.w : Math.max(MIN_VIEWPORT, Math.floor(area.w / 2));
     const x = n === 0 ? area.x : area.x + ((n % 2) * Math.floor(area.w / 2));
     const rect = { x, y: area.y, w, h: area.h };
+    const levelId = viewportLevelId({ levelId: p.activeLevelId }, p.levels);
+    const bounds = boundsByLevel.get(levelId);
     const center = bounds ? { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 } : { x: 0, y: 0 };
     const scale = (bounds && fitScale({ w: bounds.maxX - bounds.minX, h: bounds.maxY - bounds.minY }, rect)) ?? { paper: 1, model: 50 };
-    const id = p.onAddViewport(sheet.id, { ...rect, center, scale });
+    const id = p.onAddViewport(sheet.id, { ...rect, center, scale, levelId });
     setVpId(id);
   };
 
@@ -305,11 +319,24 @@ export default function SheetEditor(p: Props) {
               <option value="vue">Vue</option>
             </select>
           </label>
+          <label className="flex items-center justify-between gap-2 text-muted-foreground">
+            <span>Niveau</span>
+            <select aria-label="Niveau de la fenêtre" value={viewportLevelId(viewport, p.levels)}
+              onChange={e => p.onUpdateViewport(sheet.id, viewport.id, { levelId: e.target.value }, `Fenêtre sur ${p.levels.find(l => l.id === e.target.value)?.name ?? e.target.value}`)}
+              className={`${input} w-28`}>
+              {p.levels.map(l => <option key={l.id} value={l.id}>{l.name} ({formatElevation(l.elevation)})</option>)}
+            </select>
+          </label>
           {numberField('Centre X', viewport.center.x, v => p.onUpdateViewport(sheet.id, viewport.id, { center: { ...viewport.center, x: v } }, 'Cadrer fenêtre'))}
           {numberField('Centre Y', viewport.center.y, v => p.onUpdateViewport(sheet.id, viewport.id, { center: { ...viewport.center, y: v } }, 'Cadrer fenêtre'))}
-          <button
-            onClick={() => bounds && p.onUpdateViewport(sheet.id, viewport.id, { center: { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 } }, 'Cadrer fenêtre')}
-            disabled={!bounds} className={btn}>Centrer sur le dessin</button>
+          {(() => {
+            const bounds = boundsByLevel.get(viewportLevelId(viewport, p.levels));
+            return (
+              <button
+                onClick={() => bounds && p.onUpdateViewport(sheet.id, viewport.id, { center: { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 } }, 'Cadrer fenêtre')}
+                disabled={!bounds} className={btn}>Centrer sur le dessin</button>
+            );
+          })()}
           {numberField('Position X', viewport.x, v => p.onUpdateViewport(sheet.id, viewport.id, { x: v }, 'Déplacer fenêtre'))}
           {numberField('Position Y', viewport.y, v => p.onUpdateViewport(sheet.id, viewport.id, { y: v }, 'Déplacer fenêtre'))}
           {numberField('Largeur', viewport.w, v => v >= MIN_VIEWPORT && p.onUpdateViewport(sheet.id, viewport.id, { w: v }, 'Redimensionner fenêtre'))}
@@ -379,12 +406,13 @@ export default function SheetEditor(p: Props) {
               const m = viewportModelRect(shown);
               const zoom = pxPerMm * scaleRatio(v.scale);
               const visibleLayer = new Map(p.layers.map(l => [l.id, layerVisibleInViewport(v, l)]));
-              const drawn = byContext[v.context ?? 'coupe'];
+              const lv = byLevel.get(viewportLevelId(v, p.levels))!;
+              const drawn = lv[v.context ?? 'coupe'];
               // Jonctions et pièces calculées à partir des seuls objets que la fenêtre dessine (comme le PDF).
-              const rooms = roomPolygons(p.objects.filter(o => !!visibleLayer.get(o.layerId)));
+              const rooms = roomPolygons(lv.objs.filter(o => !!visibleLayer.get(o.layerId)));
               const walls = wallsGeometry(
-                p.objects.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)),
-                p.objects.filter((o): o is OpeningObj => o.kind === 'opening'),
+                lv.objs.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)),
+                lv.objs.filter((o): o is OpeningObj => o.kind === 'opening'),
               );
               const selected = v.id === vpId;
               return (

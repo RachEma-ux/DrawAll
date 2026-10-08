@@ -46,6 +46,8 @@ interface Base {
   layerId: string;
   hatch?: HatchStyle;
   createdSeq: number;      // microversion de création
+  /** Niveau (étage) de l'objet (lot 4.4) ; absent = niveau par défaut NIV-0001. */
+  levelId?: string;
   /** Matériau (bibliothèque src/lib/materials.ts) ; le motif affiché en découle par le profil de dessin. */
   materialId?: string;
   /** Paramètres des hachures (lot 3.2) ; absents = 45°, pas papier de 3 mm. */
@@ -189,6 +191,7 @@ export interface Viewport {
   scale: DrawingScale;
   center: { x: number; y: number };   // point du modèle au centre de la fenêtre (mm)
   hiddenLayerIds: string[];           // calques masqués dans cette fenêtre seulement
+  levelId?: string;                   // niveau montré (lot 4.4) ; absent = niveau par défaut
   context?: 'coupe' | 'vue';          // représentation des matériaux (lot 3.3) ; défaut : coupe
 }
 
@@ -213,6 +216,9 @@ export interface Sheet {
   titleBlock?: TitleBlock; // absent = pas de cartouche
 }
 
+/** Niveau (étage) : nom et altitude du plancher (mm, par rapport au ±0,00 du projet). */
+export interface Level { id: string; name: string; elevation: number }
+
 export interface MicroVersion {
   seq: number;
   label: string;
@@ -225,6 +231,7 @@ export interface MicroVersion {
   sheets?: Sheet[];        // absent dans les projets antérieurs au lot 2.1
   profileId?: string;      // profil de dessin (lot 3.1) ; absent = profil par défaut
   surfaceRule?: 'sia-416' | 'carrez'; // règle de surface des pièces (lot 4.3) ; absent = SIA 416
+  levels?: Level[];        // niveaux (lot 4.4) ; absent = un seul niveau par défaut
 }
 
 export interface ProjectState {
@@ -234,6 +241,7 @@ export interface ProjectState {
   layerCounter: number;    // compteur d'identifiants LAY-
   blockCounter: number;    // compteur d'identifiants BLQ-
   activeLayerId: string;
+  activeLevelId?: string;  // niveau affiché et édité (lot 4.4)
 }
 
 export function createDefaultLayers(): Layer[] {

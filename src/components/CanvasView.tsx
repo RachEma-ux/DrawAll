@@ -52,10 +52,14 @@ export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter'
 
 interface Props {
   objects: CadObject[];
+  /** Fond de plan (lot 4.4) : objets du niveau inférieur, estompés, ni sélectionnables ni accrochables. */
+  underlay?: CadObject[];
   /** Pas de la grille d'accrochage (mm). */
   gridSize: number;
   /** Change quand le projet est remplacé (réinitialisation, chargement) : oublie tracé et dernier point. */
   projectKey?: number;
+  /** Niveau affiché : en changer abandonne le tracé en cours et oublie le dernier point. */
+  levelKey?: string;
   /** Types d'accrochage objet actifs. */
   snapTypes: readonly ObjectSnapType[];
   colorMode: ColorMode;
@@ -130,6 +134,7 @@ const DRAG_THRESHOLD_PX = 3;
 
 export default function CanvasView({
   objects,
+  underlay,
   layers,
   blocks,
   activeLayerId,
@@ -156,6 +161,7 @@ export default function CanvasView({
   onMoveMany,
   gridSize,
   projectKey,
+  levelKey,
   snapTypes,
   colorMode,
   displayUnit,
@@ -170,6 +176,9 @@ export default function CanvasView({
   useEffect(() => { cornerPick.current = null; }, [tool, objects]);
   const [tf, setTf] = useState({ x: 60, y: 40, k: 1 });
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Un tracé commencé sur un niveau ne se termine pas sur un autre (état réinitialisé au rendu).
+  const [draftLevel, setDraftLevel] = useState(levelKey);
+  if (draftLevel !== levelKey) { setDraftLevel(levelKey); setDraft(null); }
   const activeDraft = draft && (
     (draft.kind === 'polyline' && (draft.origin ?? 'polyline') === tool) ||
     (draft.kind === 'measure' && tool === 'measure') ||
@@ -180,7 +189,7 @@ export default function CanvasView({
   const [pointError, setPointError] = useState<string | null>(null);
   /** Dernier point posé (souris, doigt ou saisie) : origine des saisies relatives @. */
   const lastPlaced = useRef<Point | null>(null);
-  useEffect(() => { lastPlaced.current = null; }, [projectKey]);
+  useEffect(() => { lastPlaced.current = null; }, [projectKey, levelKey]);
   const applyPointRef = useRef<(text: string) => void>(() => {});
   const [pointFocused, setPointFocused] = useState(false);
   /** Longueur affichée dans l'unité choisie. */
@@ -217,6 +226,11 @@ export default function CanvasView({
     objects.filter((o): o is WallObj => o.kind === 'wall' && layers.find(l => l.id === o.layerId)?.visible !== false),
     objects.filter((o): o is OpeningObj => o.kind === 'opening'),
   ), [objects, layers]);
+  const underlayShown = useMemo(() => (underlay ?? []).filter(o => layers.find(l => l.id === o.layerId)?.visible !== false), [underlay, layers]);
+  const underlayGeom = useMemo(() => underlayShown.length === 0 ? null : {
+    rooms: roomPolygons(underlayShown),
+    walls: wallsGeometry(underlayShown.filter((o): o is WallObj => o.kind === 'wall'), underlayShown.filter((o): o is OpeningObj => o.kind === 'opening')),
+  }, [underlayShown]);
 
   const toWorld = useCallback((e: { clientX: number; clientY: number }) => {
     const r = ref.current!.getBoundingClientRect();
@@ -840,6 +854,16 @@ export default function CanvasView({
             <g pointerEvents="none">
               <line x1={hoverSnap.x} y1={-100000} x2={hoverSnap.x} y2={100000} stroke="#22d3ee" strokeWidth={0.6 / tf.k} opacity={0.18} />
               <line x1={-100000} y1={hoverSnap.y} x2={100000} y2={hoverSnap.y} stroke="#22d3ee" strokeWidth={0.6 / tf.k} opacity={0.18} />
+            </g>
+          )}
+
+          {underlayGeom && (
+            <g data-testid="fond-de-plan" opacity={0.22} pointerEvents="none">
+              {underlayShown.map(o => (
+                <ObjectShape key={o.id} obj={o} objects={underlayShown} blocks={blocks} view={view} selected={false}
+                  zoom={tf.k} unit={displayUnit} layer={layerById.get(o.layerId)} colorMode={colorMode}
+                  hatchPrefix="sous-" walls={underlayGeom.walls} rooms={underlayGeom.rooms} />
+              ))}
             </g>
           )}
 
