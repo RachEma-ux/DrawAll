@@ -48,6 +48,9 @@ test('lot 18.1 — rejeu du journal : un dossier publié est repris figé, jamai
   await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
   await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
   await page.getByRole('button', { name: 'Publier…' }).click();
+  // Une tentative refusée (nom vide) d'abord : elle ne doit pas prendre le dossier figé de la suivante.
+  await page.getByRole('button', { name: 'Publier la version courante' }).click();
+  await expect(page.getByTestId('publication-erreur')).toBeVisible();
   await page.getByLabel('Nom du dossier à publier').fill('Permis');
   await page.getByRole('button', { name: 'Publier la version courante' }).click();
   await expect(page.locator('[data-publication="PUB-0001"]')).toBeVisible();

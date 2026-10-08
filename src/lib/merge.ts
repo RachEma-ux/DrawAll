@@ -111,65 +111,71 @@ const REFS: { where: 'layers' | 'blocks' | 'levels' | 'zones'; of: (o: CadObject
  * silence. Il est gardé provisoirement et la suppression devient un conflit à trancher.
  */
 function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: MicroVersion, merged: Record<string, unknown>, conflicts: Conflict[]) {
-  // Objets du résultat, et pour un objet en conflit ses deux valeurs possibles : le choix fait plus tard
-  // peut retenir l'une ou l'autre, et chacune doit trouver son calque, son bloc, son niveau, sa zone.
-  const candidates = conflicts.filter(c => c.where === 'objects').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is CadObject => !!v));
-  const objects = [...((merged.objects as CadObject[] | undefined) ?? []), ...candidates];
-  for (const { where, of } of REFS) {
-    const list = (merged[where] as WithId[] | undefined) ?? [];
-    const present = new Set(list.map(x => x.id));
-    const users = new Map<string, string[]>();
-    for (const o of objects) { const r = of(o); if (r && !present.has(r) && !users.get(r)?.includes(o.id)) users.set(r, [...(users.get(r) ?? []), o.id]); }
-    // Fenêtres de feuille qui montrent un niveau (feuilles du résultat, et les deux valeurs d'une feuille en conflit).
-    if (where === 'levels') {
-      const sheets = [...((merged.sheets as Sheet[] | undefined) ?? []), ...conflicts.filter(c => c.where === 'sheets').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is Sheet => !!v))];
-      for (const sh of sheets) for (const vp of sh.viewports) if (vp.levelId && !present.has(vp.levelId) && !users.get(vp.levelId)?.includes(sh.id)) users.set(vp.levelId, [...(users.get(vp.levelId) ?? []), sh.id]);
-    }
-    for (const [id, dependents] of users) {
-      const find = (v: MicroVersion) => listOf(v, where).find(x => x.id === id) ?? null;
-      const o = find(ours), t = find(theirs), b = find(base);
-      const kept = o ?? t ?? b;
-      if (!kept) continue; // jamais défini : rien à garder
-      const existing = conflicts.find(c => c.where === where && c.id === id);
-      if (existing) { existing.dependents = dependents; continue; }
-      const kind = (v: unknown): ChangeKind => (v === null ? 'supprimé' : b ? 'modifié' : 'ajouté');
-      conflicts.push({ where, id, ours: kind(o), theirs: kind(t), oursValue: o, theirsValue: t, dependents });
-      merged[where] = [...list, kept];
-    }
-  }
-  // Objets qui en désignent d'autres (occurrence → pièce, ouverture → mur, vue → source, cote,
-  // note) : un objet désigné supprimé d'un côté mais encore désigné dans le résultat est
-  // gardé provisoirement ; sa suppression devient un conflit. Répété jusqu'à stabilité (un objet
-  // gardé peut lui-même en désigner un autre supprimé).
-  // Une liaison d'assemblage n'est pas une dépendance : sa cible disparue, l'occurrence garde sa place sans liaison.
-  const refsOf = (o: CadObject) => parentsOf(o);
-  for (let pass = 0; pass < 100; pass++) {
-    const objs = (merged.objects as CadObject[] | undefined) ?? [];
-    const present = new Set(objs.map(o => o.id));
-    const users = new Map<string, string[]>();
-    for (const o of objs) for (const r of refsOf(o)) if (!present.has(r)) users.set(r, [...(users.get(r) ?? []), o.id]);
-    // Contraintes du résultat qui désignent des objets (sinon élaguées sans le dire à l'enregistrement).
-    // Une contrainte en conflit compte par ses deux valeurs (le choix peut rétablir l'une ou l'autre).
-    type K = Parameters<typeof constraintObjects>[0];
-    const ks = [...((merged.constraints as K[] | undefined) ?? []), ...conflicts.filter(c => c.where === 'constraints').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is K => !!v))];
-    for (const k of ks) {
-      for (const r of constraintObjects(k)) if (!present.has(r) && !users.get(r)?.includes(k.id)) users.set(r, [...(users.get(r) ?? []), k.id]);
-    }
-    let added = false;
-    for (const [id, dependents] of users) {
-      const find = (v: MicroVersion) => (v.objects.find(x => x.id === id) as CadObject | undefined) ?? null;
-      const o = find(ours), t = find(theirs), b = find(base);
-      const kept = o ?? t ?? b;
-      if (!kept) continue; // référence déjà absente partout : rien à garder
-      const existing = conflicts.find(c => c.where === 'objects' && c.id === id);
-      if (existing) existing.dependents = dependents;
-      else {
-        const kind = (v: unknown): ChangeKind => (v === null ? 'supprimé' : b ? 'modifié' : 'ajouté');
-        conflicts.push({ where: 'objects', id, ours: kind(o), theirs: kind(t), oursValue: o, theirsValue: t, dependents });
+  // Les deux contrôles (calques, blocs, niveaux, zones ; objets désignés) se nourrissent l'un l'autre : un
+  // objet rétabli par le second peut désigner un calque supprimé. Répétés jusqu'à stabilité.
+  for (let round = 0; round < 50; round++) {
+    const mark = conflicts.length + ((merged.objects as unknown[] | undefined)?.length ?? 0);
+    // Objets du résultat, et pour un objet en conflit ses deux valeurs possibles : le choix fait plus tard
+    // peut retenir l'une ou l'autre, et chacune doit trouver son calque, son bloc, son niveau, sa zone.
+    const candidates = conflicts.filter(c => c.where === 'objects').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is CadObject => !!v));
+    const objects = [...((merged.objects as CadObject[] | undefined) ?? []), ...candidates];
+    for (const { where, of } of REFS) {
+      const list = (merged[where] as WithId[] | undefined) ?? [];
+      const present = new Set(list.map(x => x.id));
+      const users = new Map<string, string[]>();
+      for (const o of objects) { const r = of(o); if (r && !present.has(r) && !users.get(r)?.includes(o.id)) users.set(r, [...(users.get(r) ?? []), o.id]); }
+      // Fenêtres de feuille qui montrent un niveau (feuilles du résultat, et les deux valeurs d'une feuille en conflit).
+      if (where === 'levels') {
+        const sheets = [...((merged.sheets as Sheet[] | undefined) ?? []), ...conflicts.filter(c => c.where === 'sheets').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is Sheet => !!v))];
+        for (const sh of sheets) for (const vp of sh.viewports) if (vp.levelId && !present.has(vp.levelId) && !users.get(vp.levelId)?.includes(sh.id)) users.set(vp.levelId, [...(users.get(vp.levelId) ?? []), sh.id]);
       }
-      if (!present.has(id)) { merged.objects = [...((merged.objects as CadObject[]) ?? []), kept]; added = true; }
+      for (const [id, dependents] of users) {
+        const find = (v: MicroVersion) => listOf(v, where).find(x => x.id === id) ?? null;
+        const o = find(ours), t = find(theirs), b = find(base);
+        const kept = o ?? t ?? b;
+        if (!kept) continue; // jamais défini : rien à garder
+        const existing = conflicts.find(c => c.where === where && c.id === id);
+        if (existing) { existing.dependents = dependents; continue; }
+        const kind = (v: unknown): ChangeKind => (v === null ? 'supprimé' : b ? 'modifié' : 'ajouté');
+        conflicts.push({ where, id, ours: kind(o), theirs: kind(t), oursValue: o, theirsValue: t, dependents });
+        merged[where] = [...list, kept];
+      }
     }
-    if (!added) break;
+    // Objets qui en désignent d'autres (occurrence → pièce, ouverture → mur, vue → source, cote,
+    // note) : un objet désigné supprimé d'un côté mais encore désigné dans le résultat est
+    // gardé provisoirement ; sa suppression devient un conflit. Répété jusqu'à stabilité (un objet
+    // gardé peut lui-même en désigner un autre supprimé).
+    // Une liaison d'assemblage n'est pas une dépendance : sa cible disparue, l'occurrence garde sa place sans liaison.
+    const refsOf = (o: CadObject) => parentsOf(o);
+    for (let pass = 0; pass < 100; pass++) {
+      const objs = (merged.objects as CadObject[] | undefined) ?? [];
+      const present = new Set(objs.map(o => o.id));
+      const users = new Map<string, string[]>();
+      for (const o of objs) for (const r of refsOf(o)) if (!present.has(r)) users.set(r, [...(users.get(r) ?? []), o.id]);
+      // Contraintes du résultat qui désignent des objets (sinon élaguées sans le dire à l'enregistrement).
+      // Une contrainte en conflit compte par ses deux valeurs (le choix peut rétablir l'une ou l'autre).
+      type K = Parameters<typeof constraintObjects>[0];
+      const ks = [...((merged.constraints as K[] | undefined) ?? []), ...conflicts.filter(c => c.where === 'constraints').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is K => !!v))];
+      for (const k of ks) {
+        for (const r of constraintObjects(k)) if (!present.has(r) && !users.get(r)?.includes(k.id)) users.set(r, [...(users.get(r) ?? []), k.id]);
+      }
+      let added = false;
+      for (const [id, dependents] of users) {
+        const find = (v: MicroVersion) => (v.objects.find(x => x.id === id) as CadObject | undefined) ?? null;
+        const o = find(ours), t = find(theirs), b = find(base);
+        const kept = o ?? t ?? b;
+        if (!kept) continue; // référence déjà absente partout : rien à garder
+        const existing = conflicts.find(c => c.where === 'objects' && c.id === id);
+        if (existing) existing.dependents = dependents;
+        else {
+          const kind = (v: unknown): ChangeKind => (v === null ? 'supprimé' : b ? 'modifié' : 'ajouté');
+          conflicts.push({ where: 'objects', id, ours: kind(o), theirs: kind(t), oursValue: o, theirsValue: t, dependents });
+        }
+        if (!present.has(id)) { merged.objects = [...((merged.objects as CadObject[]) ?? []), kept]; added = true; }
+      }
+      if (!added) break;
+    }
+    if (conflicts.length + ((merged.objects as unknown[] | undefined)?.length ?? 0) === mark) break;
   }
 }
 

@@ -92,7 +92,7 @@ const SPECS: Record<string, Spec> = {
     extra: o => { const need = { level: 1, chain: 2, baseline: 2, angular: 3 }[o.mode as string] ?? 1; return (o.points as unknown[]).length >= 2 * need ? null : `pdim : ${need} points au moins pour le mode ${String(o.mode)}`; },
   },
   blockRef: { nums: ['x', 'y', 'scale'], strs: ['blockId'] },
-  text: { nums: ['x', 'y', 'rotation'], pos: ['height'], strs: ['content'] },
+  text: { nums: ['x', 'y', 'rotation'], pos: ['height'], strs: ['content'], enums: { align: ['left', 'center', 'right'] } },
   wall: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['thickness'], enums: { justification: ['axe', 'gauche', 'droite'] } },
   opening: { nums: ['position'], pos: ['width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] }, extra: o => (o.height !== undefined && !positive(o.height) ? 'ouverture : hauteur positive attendue' : o.sill !== undefined && !(finite(o.sill) && (o.sill as number) >= 0) ? 'ouverture : allège positive ou nulle attendue' : null) },
   room: { nums: ['x', 'y'] },

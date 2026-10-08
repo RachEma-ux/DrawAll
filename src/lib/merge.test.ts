@@ -205,6 +205,22 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect(out.constraints!.map(c => c.id)).toEqual(['CTR-0001']);
   });
 
+  it('objet rétabli par une dépendance : son calque supprimé devient aussi un conflit (contrôles répétés)', () => {
+    const L = { ...layers[0], id: 'LAY-0201', name: 'L' };
+    const P = line('P', 100, { layerId: 'LAY-0201' });
+    const D = { ...base0, id: 'D', name: 'D', kind: 'dimension', targetId: 'P', style: 'aligned', offset: 5 } as unknown as CadObject;
+    const base = v(0, [P], { layers: [...layers, L] });
+    const ours = v(1, [], { layers });
+    const theirs = v(1, [P, D], { layers: [...layers, L] });
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts.map(c => `${c.where}:${c.id}`).sort()).toEqual(['layers:LAY-0201', 'objects:P']);
+    const out = resolve(r, { 'objects:P': 'leur', 'layers:LAY-0201': 'leur' });
+    if ('error' in out) throw new Error(out.error);
+    const ids = new Set(out.layers!.map(l => l.id));
+    expect(out.objects!.map(o => o.id).sort()).toEqual(['D', 'P']);
+    expect(out.objects!.every(o => ids.has(o.layerId))).toBe(true);
+  });
+
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
     const base = v(0, [line('A', 1)]);
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);

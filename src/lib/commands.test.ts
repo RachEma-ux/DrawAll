@@ -140,6 +140,10 @@ describe('API de commandes (lot 18.1)', () => {
     expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, ifcClass: 'IfcLicorne' })).toBe('line : classe IFC inconnue');
     expect(add({ kind: 'bom', x: 0, y: 0, table: 'licornes' })).toMatch(/tableau : type parmi/);
     expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, lineWeight: 0.35, lineType: 'interrompu', color: '#ff0000' })).toBeNull();
+    // Texte : alignement permis.
+    const tx = { kind: 'text', x: 0, y: 0, rotation: 0, height: 2.5, content: 'A' };
+    expect(add(tx)).toBe('text : align parmi left, center, right attendu');
+    expect(add({ ...tx, align: 'left' })).toBeNull();
     // Trous : liste d'identifiants d'objets existants.
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: {} })).toBe('rect : trous (liste d’identifiants) attendus');
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0404'] })).toBe('rect : trou OBJ-0404 absent');

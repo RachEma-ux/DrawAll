@@ -1591,7 +1591,19 @@ export function useProject() {
   const resetWithJournal = useCallback(() => { reset(); setState(s => { const { journal: _j, ...rest } = s; void _j; return rest as ProjectState; }); }, [reset]);
 
   const commands = {
-    publish: cmd('publish', publish), createVariant: cmd('createVariant', createVariant), switchVariant: cmd('switchVariant', switchVariant),
+    // Publication refusée (nom vide, aucune feuille) : l'entrée du journal est marquée refusée, si bien que le
+    // rejeu n'associe les dossiers figés qu'aux publications réussies.
+    publish: (name: string) => {
+      const err = cmd('publish', publish)(name);
+      if (err) setState(s => {
+        const entries = s.journal?.entries ?? [];
+        const last = entries[entries.length - 1];
+        if (!s.journal || !last || last.type !== 'publish' || last.refused) return s;
+        return { ...s, journal: { ...s.journal, entries: [...entries.slice(0, -1), { ...last, refused: err }] } };
+      });
+      return err;
+    },
+    createVariant: cmd('createVariant', createVariant), switchVariant: cmd('switchVariant', switchVariant),
     removeVariant: cmd('removeVariant', removeVariant), mergeVariant: cmd('mergeVariant', mergeVariant),
     addZone: cmd('addZone', addZone), updateZone: cmd('updateZone', updateZone), removeZone: cmd('removeZone', removeZone), setRoomZone: cmd('setRoomZone', setRoomZone),
     addConstraint: cmd('addConstraint', addConstraint), removeConstraint: cmd('removeConstraint', removeConstraint), setConstraintExpr: cmd('setConstraintExpr', setConstraintExpr),
