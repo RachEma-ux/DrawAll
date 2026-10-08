@@ -1,6 +1,7 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
 import type { ReactNode } from 'react';
+import { roofGeometry, roofInput } from '@/lib/roof';
 import { slabQuantities } from '@/lib/slab';
 import PropertiesEditor from '@/components/PropertiesEditor';
 import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj, Asset } from '@/types/cad';
@@ -644,6 +645,47 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             </div>
           </div>
         )}
+
+        {obj.kind === 'roof' && (() => {
+          const g = roofGeometry(roofInput(obj));
+          const mm = (v: number) => `${Math.round(v).toLocaleString('fr-FR')} mm`;
+          const num = (label: string, key: 'pitch' | 'overhang', unit: string, ok: (v: number) => boolean) => (
+            <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              {label}
+              <span className="flex items-center gap-1">
+                <input key={`${obj.id}-${key}-${obj[key]}`} aria-label={`${label} de la toiture`} defaultValue={String(obj[key]).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => { const v = Number(e.target.value.replace(',', '.')); if (ok(v) && v !== obj[key]) onUpdate(obj.id, { [key]: v }, `${label} de la toiture`); else e.target.value = String(obj[key]).replace('.', ','); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> {unit}
+              </span>
+            </label>
+          );
+          return (
+            <div data-testid="toiture" className="flex flex-col gap-1.5">
+              <p className="ui-label">Toiture</p>
+              <select aria-label="Type de la toiture" value={obj.roofType} onChange={e => onUpdate(obj.id, { roofType: e.target.value as typeof obj.roofType }, 'Type de toiture')}
+                className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs">
+                <option value="un-pan">Un pan</option><option value="deux-pans">Deux pans</option><option value="quatre-pans">Quatre pans</option>
+              </select>
+              {num('Pente', 'pitch', '°', v => v > 0 && v < 90)}
+              {num('Débord', 'overhang', 'mm', v => v >= 0 && Number.isFinite(v))}
+              {obj.roofType !== 'quatre-pans' && (
+                <select aria-label="Axe de la toiture" value={obj.axis} onChange={e => onUpdate(obj.id, { axis: e.target.value as 'x' | 'y' }, 'Axe de la toiture')}
+                  className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs">
+                  <option value="x">{obj.roofType === 'un-pan' ? 'Rive haute' : 'Faîtage'} horizontal</option>
+                  <option value="y">{obj.roofType === 'un-pan' ? 'Rive haute' : 'Faîtage'} vertical</option>
+                </select>
+              )}
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                <dt className="text-muted-foreground">{obj.roofType === 'un-pan' ? 'Rive haute' : 'Faîtage'} / égout</dt><dd data-testid="toiture-faitage" className="text-right">{mm(g.ridgeHeight)}</dd>
+                <dt className="text-muted-foreground">au droit du contour</dt><dd data-testid="toiture-faitage-contour" className="text-right">{mm(g.ridgeAboveContour)}</dd>
+                <dt className="text-muted-foreground">Longueur du faîtage</dt><dd className="text-right">{mm(g.ridgeLength)}</dd>
+                {g.hipLengths.length > 0 && <><dt className="text-muted-foreground">Arêtiers (×{g.hipLengths.length})</dt><dd data-testid="toiture-aretier" className="text-right">{mm(g.hipLengths[0])}</dd></>}
+                <dt className="text-muted-foreground">Surface des pans</dt><dd data-testid="toiture-surface" className="text-right">{g.slopeAreaM2.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</dd>
+              </dl>
+            </div>
+          );
+        })()}
 
         {obj.kind === 'slab' && (() => {
           const q = slabQuantities(obj);

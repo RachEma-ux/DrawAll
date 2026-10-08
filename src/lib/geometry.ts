@@ -13,6 +13,7 @@ import { hatchParamsOf } from '@/lib/hatch';
 import { wallQuad } from '@/lib/wall';
 import { openingGeometry } from '@/lib/opening';
 import { detectRoom } from '@/lib/rooms';
+import { roofGeometry, roofInput, roofPrimitives } from '@/lib/roof';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -187,6 +188,13 @@ function collectObjectSnaps(
       add('center', object.cx, object.cy);
       return;
     }
+    case 'roof': {
+      // Toiture (lot 13.2) : coins de la rive, extrémités du faîtage et des arêtiers.
+      const g = roofGeometry(roofInput(object));
+      for (const c of g.outline) add('endpoint', c.x, c.y);
+      if (g.ridge) for (const e of g.ridge) add('endpoint', e.x, e.y);
+      return;
+    }
     case 'slab': {
       // Dalle (lot 13.1) : contour fermé, sommets et milieux des côtés, côté de fermeture compris.
       const p = object.points, n = p.length / 2;
@@ -319,6 +327,9 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
       for (let i = 0; i + 1 < pts.length; i++) segments.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y, objectId: object.id, curve: true });
       return;
     }
+    case 'roof':
+      for (const prim of roofPrimitives(object, roofInput(object))) collectGeometry(prim, blocks, segments, circles);
+      return;
     case 'slab': {
       const p = object.points, n = p.length / 2;
       for (let i = 0; i < n; i++) { const j = (i + 1) % n; segments.push({ x1: p[2 * i], y1: p[2 * i + 1], x2: p[2 * j], y2: p[2 * j + 1], objectId: object.id }); }
@@ -509,6 +520,7 @@ function dedupeSnaps(points: SnapPoint[]): SnapPoint[] {
 
 export function objectBounds(object: CadObject, blocks: BlockDef[], objects: CadObject[]): Bounds | null {
   switch (object.kind) {
+    case 'roof': return boundsOfPoints(roofGeometry(roofInput(object)).outline);
     case 'line': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'wall': { const q = wallQuad(object); return q ? boundsOfPoints(q) : boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]); }
     case 'cut': {
@@ -713,7 +725,8 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'opening': return {}; // l'ouverture suit son mur
     case 'views': return {}; // les vues suivent leur face
     case 'cut': return {};
-    case 'room': return { x: object.x + dx, y: object.y + dy };
+    case 'room':
+    case 'roof': return { x: object.x + dx, y: object.y + dy };
     case 'north':
     case 'roughness':
     case 'levelMark':
@@ -796,6 +809,23 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
       const b = rotatePoint(object.x + object.w, object.y + object.h, cx, cy, rad);
       return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
     }
+    case 'roof': {
+      // Toiture sur contour aligné aux axes : quarts de tour seulement ; l'axe et la rive haute suivent.
+      if (Math.abs(((angleDeg % 90) + 90) % 90) > 1e-9) return null;
+      const a = rotatePoint(object.x, object.y, cx, cy, rad);
+      const b = rotatePoint(object.x + object.w, object.y + object.h, cx, cy, rad);
+      const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y), w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+      const quarter = Math.round(angleDeg / 90) % 2 !== 0;
+      const axis = quarter ? (object.axis === 'x' ? 'y' as const : 'x' as const) : object.axis;
+      // Rive haute : milieu du côté haut, tourné, comparé au centre du contour tourné.
+      const g = roofGeometry(roofInput(object));
+      let highSide = object.highSide;
+      if (object.roofType === 'un-pan' && g.ridge) {
+        const m = rotatePoint((g.ridge[0].x + g.ridge[1].x) / 2, (g.ridge[0].y + g.ridge[1].y) / 2, cx, cy, rad);
+        highSide = (axis === 'x' ? m.y < y + h / 2 : m.x < x + w / 2) ? 'min' : 'max';
+      }
+      return { x, y, w, h, axis, ...(highSide ? { highSide } : {}) };
+    }
     case 'circle': {
       const p = rotatePoint(object.cx, object.cy, cx, cy, rad);
       return { cx: p.x, cy: p.y };
@@ -870,6 +900,13 @@ export function mirrorObject(object: CadObject, axis: 'x' | 'y', value: number):
 function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number): Partial<CadObject> {
   const mx = (v: number) => round(2 * value - v);
   switch (object.kind) {
+    case 'roof': {
+      // La rive haute d'un pan unique change de côté si la symétrie la traverse.
+      const flips = object.roofType === 'un-pan' && (axis === 'x') === (object.axis === 'y');
+      const highSide = flips ? (object.highSide === 'max' ? 'min' as const : 'max' as const) : object.highSide;
+      const pos = axis === 'x' ? { x: round(2 * value - object.x - object.w) } : { y: round(2 * value - object.y - object.h) };
+      return { ...pos, ...(highSide ? { highSide } : {}) };
+    }
     case 'line':
       return axis === 'x'
         ? { x1: mx(object.x1), x2: mx(object.x2) }
@@ -950,6 +987,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'line': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy) };
     case 'wall': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy), thickness: round(object.thickness * factor) };
     case 'rect': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor) };
+    case 'roof': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor), overhang: round(object.overhang * factor) };
     case 'underlay': return object.locked ? null : { x: s(object.x, cx), y: s(object.y, cy), w: object.w * factor, h: object.h * factor };
     case 'note': return object.targetId ? {} : { x: s(object.x, cx), y: s(object.y, cy) };
     case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
@@ -1011,6 +1049,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'text':
     case 'wall':
     case 'opening':
+    case 'roof':
     case 'room':
     case 'north':
     case 'section':

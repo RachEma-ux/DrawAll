@@ -26,10 +26,11 @@ import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
 import { pointInPolygon, slabContour, slabQuantities } from '@/lib/slab';
+import { roofError, roofGeometry, roofInput } from '@/lib/roof';
 import ParametersPanel from '@/components/ParametersPanel';
 import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
-import type { GeoConstraint, PolylineObj } from '@/types/cad';
+import type { GeoConstraint, PolylineObj, RoofObj } from '@/types/cad';
 import { expandToGroups } from '@/lib/groups';
 import { kernelVolume } from '@/lib/kernel/client';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
@@ -68,6 +69,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'stretch', label: 'Étirer', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins de la fenêtre de capture, puis point de base et point d’arrivée : les sommets capturés se déplacent' },
   { id: 'ellipse', label: 'Ellipse', key: 'Z', levels: ['contextuel', 'complet'], hint: 'Centre, extrémité du premier axe, puis le second demi-axe' },
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
+  { id: 'roof', label: 'Toiture', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins opposés du contour (nu extérieur des murs) ; type, pente, débord et axe dans le panneau' },
   { id: 'slab', label: 'Dalle', key: '', levels: ['contextuel', 'complet'], hint: 'Touchez l’intérieur d’une pièce pour reprendre son contour, ou tracez le contour point par point puis Terminer' },
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
   { id: 'opening', label: 'Ouverture', key: 'O', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez un mur : porte ou fenêtre centrée sur ce point' },
@@ -454,6 +456,23 @@ function Workbench() {
     }
     flash(polygons.size ? 'Aucune pièce fermée à cet endroit : touchez l’intérieur d’une pièce, ou tracez le contour.' : 'Aucune pièce dans ce niveau : placez d’abord une pièce (outil Pièce), ou tracez le contour.');
   }, [project.objects, addSlab, flash]);
+  // Toitures (lot 13.2).
+  const [roofParams, setRoofParams] = useState<{ type: RoofObj['roofType']; pitch: string; overhang: string; axis: 'x' | 'y'; highSide: 'min' | 'max' }>({ type: 'deux-pans', pitch: '30', overhang: '0', axis: 'x', highSide: 'min' });
+  const addRoof = useCallback((x1: number, y1: number, x2: number, y2: number) => {
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!layer || layer.locked) { flash('Calque actif verrouillé : déverrouillez-le pour créer une toiture.'); return; }
+    const num = (v: string) => (v.trim() === '' ? NaN : Number(v.replace(',', '.')));
+    const roof = {
+      x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
+      roofType: roofParams.type, pitch: num(roofParams.pitch), overhang: num(roofParams.overhang), axis: roofParams.axis,
+      ...(roofParams.type === 'un-pan' ? { highSide: roofParams.highSide } : {}),
+    };
+    const err = roofError(roofInput(roof as RoofObj));
+    if (err) { flash(err); return; }
+    project.addObject({ kind: 'roof', classification: 'architecture', layerId: layer.id, hatch: 'none', ...roof });
+    const g = roofGeometry(roofInput(roof as RoofObj));
+    flash(`Toiture créée : faîtage à ${fmt(g.ridgeHeight)} mm au-dessus de l’égout${g.hipLengths.length ? `, arêtiers de ${fmt(g.hipLengths[0])} mm` : ''}.`);
+  }, [project, flash, roofParams]);
   const [wallParams, setWallParams] = useState<{ thickness: string; justification: WallObj['justification'] }>({ thickness: '200', justification: 'axe' });
   const addWall = useCallback((x1: number, y1: number, x2: number, y2: number) => {
     const layer = project.layers.find(l => l.id === project.activeLayerId);
@@ -966,6 +985,7 @@ function Workbench() {
         note: ['note', 'photo', 'releve', 'terrain', 'chantier', 'commentaire', 'remarque'],
         opening: ['porte', 'fenetre', 'baie', 'ouverture', 'door', 'window'],
         wall: ['mur', 'cloison', 'paroi', 'wall', 'batiment'],
+        roof: ['toiture', 'toit', 'pan', 'faitage', 'arretier', 'arêtier', 'croupe', 'pente', 'roof'],
         slab: ['dalle', 'plancher', 'chape', 'radier', 'slab', 'plancher bas', 'plancher haut'],
         pdim: ['cote', 'serie', 'chainee', 'cumulee', 'angulaire', 'angle', 'niveau', 'altitude', 'dimension'],
         area: ['aire', 'surface', 'perimetre', 'area', 'mesurer'],
@@ -1307,6 +1327,7 @@ function Workbench() {
                  tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
                  tool === 'freehand' ? 'Main levée : tracez en maintenant appuyé ; la polyligne est simplifiée au relâcher' :
                  tool === 'offset' ? 'Décaler : touchez l’objet, puis un point du côté où poser la copie parallèle' :
+                 tool === 'roof' ? 'Toiture : touchez deux coins opposés du contour (nu extérieur des murs)' :
                  tool === 'slab' ? (slabParams.mode === 'piece' ? 'Dalle : touchez l’intérieur d’une pièce, son contour est repris' : 'Dalle : points du contour, puis Terminer (Entrée ou double-clic)') :
                  tool === 'constraint' ? `${CONSTRAINT_LABEL[constraintType]} : désignez ${CONSTRAINT_PICKS[constraintType].map(n => (n === 'point' ? 'un sommet' : n === 'seg' ? 'un segment' : 'un cercle')).join(' puis ')}` :
                  tool === 'stretch' ? 'Étirer : deux coins de la fenêtre de capture, puis le point de base et le point d’arrivée' :
@@ -1432,6 +1453,7 @@ function Workbench() {
                 slabMode={slabParams.mode}
                 onAddSlab={points => addSlab(points)}
                 onAddSlabFromRoom={addSlabFromRoom}
+                onAddRoof={addRoof}
                 constraintMarks={constraintMarks}
                 constraintPicks={constraintPicks.map(p => p.at)}
                 onMeasureArea={measureArea}
@@ -1592,6 +1614,31 @@ function Workbench() {
                         onChange={e => setPdimParams(p => ({ ...p, reference: e.target.value }))}
                         className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
                     </label>
+                  )}
+                </div>
+              )}
+              {tool === 'roof' && (
+                <div className="absolute left-3 top-3 z-10 sm:top-12 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg">
+                  <select aria-label="Type de toiture" value={roofParams.type} onChange={e => setRoofParams(p => ({ ...p, type: e.target.value as RoofObj['roofType'] }))} className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                    <option value="un-pan">Un pan</option><option value="deux-pans">Deux pans</option><option value="quatre-pans">Quatre pans</option>
+                  </select>
+                  <label className="flex items-center gap-1">Pente
+                    <input aria-label="Pente de la toiture (°)" inputMode="decimal" value={roofParams.pitch} onChange={e => setRoofParams(p => ({ ...p, pitch: e.target.value }))} className="w-12 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> °
+                  </label>
+                  <label className="flex items-center gap-1">Débord
+                    <input aria-label="Débord de la toiture (mm)" inputMode="decimal" value={roofParams.overhang} onChange={e => setRoofParams(p => ({ ...p, overhang: e.target.value }))} className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                  </label>
+                  {roofParams.type !== 'quatre-pans' && (
+                    <select aria-label="Axe du faîtage" value={roofParams.axis} onChange={e => setRoofParams(p => ({ ...p, axis: e.target.value as 'x' | 'y' }))} className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                      <option value="x">{roofParams.type === 'un-pan' ? 'Rive haute' : 'Faîtage'} horizontal</option>
+                      <option value="y">{roofParams.type === 'un-pan' ? 'Rive haute' : 'Faîtage'} vertical</option>
+                    </select>
+                  )}
+                  {roofParams.type === 'un-pan' && (
+                    <select aria-label="Côté de la rive haute" value={roofParams.highSide} onChange={e => setRoofParams(p => ({ ...p, highSide: e.target.value as 'min' | 'max' }))} className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                      <option value="min">{roofParams.axis === 'x' ? 'en haut' : 'à gauche'}</option>
+                      <option value="max">{roofParams.axis === 'x' ? 'en bas' : 'à droite'}</option>
+                    </select>
                   )}
                 </div>
               )}

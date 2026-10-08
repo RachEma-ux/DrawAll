@@ -480,6 +480,27 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - Export DXF : LWPOLYLINE fermée.
   - Classe IFC par défaut : `IfcSlab`.
 
+### 8.7 Toitures (règle, lot 13.2)
+
+- **Outil « Toiture »** (niveaux contextuel et complet, palette) : deux coins opposés du contour rectangulaire (nu extérieur des murs), à la souris, au doigt ou au clavier.
+  - Type : un, deux ou quatre pans de même pente.
+  - Pente en degrés (0 < pente < 90).
+  - Débord sur tout le pourtour (mm, ≥ 0).
+  - Axe : faîtage horizontal ou vertical (deux pans) ; rive haute horizontale ou verticale et son côté (un pan). Quatre pans : faîtage selon le grand côté, pyramide sur un carré.
+  - Tous ces paramètres restent modifiables dans l'inspecteur. Les valeurs proposées (30°, 0 mm) ne sont qu'un point de départ.
+- **Grandeurs de référence** (inspecteur). Elles dérivent du seul contour, de la pente et du débord, sans épaisseur de couverture ni de charpente.
+  - Hauteur du faîtage au-dessus de l'égout : demi-portée × tan(pente), débord compris. Pour un pan unique : portée × tan(pente).
+  - Même hauteur prise au droit du contour (arase).
+  - Longueur du faîtage.
+  - Longueur vraie des arêtiers : √(2 × demi-portée² + hauteur²).
+  - Surface des pans en vraie grandeur : emprise ÷ cos(pente).
+- **Plan.**
+  - Rive en trait continu ; faîtage et arêtiers en traits ; flèches de pente du haut vers le bas de chaque pan.
+  - Export DXF : LWPOLYLINE pour la rive, LINE pour les autres traits ; même dessin dans le PDF.
+  - Coins de rive et extrémités du faîtage accrochables.
+  - La toiture se déplace, s'étire par son contour, se met à l'échelle (débord compris) et tourne par quarts de tour ; l'axe et la rive haute suivent, y compris dans une symétrie.
+  - Classe IFC par défaut : `IfcRoof`.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

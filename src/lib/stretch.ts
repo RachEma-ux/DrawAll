@@ -45,6 +45,11 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
       const p = stretchPoints(o.points, w, dx, dy);
       return p && { points: p };
     }
+    case 'roof': {
+      // Toiture : son contour s'étire comme un rectangle (côtés et coins capturés).
+      const r = stretchObject({ ...o, kind: 'rect' } as CadObject, w, dx, dy) as { x: number; y: number; w: number; h: number } | null;
+      return r && { x: r.x, y: r.y, w: r.w, h: r.h };
+    }
     case 'rect': {
       const x0 = o.x, y0 = o.y, x1 = o.x + o.w, y1 = o.y + o.h;
       const c = { tl: inside(w, x0, y0), tr: inside(w, x1, y0), br: inside(w, x1, y1), bl: inside(w, x0, y1) };
