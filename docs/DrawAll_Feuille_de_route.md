@@ -144,7 +144,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 4.4 Niveaux | Fait | #29 |
 | 4.5 Symboles | Fait | #30 |
 | 5.1 Tolérances | Fait | #31 |
-| 5.2 → 8.4 | À faire | — |
+| 5.2 Vues alignées | Fait | #32 |
+| 5.3 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

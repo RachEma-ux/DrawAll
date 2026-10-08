@@ -3,6 +3,7 @@
 import type { BlockDef, CadObject, DimensionObj, HatchParams, Layer, PrimitiveObject, WallObj } from '@/types/cad';
 import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExtents } from '@/types/cad';
 import { normalizeAngle, textBounds } from '@/lib/text';
+import { linkedViews } from '@/lib/views';
 import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } from '@/lib/arc';
 import { pdimGeometry, pdimPoints, transformPdim } from '@/lib/pdim';
 import { hatchParamsOf } from '@/lib/hatch';
@@ -199,6 +200,13 @@ function collectObjectSnaps(
     case 'text':
       add('insertion', object.x, object.y);
       return;
+    case 'views': {
+      // Vues liées : extrémités et milieux des arêtes vues (rappels entre vues).
+      for (const v of linkedViews(object, objects.find(o => o.id === object.sourceId), objects) ?? []) {
+        for (const [x1, y1, x2, y2] of v.visible) { add('endpoint', x1, y1); add('endpoint', x2, y2); add('midpoint', (x1 + x2) / 2, (y1 + y2) / 2); }
+      }
+      return;
+    }
   }
 }
 
@@ -454,6 +462,10 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
   switch (object.kind) {
     case 'line': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'wall': { const q = wallQuad(object); return q ? boundsOfPoints(q) : boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]); }
+    case 'views': {
+      const v = linkedViews(object, objects.find(o => o.id === object.sourceId), objects);
+      return v && v.length ? unionBounds(v.map(g => ({ minX: g.frame.x, minY: g.frame.y, maxX: g.frame.x + g.frame.w, maxY: g.frame.y + g.frame.h }))) : null;
+    }
     // Symboles : taille papier, emprise réduite à leurs points d'insertion.
     case 'section': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
     case 'north':
@@ -637,6 +649,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'line': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'wall': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'opening': return {}; // l'ouverture suit son mur
+    case 'views': return {}; // les vues suivent leur face
     case 'room': return { x: object.x + dx, y: object.y + dy };
     case 'north':
     case 'roughness':
@@ -739,6 +752,7 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
     case 'pdim':
       return transformPdim(object, q => rotatePoint(q.x, q.y, cx, cy, rad), { rotation: angleDeg });
     case 'opening':
+    case 'views':
       return {};
     case 'room':
     case 'levelMark': {
@@ -799,6 +813,7 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
     case 'pdim':
       return transformPdim(object, q => (axis === 'x' ? { x: mx(q.x), y: q.y } : { x: q.x, y: mx(q.y) })) ?? {};
     case 'opening':
+    case 'views':
       return {};
     case 'room':
     case 'levelMark':
@@ -838,6 +853,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'dimension': return { offset: round(object.offset * factor) };
     case 'pdim': return transformPdim(object, q => ({ x: s(q.x, cx), y: s(q.y, cy) }), { factor });
     case 'opening': return { position: round(object.position * factor), width: round(object.width * factor) };
+    case 'views': return { depth: round(object.depth * factor), gap: round(object.gap * factor) };
     case 'room':
     case 'north':
     case 'roughness':
@@ -884,6 +900,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'section':
     case 'levelMark':
     case 'roughness':
+    case 'views':
       return null;
   }
 }

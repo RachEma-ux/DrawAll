@@ -486,3 +486,34 @@ describe('symboles et bibliothèque (lot 4.5)', () => {
     expect(report.transformed.join(' ')).toMatch(/Occurrences de blocs : 1/);
   });
 });
+
+describe('vues liées (lot 5.2)', () => {
+  it('arêtes vues, cachées (ACAD_ISO02W100) et axes (ACAD_ISO04W100), lisibles par ezdxf', () => {
+    const objs: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'Platine', kind: 'rect', x: 0, y: 0, w: 100, h: 60, holes: ['OBJ-0002'] },
+      { ...base, id: 'OBJ-0002', name: 'Perçage', kind: 'circle', cx: 50, cy: 30, r: 6.25 },
+      { ...base, id: 'OBJ-0003', name: 'Vues', kind: 'views', sourceId: 'OBJ-0001', depth: 10, gap: 20, top: true, side: true },
+    ];
+    const { content, report } = exportDxf(objs, layers, []);
+    keepFixture('vues-liees.dxf', content);
+    expect(content).toContain('\n6\nACAD_ISO02W100\n');
+    expect(content).toContain('\n6\nACAD_ISO04W100\n');
+    expect(report.transformed.join(' ')).toMatch(/Vues liées : 1/);
+  });
+
+  it('arêtes vues en continu 0,5 mm même si l’objet a un style propre', () => {
+    const objs: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'Platine', kind: 'rect', x: 0, y: 0, w: 100, h: 60 },
+      { ...base, id: 'OBJ-0003', name: 'Vues', kind: 'views', sourceId: 'OBJ-0001', depth: 10, gap: 20, top: true, side: true, lineType: 'mixte-double', lineWeight: 0.13 },
+    ];
+    const { content } = exportDxf(objs, layers, []);
+    // Sans perçage, toutes les arêtes des vues sont vues : aucune ne garde le style propre de l'objet.
+    // (La face est une LWPOLYLINE : les LINE sont toutes des arêtes de vues.)
+    const viewLines = content.split('\nLINE\n').slice(1).map(e => e.split('\nAcDbLine\n')[0]);
+    expect(viewLines.length).toBeGreaterThan(0);
+    for (const l of viewLines) {
+      expect(l).toContain('\n6\nCONTINUOUS\n');
+      expect(l).toContain('\n370\n50\n');
+    }
+  });
+});

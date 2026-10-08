@@ -1,6 +1,6 @@
 // Niveaux (lot 4.4) : étages avec altitude, objets rattachés à un niveau, copie d'un niveau.
 // Fonctions pures.
-import type { CadObject, Level } from '@/types/cad';
+import { parentOf, withParent, type CadObject, type Level } from '@/types/cad';
 
 export const DEFAULT_LEVEL: Level = { id: 'NIV-0001', name: 'Rez-de-chaussée', elevation: 0 };
 
@@ -50,8 +50,8 @@ export function copyLevelObjects(objects: CadObject[], fromId: string, toId: str
   const copies: CadObject[] = [];
   for (const o of source) {
     const c = { ...o, id: ids.get(o.id)!, levelId: toId, createdSeq: seq } as CadObject;
-    if (c.kind === 'opening') { const h = ids.get(c.hostId); if (!h) continue; c.hostId = h; }
-    if (c.kind === 'dimension') { const t = ids.get(c.targetId); if (!t) continue; c.targetId = t; }
+    const parent = parentOf(c);
+    if (parent) { const p = ids.get(parent); if (!p) continue; Object.assign(c, withParent(c, p)); }
     if (c.holes) c.holes = c.holes.map(h => ids.get(h)).filter((h): h is string => !!h);
     if (c.name === o.id) c.name = c.id;
     copies.push(c);

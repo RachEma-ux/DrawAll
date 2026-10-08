@@ -1,10 +1,10 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
-import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ViewReading, WallObj } from '@/types/cad';
+import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
 import { formatLevel, pdimValues } from '@/lib/pdim';
-import { containedContours, hatchParamsOf } from '@/lib/hatch';
+import { containedContours, hatchParamsOf, loopOf } from '@/lib/hatch';
 import { openingFits } from '@/lib/opening';
 import { deviations, fit, formatDeviation, parseClass } from '@/lib/iso286';
 import { SURFACE_RULES, areaM2, detectRoom, formatM2, type SurfaceRule } from '@/lib/rooms';
@@ -44,9 +44,12 @@ interface Props {
   /** Règle de surface des pièces du projet. */
   surfaceRule?: SurfaceRule;
   onSurfaceRule?: (rule: SurfaceRule) => void;
+  /** Vues liées d'une face fermée (lot 5.2). */
+  onAddViews?: (sourceId: string, depth: number) => void;
+  onSelect?: (id: string) => void;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onSelect }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -241,6 +244,72 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             </select>
           </div>
         )}
+
+        {loopOf(obj) && onAddViews && (() => {
+          const existing = objects.find(o => o.kind === 'views' && o.sourceId === obj.id);
+          return (
+            <div>
+              <p className="ui-label mb-1.5">Vues liées</p>
+              {existing ? (
+                <button onClick={() => onSelect?.(existing.id)} className="w-full rounded-sm border border-border px-2 py-1.5 text-left font-mono text-[10px] text-muted-foreground hover:text-foreground">
+                  {existing.id} : vues de dessus et de côté (sélectionner)
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    const raw = window.prompt('Épaisseur de la pièce (mm) : la face est extrudée sur cette épaisseur', '10');
+                    if (raw == null) return;
+                    const d = Number(raw.trim().replace(',', '.'));
+                    if (d > 0) onAddViews(obj.id, d); else window.alert('Épaisseur illisible : saisir un nombre positif de millimètres.');
+                  }}
+                  className="w-full rounded-sm border border-cyan-400/40 px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300 hover:bg-cyan-400/10"
+                >
+                  Créer les vues de dessus et de côté
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
+        {obj.kind === 'views' && (() => {
+          const field = (label: string, value: number, apply: (v: number) => void) => (
+            <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              {label}
+              <span className="flex items-center gap-1">
+                <input key={`${obj.id}-${label}-${value}`} aria-label={`Vues — ${label}`} defaultValue={String(value).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => { const v = Number(e.target.value.trim().replace(',', '.')); if (Number.isFinite(v) && v !== value) apply(v); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+              </span>
+            </label>
+          );
+          const method = obj.method ?? 'premier-diedre';
+          return (
+            <div className="space-y-1.5">
+              <p className="ui-label mb-1.5">Vues liées</p>
+              <p className="font-mono text-[10px] text-muted-foreground">Face : {obj.sourceId} — les vues suivent chaque modification de la face.</p>
+              {field('Épaisseur', obj.depth, v => v > 0 && onUpdate(obj.id, { depth: v }, 'Vues : épaisseur'))}
+              {field('Écart entre vues', obj.gap, v => v >= 0 && onUpdate(obj.id, { gap: v }, 'Vues : écart'))}
+              <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                Projection
+                <select aria-label="Méthode de projection des vues" value={method}
+                  onChange={e => onUpdate(obj.id, { method: e.target.value as ProjectionMethod }, e.target.value === 'premier-diedre' ? 'Vues : premier dièdre' : 'Vues : troisième dièdre')}
+                  className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs">
+                  <option value="premier-diedre">Premier dièdre (ISO E)</option>
+                  <option value="troisieme-diedre">Troisième dièdre (ISO A)</option>
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-1">
+                {([['top', 'Vue de dessus'], ['side', method === 'premier-diedre' ? 'Vue de gauche' : 'Vue de droite']] as const).map(([k, label]) => (
+                  <button key={k} onClick={() => onUpdate(obj.id, { [k]: !obj[k] }, `${obj[k] ? 'Masquer' : 'Afficher'} ${label.toLowerCase()}`)} aria-pressed={obj[k]}
+                    className={`rounded-sm border px-1.5 py-1.5 font-mono text-[10px] ${obj[k] ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {canHatch(obj) && (
           <div>

@@ -1,7 +1,7 @@
 // Copies multiples : réseaux rectangulaire et polaire, collage. Fonctions pures.
 // Une « pose » transforme une copie d'un objet ; elle ne crée pas d'identifiant (c'est le
 // rôle du magasin de projet, qui garantit l'unicité).
-import type { CadObject } from '@/types/cad';
+import { parentOf, withParent, type CadObject } from '@/types/cad';
 import { moveObject, rotateObject } from '@/lib/geometry';
 
 /** Transformation appliquée à une copie : renvoie la modification, ou null si impossible. */
@@ -9,22 +9,26 @@ export type Placement = (o: CadObject) => Partial<CadObject> | null;
 
 const norm = (deg: number) => { const a = ((deg % 360) + 360) % 360; return a > 360 - 1e-9 ? 0 : a; };
 
-/** Objet dont la copie dépend d'un autre : la cote de sa cible, l'ouverture de son mur. */
-const parentOf = (o: CadObject): string | null => (o.kind === 'dimension' ? o.targetId : o.kind === 'opening' ? o.hostId : null);
-const withParent = (o: CadObject, parent: string): CadObject =>
-  (o.kind === 'dimension' ? { ...o, targetId: parent } : o.kind === 'opening' ? { ...o, hostId: parent } : o) as CadObject;
-
 /**
- * Objets à copier pour une sélection : les objets choisis, les cotes et ouvertures qui les suivent,
- * la cible de chaque cote choisie et le mur de chaque ouverture choisie (une cote ne peut pas être
- * copiée sans ce qu'elle mesure, ni une ouverture sans le mur qui la porte).
+ * Objets à copier pour une sélection : les objets choisis, les objets associatifs qui les suivent
+ * (cotes, ouvertures, vues liées) et le parent de chaque objet associatif choisi (une cote ne se copie
+ * pas sans ce qu'elle mesure, une porte sans son mur).
  */
 export function withDependencies(objects: CadObject[], selected: Iterable<string>): CadObject[] {
   const ids = new Set(selected);
-  for (const o of objects) { const parent = parentOf(o); if (parent && ids.has(o.id)) ids.add(parent); }
+  // Remonter aux parents (une cote sur une ouverture remonte jusqu'au mur).
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const o of objects) { const p = parentOf(o); if (p && ids.has(o.id) && !ids.has(p)) { ids.add(p); changed = true; } }
+  }
   // Îlots de hachure : copiés avec le contour qui les désigne.
   for (const o of objects) if (ids.has(o.id)) for (const h of o.holes ?? []) ids.add(h);
-  return objects.filter(o => { const parent = parentOf(o); return ids.has(o.id) || (!!parent && ids.has(parent)); });
+  // Puis descendre aux objets associatifs des objets copiés.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const o of objects) { const p = parentOf(o); if (p && ids.has(p) && !ids.has(o.id)) { ids.add(o.id); changed = true; } }
+  }
+  return objects.filter(o => ids.has(o.id));
 }
 
 /** Au-delà, l'opération est refusée (protection de l'atelier). */
@@ -104,8 +108,9 @@ export function polarArray(count: number, total: number, cx: number, cy: number,
  */
 export function cloneAll(sources: CadObject[], placements: Placement[], counter: number, seq: number): { objects: CadObject[]; counter: number } {
   const out: CadObject[] = [];
+  // Objets associatifs (cote, ouverture, vues) : copiés après leur parent, rattachés à sa copie.
   const shapes = sources.filter(o => !parentOf(o));
-  const dependents = sources.filter(o => parentOf(o));
+  const dependents = sources.filter(o => !!parentOf(o));
   for (const place of placements) {
     const ids = new Map<string, string>();
     const start = out.length;
@@ -125,12 +130,20 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
         if (holes.length) c.holes = holes; else delete c.holes;
       }
     }
-    // Cotes et ouvertures : copiées seulement avec leur cible ou leur mur, rattachées à sa copie.
-    for (const d of dependents) {
-      const parent = ids.get(parentOf(d)!);
-      if (!parent) continue;
-      counter += 1;
-      out.push({ ...withParent(d, parent), id: `OBJ-${String(counter).padStart(4, '0')}`, createdSeq: seq } as CadObject);
+    // Plusieurs passes : une cote d'ouverture suit la copie de l'ouverture, elle-même celle du mur.
+    for (let pending = dependents, progress = true; pending.length && progress;) {
+      progress = false;
+      const next: CadObject[] = [];
+      for (const d of pending) {
+        const parent = ids.get(parentOf(d)!);
+        if (!parent) { next.push(d); continue; }
+        counter += 1;
+        const id = `OBJ-${String(counter).padStart(4, '0')}`;
+        ids.set(d.id, id);
+        out.push({ ...withParent(d, parent), id, createdSeq: seq } as CadObject);
+        progress = true;
+      }
+      pending = next;
     }
   }
   return { objects: out, counter };
