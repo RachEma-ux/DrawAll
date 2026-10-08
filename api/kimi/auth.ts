@@ -97,6 +97,14 @@ export function createOAuthCallbackHandler() {
     const error = c.req.query("error");
     const errorDescription = c.req.query("error_description");
 
+    // Le `state` reçu doit être celui émis pour ce navigateur (cookie court, usage unique), y compris
+    // pour une réponse d'erreur du fournisseur : le cookie est effacé dans tous les cas.
+    const expected = getCookie(c, STATE_COOKIE);
+    deleteCookie(c, STATE_COOKIE, { path: "/api/oauth" });
+    if (!state || !statesMatch(expected, state)) {
+      return c.json({ error: "invalid_state", error_description: "Connexion expirée ou non initiée par ce navigateur : recommencez." }, 400);
+    }
+
     if (error) {
       if (error === "access_denied") {
         return c.redirect("/", 302);
@@ -107,14 +115,8 @@ export function createOAuthCallbackHandler() {
       );
     }
 
-    if (!code || !state) {
+    if (!code) {
       return c.json({ error: "code and state are required" }, 400);
-    }
-    // Le `state` reçu doit être celui émis pour ce navigateur (cookie court, usage unique).
-    const expected = getCookie(c, STATE_COOKIE);
-    deleteCookie(c, STATE_COOKIE, { path: "/api/oauth" });
-    if (!statesMatch(expected, state)) {
-      return c.json({ error: "invalid_state", error_description: "Connexion expirée ou non initiée par ce navigateur : recommencez." }, 400);
     }
 
     try {

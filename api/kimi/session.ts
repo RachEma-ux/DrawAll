@@ -25,8 +25,12 @@ export async function verifySessionToken(
   }
   try {
     const secret = new TextEncoder().encode(env.appSecret);
+    // `maxTokenAge` borne aussi les jetons émis avant le lot 8.3 (un an) : au-delà de sept jours
+    // après leur émission, ils sont refusés quelle que soit leur propre date d'expiration.
     const { payload } = await jose.jwtVerify(token, secret, {
       algorithms: [JWT_ALG],
+      requiredClaims: ["iat"],
+      maxTokenAge: `${Math.round(Session.maxAgeMs / 1000)}s`,
     });
     const { unionId, clientId } = payload;
     if (!unionId || !clientId) {

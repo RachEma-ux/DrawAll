@@ -66,6 +66,25 @@ describe('connexion OAuth (lot 8.3)', () => {
     expect(res.headers.get('set-cookie')).toMatch(/drawall_oauth_state=;.*Max-Age=0/);
   });
 
+  it('une réponse d’erreur du fournisseur est aussi liée au state, et le cookie est effacé', async () => {
+    const forged = await app.request('/api/oauth/callback?error=access_denied&state=abc', { headers: host });
+    expect(forged.status).toBe(400);
+    expect(await forged.json()).toMatchObject({ error: 'invalid_state' });
+    const denied = await app.request('/api/oauth/callback?error=access_denied&state=s1', { headers: { ...host, cookie: 'drawall_oauth_state=s1' } });
+    expect(denied.status).toBe(302);
+    expect(denied.headers.get('set-cookie')).toMatch(/drawall_oauth_state=;.*Max-Age=0/);
+  });
+
+  it('un jeton émis avant le lot (un an de validité) est refusé au-delà de sept jours', async () => {
+    const { SignJWT } = await import('jose');
+    const key = new TextEncoder().encode(process.env.APP_SECRET);
+    const now = Math.floor(Date.now() / 1000);
+    const sign = (iat: number) => new SignJWT({ unionId: 'u', clientId: 'app-1' })
+      .setProtectedHeader({ alg: 'HS256' }).setIssuedAt(iat).setExpirationTime(iat + 365 * 24 * 3600).sign(key);
+    expect(await session.verifySessionToken(await sign(now - 8 * 24 * 3600))).toBeNull();
+    expect(await session.verifySessionToken(await sign(now - 6 * 24 * 3600))).toEqual({ unionId: 'u', clientId: 'app-1' });
+  });
+
   it('session de sept jours (cookie et jeton)', async () => {
     expect(constants.Session.maxAgeMs).toBe(7 * 24 * 3600 * 1000);
     const token = await session.signSessionToken({ unionId: 'u', clientId: 'app-1' });

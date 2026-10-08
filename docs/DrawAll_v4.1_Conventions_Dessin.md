@@ -412,7 +412,8 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 
 - La connexion part du serveur (`/api/oauth/login`) : il tire un `state` aléatoire (256 bits), le garde dans un cookie httpOnly limité au chemin OAuth et à dix minutes, et redirige vers l'autorisation avec l'adresse de retour qu'il calcule lui-même.
 - Au retour (`/api/oauth/callback`), le `state` reçu doit être celui du cookie (comparaison en temps constant, usage unique : le cookie est effacé) ; sinon la connexion est refusée (« Connexion expirée ou non initiée par ce navigateur »). L'adresse de retour n'est jamais lue dans le `state`.
-- Session de sept jours (cookie et jeton ; un an auparavant), puis nouvelle connexion.
+- La vérification du `state` précède aussi le traitement d'une réponse d'erreur du fournisseur (refus, `access_denied`) : une erreur non sollicitée est refusée, et le cookie est effacé dans tous les cas.
+- Session de sept jours (cookie et jeton ; un an auparavant), puis nouvelle connexion. Le serveur refuse tout jeton émis depuis plus de sept jours, même s'il porte une expiration plus lointaine : les sessions d'un an déjà ouvertes avant ce lot expirent ainsi au plus tard sept jours après leur émission.
 
 ## 11. Références
 
