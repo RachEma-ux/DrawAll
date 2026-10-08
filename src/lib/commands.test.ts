@@ -103,6 +103,10 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('addObject', [{ classification: 'architecture', layerId: 'LAY-0001', kind: 'room', x: 0, y: 0, zoneId: 'ZON-0001' }], [line], L, PZ)).toBeNull();
     // Jeux de propriétés : forme relue telle quelle seulement.
     const ln = { kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 };
+    // Trous : liste d'identifiants d'objets existants.
+    expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: {} })).toBe('rect : trous (liste d’identifiants) attendus');
+    expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0404'] })).toBe('rect : trou OBJ-0404 absent');
+    expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0001'] })).toBeNull();
     expect(add({ ...ln, psets: {} })).toBe('line : jeux de propriétés mal formés (nom, propriétés nommées, valeurs texte, nombre ou booléen)');
     expect(add({ ...ln, psets: [{ name: 'P', props: [{ name: 'a', value: { x: 1 } }] }] })).toMatch(/jeux de propriétés mal formés/);
     expect(add({ ...ln, psets: [{ name: 'P', props: [{ name: 'a', value: 2 }, { name: 'b', value: 'x' }] }] })).toBeNull();

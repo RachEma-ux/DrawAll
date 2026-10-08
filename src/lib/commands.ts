@@ -128,6 +128,8 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
   if (!Object.prototype.hasOwnProperty.call(CLASSIFICATION_META, o.classification as string)) return `${kind} : classification parmi ${Object.keys(CLASSIFICATION_META).join(', ')} attendue`;
   if (o.hatch !== undefined && !HATCHES.includes(o.hatch as string)) return `${kind} : hachure parmi ${HATCHES.join(', ')} attendue`;
   for (const k of ['part', 'materialId', 'groupId']) if (o[k] !== undefined && !str(o[k])) return `${kind} : ${k} texte attendu`;
+  // Trous (contours intérieurs) : liste d'identifiants (leur présence est vérifiée avec les références).
+  if (o.holes !== undefined && !strs(o.holes)) return `${kind} : trous (liste d’identifiants) attendus`;
   // Jeux de propriétés : la forme que la relecture d'un projet garde telle quelle (export IFC).
   if (o.psets !== undefined && !(Array.isArray(o.psets) && JSON.stringify(normalizePsets(o.psets) ?? []) === JSON.stringify(o.psets))) return `${kind} : jeux de propriétés mal formés (nom, propriétés nommées, valeurs texte, nombre ou booléen)`;
   for (const k of spec.nums ?? []) if (!finite(o[k])) return `${kind} : ${k} numérique fini attendu`;
@@ -164,6 +166,8 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
     const want = r === (o as { markId?: unknown }).markId ? 'section' : REF_KIND[kind];
     if (want && target.kind !== want) return `${kind} : ${r} n’est pas un objet de type ${want}`;
   }
+  const hole = (o.holes as string[] | undefined)?.find(h => !byId.has(h));
+  if (hole) return `${kind} : trou ${hole} absent`;
   // Occurrence : sa source est une pièce (solide défini comme pièce), sinon elle n'aurait aucune géométrie.
   if (kind === 'occurrence') { const src = byId.get(o.sourceId as string); if (src?.kind === 'solid' && !src.partDef) return `occurrence : ${src.id} n’est pas une pièce (définir la pièce d’abord)`; }
   // Vues liées : la source doit offrir une face fermée.

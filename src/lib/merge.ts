@@ -213,13 +213,16 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
       for (const d of c.dependents) gone.add(d);
     }
   }
-  // Dépendants des dépendants (une cote d'une ouverture d'un mur retiré…) : retirés à leur tour.
-  for (let grew = gone.size > 0; grew;) {
+  // Dépendants des dépendants (une cote d'une ouverture d'un mur retiré…) : retirés à leur tour. Les choix
+  // peuvent aussi rétablir un objet dont le parent a été supprimé sans conflit (ouverture modifiée chez
+  // eux, mur supprimé chez nous) : il suit son parent, comme toute suppression en cascade.
+  const ids = new Set(((out.objects as WithId[] | undefined) ?? []).map(o => o.id));
+  for (let grew = true; grew;) {
     grew = false;
     for (const o of (out.objects as CadObject[] | undefined) ?? []) {
       if (gone.has(o.id)) continue;
       const refs = parentsOf(o);
-      if (refs.some(r => gone.has(r))) { gone.add(o.id); grew = true; }
+      if (refs.some(r => gone.has(r) || !ids.has(r))) { gone.add(o.id); grew = true; }
     }
   }
   if (gone.size) {

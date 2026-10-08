@@ -55,7 +55,8 @@ export default function AssistantPanel({ project, onClose, generator = localGene
   const { projectRef, exec } = useCommandRunner(project);
   /** Contenu du projet sur lequel la proposition affichée a été validée et aperçue. */
   const basisRef = useRef<string | null>(null);
-  const digest = () => { const st = projectRef.current.state; return versionDigest(st.versions[st.pointer]); };
+  // Version courante et niveau, calque actifs (les objets proposés y sont posés).
+  const digest = () => { const p = projectRef.current, st = p.state; return `${p.activeLevelId}|${p.activeLayerId}|${versionDigest(st.versions[st.pointer])}`; };
 
   const propose = async () => {
     const p = projectRef.current;

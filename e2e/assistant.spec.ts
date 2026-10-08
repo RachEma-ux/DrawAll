@@ -73,3 +73,27 @@ test('lot 18.3 — projet modifié entre l’aperçu et l’accord : rien n’es
   expect(await currentObjects(page)).toEqual(moved);
   expect(errors).toEqual([]);
 });
+
+test('lot 18.3 — niveau actif changé entre l’aperçu et l’accord : rien n’est exécuté', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await page.waitForFunction(() => localStorage.getItem('drawall-projet-v1') !== null);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    s.versions[s.pointer].levels = [{ id: 'NIV-0001', name: 'Rez-de-chaussée', elevation: 0 }, { id: 'NIV-0002', name: 'Étage', elevation: 3000 }];
+    localStorage.setItem('drawall-projet-v1', JSON.stringify(s));
+  });
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 4000, y2: 0 }]);
+  const before = await currentObjects(page);
+  const dlg = await openAssistant(page);
+  await dlg.getByLabel('Demande').fill('grille de 2 x 2 poteaux 300 x 300 mm entraxe 5 m');
+  await dlg.getByRole('button', { name: 'Proposer' }).click();
+  await expect(dlg.getByRole('region', { name: 'Proposition' })).toHaveAttribute('data-statut', 'ready');
+  // Le niveau actif change (sans modifier le contenu du projet).
+  await page.getByRole('button', { name: 'Afficher le niveau Étage' }).click();
+  await expect(page.getByRole('button', { name: 'Afficher le niveau Étage' })).toHaveAttribute('aria-pressed', 'true');
+  await dlg.getByRole('button', { name: 'Accepter et exécuter' }).click();
+  await expect(dlg.getByRole('status')).toContainText('Le projet a changé depuis l’aperçu : rien n’a été exécuté.');
+  expect(await currentObjects(page)).toEqual(before);
+  expect(errors).toEqual([]);
+});

@@ -130,15 +130,29 @@ describe('comparaison et fusion (lot 14.2)', () => {
 
   it('liaison vers une occurrence supprimée de l’autre côté : l’occurrence liée reste, sans liaison', () => {
     const occ = (id: string, extra: Record<string, unknown> = {}) => ({ ...base0, id, name: id, kind: 'occurrence', sourceId: 'S', x: 0, y: 0, z: 0, angle: 0, ...extra }) as unknown as CadObject;
-    const base = v(0, [occ('A')]);
-    const ours = v(1, [occ('A'), occ('B', { mate: { type: 'fixe', to: 'A', rel: [0, 0, 0, 0] } })]);
-    const theirs = v(1, []);
+    const S = { ...base0, id: 'S', name: 'S', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const base = v(0, [S, occ('A')]);
+    const ours = v(1, [S, occ('A'), occ('B', { mate: { type: 'fixe', to: 'A', rel: [0, 0, 0, 0] } })]);
+    const theirs = v(1, [S]);
     const r = merge3(base, ours, theirs);
     expect(r.conflicts).toEqual([]);
-    expect(r.merged.objects!.map(o => [o.id, 'mate' in o ? o.mate : undefined])).toEqual([['B', undefined]]);
+    expect(r.merged.objects!.map(o => [o.id, 'mate' in o ? o.mate : undefined])).toEqual([['S', undefined], ['B', undefined]]);
     const out = resolve(r, {});
     if ('error' in out) throw new Error(out.error);
-    expect(out.objects!.map(o => o.id)).toEqual(['B']);
+    expect(out.objects!.map(o => o.id)).toEqual(['S', 'B']);
+  });
+
+  it('objet rétabli par un choix alors que son parent a été supprimé sans conflit : il suit son parent', () => {
+    const wall = { ...base0, id: 'W', name: 'W', kind: 'wall', x1: 0, y1: 0, x2: 4000, y2: 0, thickness: 200, justification: 'axe' } as CadObject;
+    const door = { ...base0, id: 'D', name: 'D', kind: 'opening', hostId: 'W', type: 'porte', position: 1000, width: 900, hinge: 'debut', side: 'gauche' } as unknown as CadObject;
+    const base = v(0, [wall, door]);
+    const ours = v(1, []); // mur supprimé, porte emportée
+    const theirs = v(1, [wall, { ...door, width: 1000 } as CadObject]); // porte élargie
+    const r = merge3(base, ours, theirs);
+    const out = resolve(r, Object.fromEntries(r.conflicts.map(c => [conflictKey(c), 'leur' as const])));
+    if ('error' in out) throw new Error(out.error);
+    const present = new Set(out.objects!.map(o => o.id));
+    expect(out.objects!.every(o => o.kind !== 'opening' || present.has(o.hostId))).toBe(true);
   });
 
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
