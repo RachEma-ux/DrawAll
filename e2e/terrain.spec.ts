@@ -99,3 +99,59 @@ test('lot 7.1 — un stylet pointe directement, sans décalage, même réticule 
   const k = await scale(page);
   for (const [v, t] of [[line.x1, 0], [line.y1, 500], [line.x2, 1000], [line.y2, 500]]) expect(Math.abs(v - t) * k).toBeLessThanOrEqual(1);
 });
+
+/** Attend que le service worker soit actif (page et fichiers de l'application en cache dès la première visite). */
+async function swReady(page: Page) {
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+}
+
+async function drawLine(page: Page, a: string, b: string) {
+  await chooseTool(page, /^Ligne/);
+  const point = page.getByLabel('Point précis');
+  for (const p of [a, b]) { await point.fill(p); await point.press('Enter'); }
+}
+
+test('lot 7.2 — hors ligne : dessiner, recharger, retrouver', async ({ page, context }, info) => {
+  test.skip(info.project.name !== 'bureau', 'recette du service worker sur un navigateur');
+  const errors = await openAtelier(page);
+  await loadObjects(page, []);
+  // Première visite : aucun rechargement de plus n'est nécessaire avant de couper le réseau.
+  await swReady(page);
+  await drawLine(page, '0;0', '1000;0');
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(1);
+
+  // Réseau coupé : l'atelier se recharge depuis le cache et retrouve le dessin.
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.getByTestId('canvas')).toBeVisible();
+  await expect(page.getByTestId('hors-ligne')).toBeVisible();
+  expect(await currentObjects(page)).toHaveLength(1);
+
+  // Dessiner hors ligne, recharger encore : tout est là.
+  await drawLine(page, '0;500', '1000;500');
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(2);
+  await page.reload();
+  await expect(page.getByTestId('canvas')).toBeVisible();
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(2);
+
+  // Retour du réseau : l'indication disparaît.
+  await context.setOffline(false);
+  await expect(page.getByTestId('hors-ligne')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('lot 7.2 — reprise : un enregistrement que le stockage local a manqué est repris d’IndexedDB', async ({ page }) => {
+  await openAtelier(page);
+  await loadObjects(page, []);
+  // Stockage local plein : la copie IndexedDB reçoit seule le nouveau trait, sans alerte.
+  await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('quota', 'QuotaExceededError'); }; });
+  await drawLine(page, '0;0', '1000;0');
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId('stockage-plein')).toHaveCount(0);
+  expect(await currentObjects(page)).toHaveLength(0); // le stockage local n'a pas été mis à jour
+  // Rechargement (stockage local de nouveau disponible) : le trait est repris d'IndexedDB.
+  await page.reload();
+  await expect(page.getByTestId('canvas')).toBeVisible();
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(1);
+});
+

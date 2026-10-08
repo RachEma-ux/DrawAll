@@ -152,7 +152,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 6.3 DWG | Partiel : valeur par défaut §7 appliquée (DWG reconnu et refusé avec la marche à suivre) ; lecture en attente du choix du convertisseur | #37 |
 | 6.4 Export SVG | Fait | #38 |
 | 7.1 Loupe et réticule | Fait | #39 |
-| 7.2 → 8.4 | À faire | — |
+| 7.2 Hors ligne | Fait | #40 |
+| 7.3 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 
