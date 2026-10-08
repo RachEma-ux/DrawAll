@@ -16,7 +16,7 @@ import NotFound from '@/pages/NotFound';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { useProject } from '@/store/project';
-import type { CadObject, DisplayLevel, PointDimensionMode, PointDimensionObj, ViewReading } from '@/types/cad';
+import type { CadObject, DisplayLevel, PointDimensionMode, PointDimensionObj, ViewReading, WallObj } from '@/types/cad';
 import { SYNC_META, type SyncStatus } from '@/types/cloud';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
@@ -47,6 +47,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'circle', label: 'Cercle', key: 'C', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Centre puis rayon' },
   { id: 'arc', label: 'Arc 3 points', short: 'Arc', key: 'A', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Début, point de passage, fin' },
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
+  { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
   { id: 'dimension', label: 'Cote', key: 'D', levels: ['contextuel', 'complet'], hint: 'Cliquez un objet pour créer une cote associative' },
   { id: 'area', label: 'Aire', key: 'Q', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points du contour, puis Terminer : aire et périmètre (rien n’est créé)' },
@@ -363,6 +364,16 @@ function Workbench() {
     project.applyEdit(id, result, mode === 'trim' ? 'Ajuster' : 'Prolonger');
   }, [project, flash]);
 
+  // Outil Mur : épaisseur et justification saisies dans le panneau de l'outil.
+  const [wallParams, setWallParams] = useState<{ thickness: string; justification: WallObj['justification'] }>({ thickness: '200', justification: 'axe' });
+  const addWall = useCallback((x1: number, y1: number, x2: number, y2: number) => {
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!layer || layer.locked) { flash('Calque actif verrouillé : mur non créé.'); return; }
+    const t = Number(wallParams.thickness.replace(',', '.'));
+    if (!(t > 0)) { flash('Épaisseur de mur invalide.'); return; }
+    project.addObject({ kind: 'wall', classification: 'architecture', layerId: layer.id, hatch: 'none', x1, y1, x2, y2, thickness: t, justification: wallParams.justification });
+  }, [project, wallParams, flash]);
+
   // Outil Cote par points : paramètres saisis dans le panneau de l'outil.
   const [pdimParams, setPdimParams] = useState<{ mode: PointDimensionMode; axis: PointDimensionObj['axis']; offset: string; reference: string }>(
     { mode: 'chain', axis: 'horizontal', offset: '500', reference: '0' },
@@ -543,6 +554,7 @@ function Workbench() {
         arc: ['arc', 'courbe', 'trois points', 'cintre'],
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
+        wall: ['mur', 'cloison', 'paroi', 'wall', 'batiment'],
         pdim: ['cote', 'serie', 'chainee', 'cumulee', 'angulaire', 'angle', 'niveau', 'altitude', 'dimension'],
         area: ['aire', 'surface', 'perimetre', 'area', 'mesurer'],
         fillet: ['conge', 'raccord', 'arrondi', 'fillet', 'rayon'],
@@ -833,6 +845,7 @@ function Workbench() {
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
                  tool === 'trim' ? 'Ajuster : cliquez la portion à retirer, entre deux arêtes' :
                  tool === 'extend' ? 'Prolonger : cliquez près de l’extrémité à prolonger' :
+                 tool === 'wall' ? 'Mur : cliquez les points successifs (un mur par segment), puis Entrée ou Terminer' :
                  tool === 'pdim' ? 'Cote par points : désignez les points (angulaire : sommet puis deux branches ; niveau : un point), puis Terminer' :
                  tool === 'area' ? 'Aire : cliquez les sommets du contour, puis Entrée ou Terminer' :
                  tool === 'fillet' ? 'Congé : cliquez la première ligne puis la seconde, du côté à conserver' :
@@ -937,6 +950,7 @@ function Workbench() {
                 onCorner={corner}
                 onMeasureArea={measureArea}
                 onAddPointDimension={addPointDimension}
+                onAddWall={addWall}
                 pdimAutoFinish={pdimParams.mode === 'angular' ? 3 : pdimParams.mode === 'level' ? 1 : null}
                 gridSize={gridSize}
                 projectKey={projectKey}
@@ -956,6 +970,21 @@ function Workbench() {
                   </div>
                   <div>Aire <span className="text-foreground">{areaResult.area !== undefined ? formatArea(areaResult.area, displayUnit, fmt) : areaResult.areaNote}</span></div>
                   <div>Périmètre <span className="text-foreground">{formatLength(areaResult.length, displayUnit, fmt)}</span></div>
+                </div>
+              )}
+              {tool === 'wall' && (
+                <div role="group" aria-label="Paramètres du mur" className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg sm:top-12">
+                  <label className="flex items-center gap-1">Épaisseur
+                    <input aria-label="Épaisseur du mur (mm)" inputMode="decimal" value={wallParams.thickness}
+                      onChange={e => setWallParams(p => ({ ...p, thickness: e.target.value }))}
+                      className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                  </label>
+                  <select aria-label="Justification du mur" value={wallParams.justification} onChange={e => setWallParams(p => ({ ...p, justification: e.target.value as WallObj['justification'] }))}
+                    className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                    <option value="axe">Axe</option>
+                    <option value="gauche">Nu gauche</option>
+                    <option value="droite">Nu droit</option>
+                  </select>
                 </div>
               )}
               {tool === 'pdim' && (

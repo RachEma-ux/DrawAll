@@ -1,6 +1,6 @@
 // Zone de travail : canvas SVG 2D avec accrochage objet, intersections,
 // contrainte orthogonale, saisie de coordonnées, zoom ajusté, mesures et blocs.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BlockDef,
   CadObject,
@@ -8,6 +8,7 @@ import type {
   DimensionObj,
   DrawingScale,
   PointDimensionObj,
+  WallObj,
   Layer,
   NewCadObject,
   PrimitiveObject,
@@ -37,12 +38,13 @@ import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
 import { pdimGeometry } from '@/lib/pdim';
 import { occurrencePrimitives } from '@/lib/materials';
-import { hatchParamsOf } from '@/lib/hatch';
+import { hatchParamsOf, pointInLoop } from '@/lib/hatch';
+import { wallQuad, wallsGeometry, type WallGeometry } from '@/lib/wall';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -83,6 +85,8 @@ interface Props {
   /** Outil Cote par points : points désignés, et nombre de points qui termine seul (angulaire 3, niveau 1). */
   onAddPointDimension: (points: number[]) => void;
   pdimAutoFinish?: number | null;
+  /** Outil Mur : un mur de a vers b (les murs s'enchaînent point après point). */
+  onAddWall?: (x1: number, y1: number, x2: number, y2: number) => void;
   onMoveMany: (ids: string[], dx: number, dy: number) => void;
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
@@ -137,6 +141,7 @@ export default function CanvasView({
   onCorner,
   onMeasureArea,
   onAddPointDimension,
+  onAddWall,
   pdimAutoFinish = null,
   onMoveMany,
   gridSize,
@@ -196,6 +201,9 @@ export default function CanvasView({
   const activeLayer = layerById.get(activeLayerId) ?? layers[0];
   const visibleObjects = objects.filter(o => layerById.get(o.layerId)?.visible !== false);
   const editableObjects = visibleObjects.filter(o => layerById.get(o.layerId)?.locked !== true);
+  // Murs visibles : jonctions calculées ensemble (L, T, croix).
+  const wallGeom = useMemo(() => wallsGeometry(objects.filter((o): o is WallObj =>
+    o.kind === 'wall' && layers.find(l => l.id === o.layerId)?.visible !== false)), [objects, layers]);
 
   const toWorld = useCallback((e: { clientX: number; clientY: number }) => {
     const r = ref.current!.getBoundingClientRect();
@@ -277,6 +285,7 @@ export default function CanvasView({
       setDraft(null);
       return;
     }
+    if (tool === 'wall') { setDraft(null); return; }
     setDraft(d => {
       // Seul un tracé commencé par l'outil Polyligne crée une polyligne.
       if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === 'polyline' && d.points.length >= 4 && pathLength(d.points) > MIN_LENGTH && activeLayer && !activeLayer.locked) {
@@ -290,6 +299,14 @@ export default function CanvasView({
     // Mesurer ne crée rien : l'outil Aire ignore le verrouillage du calque.
     if ((!activeLayer || activeLayer.locked) && tool !== 'area') return;
     lastPlaced.current = { x: point.x, y: point.y };
+    if (tool === 'wall') {
+      // Murs enchaînés : chaque nouveau point crée un mur depuis le précédent.
+      const prev = activeDraft?.kind === 'polyline' && activeDraft.points.length >= 2
+        ? { x: activeDraft.points[activeDraft.points.length - 2], y: activeDraft.points[activeDraft.points.length - 1] } : null;
+      if (prev && Math.hypot(point.x - prev.x, point.y - prev.y) > MIN_LENGTH) onAddWall?.(prev.x, prev.y, point.x, point.y);
+      setDraft({ kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y], origin: 'wall' });
+      return;
+    }
     if (tool === 'pdim') {
       // Cote par points : les points s'ajoutent ; angulaire (3) et niveau (1) se terminent seuls.
       const previous = activeDraft?.kind === 'polyline' ? activeDraft.points : [];
@@ -332,7 +349,7 @@ export default function CanvasView({
     if (tool === 'line' || tool === 'rect' || tool === 'circle') {
       setDraft({ kind: tool, sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [] });
     }
-  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension]);
+  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension, onAddWall]);
 
   const handleDown = (e: React.PointerEvent) => {
     discardIncompatibleDraft();
@@ -507,6 +524,12 @@ export default function CanvasView({
     const ey = Math.round((oy + Math.sin(angle) * L) * 1000) / 1000;
     setLengthInput('');
     lastPlaced.current = { x: ex, y: ey };
+    if (activeDraft.kind === 'polyline' && activeDraft.origin === 'wall') {
+      // Mur : la longueur saisie crée le mur depuis le point précédent, la chaîne continue de son extrémité.
+      if (activeLayer && !activeLayer.locked && L > MIN_LENGTH) onAddWall?.(ox, oy, ex, ey);
+      setDraft({ kind: 'polyline', sx: ex, sy: ey, cx: ex, cy: ey, points: [ex, ey], origin: 'wall' });
+      return;
+    }
     if (activeDraft.kind === 'polyline') {
       setDraft(d => (d?.kind === 'polyline' ? { ...d, points: [...d.points, ex, ey], cx: ex, cy: ey } : d));
       return;
@@ -522,7 +545,7 @@ export default function CanvasView({
       commitDraft({ ...activeDraft, cx: ex, cy: ey });
       setDraft(null);
     }
-  }, [lengthInput, activeDraft, activeLayer, onAdd, commitDraft, displayUnit]);
+  }, [lengthInput, activeDraft, activeLayer, onAdd, onAddWall, commitDraft, displayUnit]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -576,7 +599,7 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'arc' || tool === 'arcCenter') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'arc' || tool === 'arcCenter') {
       startOrContinueDraft(point);
       return;
     }
@@ -800,6 +823,7 @@ export default function CanvasView({
           {visibleObjects.map(o => (
             <ObjectShape
               key={o.id}
+              walls={wallGeom}
               obj={o}
               objects={objects}
               blocks={blocks}
@@ -908,7 +932,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
@@ -979,10 +1003,12 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix }: {
+export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls }: {
   obj: CadObject;
   /** Préfixe des motifs de hachure (une fenêtre de feuille définit les siens, au pas papier). */
   hatchPrefix?: string;
+  /** Géométrie des murs, jonctions nettoyées (calculée une fois pour tous les murs affichés). */
+  walls?: Map<string, WallGeometry>;
   unit: DisplayUnit;
   layer: Layer | undefined;
   colorMode: ColorMode;
@@ -998,8 +1024,33 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
+  if (obj.kind === 'wall') return <WallShape obj={obj} geom={walls?.get(obj.id)} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   const islands = (obj.holes ?? []).map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
   return <PrimitiveShape obj={obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} />;
+}
+
+/**
+ * Mur : remplissage et hachures du quadrilatère (après jonctions), puis traits visibles nettoyés.
+ * Trait par défaut : contour vu fort (0,5 mm), sauf propriété de trait propre au mur ou au calque.
+ */
+function WallShape({ obj, geom, view, selected, zoom, layer, colorMode, paperScale, hatchPrefix }: {
+  obj: WallObj; geom?: WallGeometry; view: ViewReading; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale; hatchPrefix?: string;
+}) {
+  const quad = geom?.quad ?? wallQuad(obj);
+  if (!quad) return null;
+  const st = effectiveStyle(obj, layer);
+  const weight = obj.lineWeight ?? layer?.lineWeight ?? 0.5;
+  const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
+  const sw = paperScale ? Math.max(strokeInModel(weight, paperScale), 0.5 / zoom) : (screenWidth(weight) + (selected ? 1 : 0)) / zoom;
+  const edges = geom?.edges ?? quad.map((p, i) => [p, quad[(i + 1) % 4]] as [{ x: number; y: number }, { x: number; y: number }]);
+  // Le quadrilatère comme polyligne fermée : remplissage et hachures du rendu commun.
+  const pseudo = { ...obj, kind: 'polyline', points: [...quad.flatMap(q => [q.x, q.y]), quad[0].x, quad[0].y] } as unknown as PrimitiveObject;
+  return (
+    <g data-mur={obj.id}>
+      <PrimitiveShape obj={pseudo} view={view} selected={selected} zoom={zoom} showLabel={false} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} noStroke />
+      {edges.map(([a, b], i) => <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={sw} strokeLinecap="square" />)}
+    </g>
+  );
 }
 
 /** Pixels écran par millimètre (96 ppp) : pas papier des hachures dans l'atelier. */
@@ -1015,8 +1066,10 @@ function closedPath(o: CadObject): string | null {
   }
 }
 
-function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner, paperScale, hatchPrefix = '', islands = [] }: {
+function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', layer, colorMode = 'calque', owner, paperScale, hatchPrefix = '', islands = [], noStroke = false }: {
   obj: PrimitiveObject;
+  /** Remplissage et hachures seulement (le contour est tracé par l'appelant : murs). */
+  noStroke?: boolean;
   hatchPrefix?: string;
   /** Contours fermés désignés comme îlots (non hachurés). */
   islands?: CadObject[];
@@ -1041,7 +1094,7 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
   const dash = pattern ? pattern.join(' ')
     : colorMode === 'metier' && view === 'batiment' && obj.classification === 'electrique' ? `${8 / zoom} ${5 / zoom}` : undefined;
   const solidFill = obj.hatch === 'solid';
-  const common = { stroke: color, strokeWidth: sw, strokeDasharray: dash };
+  const common = noStroke ? { stroke: 'none' } : { stroke: color, strokeWidth: sw, strokeDasharray: dash };
 
   // Hachure paramétrée : motif propre à l'objet (angle, pas, origine), contour et îlots en pair-impair.
   const outline = closedPath(obj as CadObject);
@@ -1300,6 +1353,10 @@ function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: Block
       if (geom && distanceSegment(x, y, geom.x1, geom.y1, geom.x2, geom.y2) <= tol) return o;
     }
     if (o.kind === 'text' && pointInText(o, x, y, tol)) return o;
+    if (o.kind === 'wall') {
+      const q = wallQuad(o);
+      if (q && (pointInLoop({ x, y }, q) || q.some((p, i) => distanceSegment(x, y, p.x, p.y, q[(i + 1) % 4].x, q[(i + 1) % 4].y) <= tol))) return o;
+    }
     if (o.kind === 'pdim') {
       const g = pdimGeometry(o);
       if (g && g.lines.some(([x1, y1, x2, y2]) => distanceSegment(x, y, x1, y1, x2, y2) <= tol)) return o;

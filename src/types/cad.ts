@@ -1,7 +1,7 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -123,7 +123,18 @@ export interface BlockRefObj extends Base {
 }
 
 export type PrimitiveObject = LineObj | RectObj | CircleObj | ArcObj | PolylineObj;
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj;
+/**
+ * Mur (lot 4.1) : trait de référence (x1, y1) → (x2, y2), épaisseur et justification : le trait est
+ * l'axe du mur, ou sa face gauche / droite (côté vu à l'écran en parcourant le trait).
+ */
+export interface WallObj extends Base {
+  kind: 'wall';
+  x1: number; y1: number; x2: number; y2: number;
+  thickness: number;
+  justification: 'axe' | 'gauche' | 'droite';
+}
+
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj;
 
 export interface BlockDef {
   id: string;              // identifiant stable BLQ-0001
@@ -228,6 +239,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   blockRef: 'Bloc',
   text: 'Texte',
   pdim: 'Cote par points',
+  wall: 'Mur',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -303,6 +315,7 @@ export function dimensionOf(obj: CadObject): string {
     }
     case 'dimension': return `cote → ${obj.targetId}`;
     case 'pdim': return `cote par points (${obj.points.length / 2} points)`;
+    case 'wall': return `Mur ép. ${fmt(obj.thickness)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }

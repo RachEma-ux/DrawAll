@@ -6,6 +6,7 @@ import { normalizeAngle, textBounds } from '@/lib/text';
 import { angleInArc, angleOf, arcBounds, arcEndpoints, arcMidpoint, norm360 } from '@/lib/arc';
 import { pdimGeometry, pdimPoints, transformPdim } from '@/lib/pdim';
 import { hatchParamsOf } from '@/lib/hatch';
+import { wallQuad } from '@/lib/wall';
 
 export interface Point { x: number; y: number }
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -133,6 +134,14 @@ function collectObjectSnaps(
       add('endpoint', object.x2, object.y2);
       add('midpoint', (object.x1 + object.x2) / 2, (object.y1 + object.y2) / 2);
       return;
+    case 'wall': {
+      // Trait de référence (pour enchaîner les murs) et coins du mur.
+      add('endpoint', object.x1, object.y1);
+      add('endpoint', object.x2, object.y2);
+      add('midpoint', (object.x1 + object.x2) / 2, (object.y1 + object.y2) / 2);
+      for (const q of wallQuad(object) ?? []) add('corner', q.x, q.y);
+      return;
+    }
     case 'rect':
       for (const [px, py] of rectCorners(object)) add('corner', px, py);
       add('midpoint', object.x + object.w / 2, object.y);
@@ -237,6 +246,11 @@ function collectGeometry(object: CadObject, blocks: BlockDef[], segments: Segmen
     case 'line':
       segments.push({ x1: object.x1, y1: object.y1, x2: object.x2, y2: object.y2, objectId: object.id });
       return;
+    case 'wall': {
+      const q = wallQuad(object);
+      if (q) for (let i = 0; i < 4; i++) segments.push({ x1: q[i].x, y1: q[i].y, x2: q[(i + 1) % 4].x, y2: q[(i + 1) % 4].y, objectId: object.id });
+      return;
+    }
     case 'rect': {
       const [a, b, c, d] = rectCorners(object);
       segments.push(
@@ -437,6 +451,7 @@ function dedupeSnaps(points: SnapPoint[]): SnapPoint[] {
 export function objectBounds(object: CadObject, blocks: BlockDef[], objects: CadObject[]): Bounds | null {
   switch (object.kind) {
     case 'line': return boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]);
+    case 'wall': { const q = wallQuad(object); return q ? boundsOfPoints(q) : boundsOfPoints([{ x: object.x1, y: object.y1 }, { x: object.x2, y: object.y2 }]); }
     case 'rect': return { minX: object.x, minY: object.y, maxX: object.x + object.w, maxY: object.y + object.h };
     case 'circle': return { minX: object.cx - object.r, minY: object.cy - object.r, maxX: object.cx + object.r, maxY: object.cy + object.r };
     case 'arc': return arcBounds(object);
@@ -601,6 +616,7 @@ export function distanceSegment(px: number, py: number, x1: number, y1: number, 
 export function moveObject(object: CadObject, dx: number, dy: number): Partial<CadObject> {
   switch (object.kind) {
     case 'line': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
+    case 'wall': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'rect': return { x: object.x + dx, y: object.y + dy };
     case 'circle': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'arc': return { cx: object.cx + dx, cy: object.cy + dy };
@@ -659,7 +675,8 @@ export function rotateObject(object: CadObject, cx: number, cy: number, angleDeg
 function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDeg: number): Partial<CadObject> | null {
   const rad = (angleDeg * Math.PI) / 180;
   switch (object.kind) {
-    case 'line': {
+    case 'line':
+    case 'wall': {
       const a = rotatePoint(object.x1, object.y1, cx, cy, rad);
       const b = rotatePoint(object.x2, object.y2, cx, cy, rad);
       return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
@@ -716,6 +733,13 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
       return axis === 'x'
         ? { x1: mx(object.x1), x2: mx(object.x2) }
         : { y1: mx(object.y1), y2: mx(object.y2) };
+    case 'wall': {
+      // La symétrie inverse le côté : un mur au nu gauche devient au nu droit.
+      const justification = object.justification === 'gauche' ? 'droite' as const : object.justification === 'droite' ? 'gauche' as const : 'axe' as const;
+      return axis === 'x'
+        ? { x1: mx(object.x1), x2: mx(object.x2), justification }
+        : { y1: mx(object.y1), y2: mx(object.y2), justification };
+    }
     case 'rect':
       return axis === 'x'
         ? { x: mx(object.x + object.w) }
@@ -752,6 +776,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
   const s = (v: number, c: number) => round(c + (v - c) * factor);
   switch (object.kind) {
     case 'line': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy) };
+    case 'wall': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy), thickness: round(object.thickness * factor) };
     case 'rect': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor) };
     case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'arc': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
@@ -793,6 +818,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'pdim':
     case 'blockRef':
     case 'text':
+    case 'wall':
       return null;
   }
 }

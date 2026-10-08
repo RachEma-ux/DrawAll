@@ -138,7 +138,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 3.1 Matériaux et profils de dessin | Fait | #23 |
 | 3.2 Hachures paramétrées | Fait | #24 |
 | 3.3 Contexte coupe / surface | Fait | #25 |
-| 4.1 → 8.4 | À faire | — |
+| 4.1 Murs | Fait | #26 |
+| 4.2 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 

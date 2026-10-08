@@ -190,7 +190,7 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
           if (!m) return null;
           const rows: [string, string][] = m.closed
             ? [['Aire', m.area !== undefined ? formatArea(m.area, displayUnit, fmt) : (m.areaNote ?? 'non évaluée')], ['Périmètre', formatLength(m.length, displayUnit, fmt)]]
-            : [['Longueur', formatLength(m.length, displayUnit, fmt)]];
+            : [['Longueur', formatLength(m.length, displayUnit, fmt)], ...(m.area !== undefined ? [['Emprise', formatArea(m.area, displayUnit, fmt)] as [string, string]] : [])];
           if (m.sectorArea !== undefined) rows.push(['Aire du secteur', formatArea(m.sectorArea, displayUnit, fmt)]);
           if (m.segmentArea !== undefined) rows.push(['Aire du segment', formatArea(m.segmentArea, displayUnit, fmt)]);
           return (
@@ -341,6 +341,29 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             </div>
           );
         })()}
+
+        {obj.kind === 'wall' && (
+          <div>
+            <p className="ui-label mb-1.5">Mur</p>
+            <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              Épaisseur
+              <span className="flex items-center gap-1">
+                <input key={`${obj.id}-${obj.thickness}`} aria-label="Épaisseur du mur" defaultValue={String(obj.thickness).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => { const v = Number(e.target.value.replace(',', '.')); if (v > 0 && v !== obj.thickness) onUpdate(obj.id, { thickness: v }, 'Épaisseur du mur'); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+              </span>
+            </label>
+            <div className="mt-1.5 grid grid-cols-3 gap-1" role="group" aria-label="Justification du mur">
+              {([['axe', 'Axe'], ['gauche', 'Nu gauche'], ['droite', 'Nu droit']] as const).map(([k, label]) => (
+                <button key={k} onClick={() => onUpdate(obj.id, { justification: k }, `Mur : ${label.toLowerCase()}`)} aria-pressed={obj.justification === k}
+                  className={`rounded-sm border px-1.5 py-1.5 font-mono text-[10px] ${obj.justification === k ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {obj.kind === 'pdim' && (() => {
           const values = pdimValues(obj);
