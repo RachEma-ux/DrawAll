@@ -148,6 +148,18 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
   - Saisir un nombre à la place d'une expression rompt le lien.
 - Paramètres et expressions sont enregistrés avec la version (historique, annulation, paquet natif).
 
+### 1.15 Propriétés et classification IFC (règle, lot 12.3)
+
+- **Classe IFC 4.3.**
+  - Chaque objet a une classe par défaut selon son type : mur → `IfcWall`, porte → `IfcDoor`, fenêtre → `IfcWindow`, pièce → `IfcSpace`, occurrence de bloc → `IfcBuildingElementProxy`. La géométrie de dessin et les annotations sont des `IfcAnnotation`.
+  - L'inspecteur permet d'en choisir une autre parmi les entités proposées, toutes des entités réelles d'IFC 4.3. Une classe inconnue est écartée à la relecture.
+- **Jeux de propriétés.**
+  - Chaque objet peut porter des jeux nommés. Le nom usuel `Pset_<Classe>Common` est proposé, sans contenu imposé : DrawAll n'invente aucune propriété normalisée.
+  - Chaque propriété a un nom, une valeur typée (texte, nombre, vrai/faux) et une unité facultative (mm, m, m², m³, kg, °, %, W/(m²·K), dB, h).
+  - Une valeur qui ne correspond pas à son type est refusée avec sa raison. Un nom déjà pris remplace la valeur.
+- La classification métier (architecture, structure, mécanique, électrique) reste distincte : elle choisit la lecture et la couleur ; la classe IFC sert aux échanges (export IFC, lot 17.1).
+- Classe et propriétés sont enregistrées avec l'objet : historique, paquet natif (aller-retour octet pour octet), annulation.
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)

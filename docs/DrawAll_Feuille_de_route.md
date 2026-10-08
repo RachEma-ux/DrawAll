@@ -261,7 +261,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 11.5 Note de décision P0 | Fait (`docs/p0/11.5-note-decision-P0.md`, essai CRDT compris) | #58 |
 | 12.1 Contraintes dans l'atelier | Fait (conventions §1.13) | #59 |
 | 12.2 Paramètres nommés et cotes pilotantes | Fait (conventions §1.14) | #60 |
-| 12.3 Propriétés et classification | À faire | — |
+| 12.3 Propriétés et classification | Fait (conventions §1.15) | #61 |
 | 13.1 Dalles et planchers | À faire | — |
 | 13.2 Toitures | À faire | — |
 | 13.3 Zones | À faire | — |
