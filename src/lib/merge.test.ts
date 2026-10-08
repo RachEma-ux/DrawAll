@@ -190,6 +190,21 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect(out.sheets![0].viewports[0].levelId).toBe('NIV-0001');
   });
 
+  it('objet supprimé chez nous avec sa contrainte, contrainte modifiée chez eux → la suppression de l’objet est un conflit', () => {
+    const L = line('L', 100);
+    const k = { id: 'CTR-0001', type: 'horizontal', seg: { obj: 'L' } } as unknown as NonNullable<MicroVersion['constraints']>[number];
+    const base = v(0, [L], { constraints: [k] });
+    const ours = v(1, [], { constraints: [] });
+    const theirs = v(1, [L], { constraints: [{ ...k, type: 'vertical' } as typeof k] });
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts.map(c => `${c.where}:${c.id}`).sort()).toEqual(['constraints:CTR-0001', 'objects:L']);
+    // Leur contrainte et leur objet retenus : la contrainte garde son objet.
+    const out = resolve(r, { 'constraints:CTR-0001': 'leur', 'objects:L': 'leur' });
+    if ('error' in out) throw new Error(out.error);
+    expect(out.objects!.map(o => o.id)).toEqual(['L']);
+    expect(out.constraints!.map(c => c.id)).toEqual(['CTR-0001']);
+  });
+
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
     const base = v(0, [line('A', 1)]);
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);

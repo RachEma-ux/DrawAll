@@ -149,8 +149,11 @@ function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: Mic
     const users = new Map<string, string[]>();
     for (const o of objs) for (const r of refsOf(o)) if (!present.has(r)) users.set(r, [...(users.get(r) ?? []), o.id]);
     // Contraintes du résultat qui désignent des objets (sinon élaguées sans le dire à l'enregistrement).
-    for (const k of (merged.constraints as Parameters<typeof constraintObjects>[0][] | undefined) ?? []) {
-      for (const r of constraintObjects(k)) if (!present.has(r)) users.set(r, [...(users.get(r) ?? []), k.id]);
+    // Une contrainte en conflit compte par ses deux valeurs (le choix peut rétablir l'une ou l'autre).
+    type K = Parameters<typeof constraintObjects>[0];
+    const ks = [...((merged.constraints as K[] | undefined) ?? []), ...conflicts.filter(c => c.where === 'constraints').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is K => !!v))];
+    for (const k of ks) {
+      for (const r of constraintObjects(k)) if (!present.has(r) && !users.get(r)?.includes(k.id)) users.set(r, [...(users.get(r) ?? []), k.id]);
     }
     let added = false;
     for (const [id, dependents] of users) {

@@ -39,3 +39,30 @@ test('lot 18.1 — toute opération passe par une commande journalisée ; rejoue
   await expect(panel).toHaveAttribute('data-commandes', String(n));
   expect(errors).toEqual([]);
 });
+
+test('lot 18.1 — rejeu du journal : un dossier publié est repris figé, jamais refait', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 4000, h: 3000 }]);
+  await page.getByRole('button', { name: 'Feuilles', exact: true }).click();
+  await page.getByRole('button', { name: 'Nouvelle feuille' }).click();
+  await page.getByRole('button', { name: 'Ajouter une fenêtre' }).click();
+  await page.getByRole('button', { name: 'Publier…' }).click();
+  await page.getByLabel('Nom du dossier à publier').fill('Permis');
+  await page.getByRole('button', { name: 'Publier la version courante' }).click();
+  await expect(page.locator('[data-publication="PUB-0001"]')).toBeVisible();
+  const pubs = () => page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('drawall-projet-v1') ?? '{}').publications ?? []));
+  await expect.poll(async () => (await pubs()).length).toBeGreaterThan(2);
+  const published = await pubs();
+  await page.getByRole('button', { name: 'Fermer les publications' }).click();
+  // Le rejeu se fait plus tard : une date différente ne doit rien changer au dossier figé.
+  await page.waitForTimeout(1100);
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('journal');
+  await page.getByText('Journal des commandes', { exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Journal des commandes' });
+  await panel.getByRole('button', { name: 'Rejouer le journal (vérification)' }).click();
+  await expect(panel.getByTestId('rejeu')).toHaveAttribute('data-identique', 'true', { timeout: 30_000 });
+  await expect.poll(pubs).toBe(published);
+  expect(errors).toEqual([]);
+});

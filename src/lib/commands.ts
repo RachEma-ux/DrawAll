@@ -5,7 +5,7 @@
 import { CLASSIFICATION_META, KIND_LABEL, parentsOf, type CadObject, type CutObj, type Layer, type MicroVersion, type RoofObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isMate } from './assembly';
-import { normalizePsets } from './properties';
+import { isIfcClass, normalizePsets } from './properties';
 import { isRecipe } from './solids';
 import { isValidSpline, type SplineGeom } from './spline';
 import { faceOf } from './views';
@@ -123,7 +123,7 @@ const SPECS: Record<string, Spec> = {
   roughness: { nums: ['x', 'y', 'rotation'], enums: { process: ['quelconque', 'enlevement', 'sans-enlevement'] } },
   views: { nums: ['gap'], pos: ['depth'], strs: ['sourceId'], extra: o => (typeof o.top === 'boolean' && typeof o.side === 'boolean' && (o.top || o.side) ? null : 'vues : dessus et côté (booléens), l’un au moins demandé') },
   cut: { nums: ['gap'], pos: ['depth'], strs: ['sourceId', 'markId'] },
-  bom: { nums: ['x', 'y'] },
+  bom: { nums: ['x', 'y'], extra: o => (o.table === undefined || ['pieces', 'ouvertures', 'murs', 'assemblage'].includes(o.table as string) ? null : 'tableau : type parmi pieces, ouvertures, murs, assemblage attendu') },
   balloon: { nums: ['x', 'y'], strs: ['targetId'] },
   underlay: { nums: ['x', 'y', 'opacity'], pos: ['w', 'h'], strs: ['assetId'] },
   note: { nums: ['x', 'y', 'time'], extra: o => (typeof o.text !== 'string' ? 'note : texte attendu' : o.photoIds !== undefined && !strs(o.photoIds) ? 'note : photos (liste d’identifiants) attendues' : null) },
@@ -139,6 +139,16 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
   if (!Object.prototype.hasOwnProperty.call(CLASSIFICATION_META, o.classification as string)) return `${kind} : classification parmi ${Object.keys(CLASSIFICATION_META).join(', ')} attendue`;
   if (o.hatch !== undefined && !HATCHES.includes(o.hatch as string)) return `${kind} : hachure parmi ${HATCHES.join(', ')} attendue`;
   for (const k of ['part', 'materialId', 'groupId']) if (o[k] !== undefined && !str(o[k])) return `${kind} : ${k} texte attendu`;
+  // Trait propre à l'objet (couleur, type, épaisseur) et hachures : formes permises ; classe IFC connue.
+  if (o.color !== undefined && !str(o.color)) return `${kind} : couleur (texte) attendue`;
+  if (o.lineType !== undefined && !['continu', 'interrompu', 'mixte', 'mixte-double'].includes(o.lineType as string)) return `${kind} : type de trait parmi continu, interrompu, mixte, mixte-double attendu`;
+  if (o.lineWeight !== undefined && !positive(o.lineWeight)) return `${kind} : épaisseur de trait positive attendue`;
+  if (o.hatchParams !== undefined) {
+    const h = o.hatchParams as Record<string, unknown> | null;
+    const ok = !!h && typeof h === 'object' && finite(h.angle) && positive(h.spacing) && (h.unit === 'papier' || h.unit === 'modele') && (h.originX === undefined || finite(h.originX)) && (h.originY === undefined || finite(h.originY));
+    if (!ok) return `${kind} : paramètres de hachure mal formés (angle, pas positif, unité papier ou modèle)`;
+  }
+  if (o.ifcClass !== undefined && !isIfcClass(o.ifcClass)) return `${kind} : classe IFC inconnue`;
   // Trous (contours intérieurs) : liste d'identifiants (leur présence est vérifiée avec les références).
   if (o.holes !== undefined && !strs(o.holes)) return `${kind} : trous (liste d’identifiants) attendus`;
   // Jeux de propriétés : la forme que la relecture d'un projet garde telle quelle (export IFC).

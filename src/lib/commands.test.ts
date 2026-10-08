@@ -133,6 +133,13 @@ describe('API de commandes (lot 18.1)', () => {
     expect(add({ kind: 'note', x: 0, y: 0, time: 1, text: 'x', photoIds: {} })).toBe('note : photos (liste d’identifiants) attendues');
     expect(add({ kind: 'note', x: 0, y: 0, time: 1, text: 'x', photoIds: ['PHO-0001'] })).toBeNull();
     expect(add({ kind: 'cut', depth: 0, gap: 5, sourceId: 'OBJ-0001', markId: 'OBJ-0001' })).toBe('cut : depth positif attendu');
+    // Trait, hachures, classe IFC, tableau : formes permises.
+    expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, lineWeight: 'bad' })).toBe('line : épaisseur de trait positive attendue');
+    expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, lineType: 'pointille' })).toMatch(/type de trait parmi/);
+    expect(add({ kind: 'rect', x: 0, y: 0, w: 1, h: 1, hatchParams: { angle: 45, spacing: 0, unit: 'papier' } })).toMatch(/paramètres de hachure mal formés/);
+    expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, ifcClass: 'IfcLicorne' })).toBe('line : classe IFC inconnue');
+    expect(add({ kind: 'bom', x: 0, y: 0, table: 'licornes' })).toMatch(/tableau : type parmi/);
+    expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, lineWeight: 0.35, lineType: 'interrompu', color: '#ff0000' })).toBeNull();
     // Trous : liste d'identifiants d'objets existants.
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: {} })).toBe('rect : trous (liste d’identifiants) attendus');
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0404'] })).toBe('rect : trou OBJ-0404 absent');

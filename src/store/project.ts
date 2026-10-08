@@ -57,7 +57,7 @@ import { georefError, normalizeGeoref } from '@/lib/georef';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
-import { buildPublication, normalizePublications } from '@/lib/publication';
+import { buildPublication, normalizePublications, type Publication } from '@/lib/publication';
 import { applyTransform, decodeArgs, encodeArgs, scriptCommandError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
 import { MATE_LABEL, isMate, placeMate, resolveMates, type Mate } from '@/lib/assembly';
 import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
@@ -1629,20 +1629,22 @@ export function useProject() {
 
   // Rejeu du journal : état de base rechargé, puis une commande par rendu (chacune voit l'état
   // laissé par la précédente), enfin comparaison du contenu obtenu avec celui d'avant le rejeu.
-  const replayRef = useRef<{ queue: JournalEntry[]; before: string; total: number } | null>(null);
+  const replayRef = useRef<{ queue: JournalEntry[]; before: string; total: number; frozen: Publication[] } | null>(null);
   const [replay, setReplay] = useState<{ running: boolean; done: number; total: number; identical?: boolean } | null>(null);
   const replayJournal = useCallback(() => {
     const j = state.journal;
     if (!j) return 'Journal vide : aucune commande depuis l’ouverture du projet.';
     const queue = j.entries.filter(e => !e.refused);
-    replayRef.current = { queue: [...queue], before: versionDigest(current), total: queue.length };
     // Le journal des hypothèses (lot 18.3) reste celui du moment : le rejeu ne réécrit pas les décisions.
     const { assistantLog: _l, ...replayBase } = normalizeProjectState(decodeHistory(j.base as { versions: unknown[] }));
+    // Dossiers publiés depuis le début du journal : figés, ils sont repris tels quels au rejeu, jamais refaits.
+    const frozen = (state.publications ?? []).slice((replayBase.publications ?? []).length);
+    replayRef.current = { queue: [...queue], before: versionDigest(current), total: queue.length, frozen };
     void _l;
     setState({ ...replayBase, ...(state.assistantLog ? { assistantLog: state.assistantLog } : {}), journal: { base: j.base, entries: [] } });
     setReplay({ running: true, done: 0, total: queue.length });
     return null;
-  }, [state.journal, state.assistantLog, current]);
+  }, [state.journal, state.assistantLog, state.publications, current]);
   useEffect(() => {
     const r = replayRef.current;
     if (!r) return;
@@ -1653,7 +1655,16 @@ export function useProject() {
       return;
     }
     const op = commands[next.type as CommandName] as ((...a: unknown[]) => unknown) | undefined;
-    if (op) op(...(decodeArgs(next.args) as unknown[])); else record(next.type, [], 'commande inconnue au rejeu');
+    const pub = next.type === 'publish' ? r.frozen.shift() : undefined;
+    if (pub) {
+      // Publication : le dossier figé est repris (mêmes PDF, même date), la version nommée comme alors.
+      record('publish', decodeArgs(next.args) as unknown[]);
+      setState(s => ({
+        ...s,
+        versions: s.versions.map((v, i) => (i === s.pointer && !v.named ? { ...v, named: pub.name } : v)),
+        publications: [...(s.publications ?? []), pub],
+      }));
+    } else if (op) op(...(decodeArgs(next.args) as unknown[])); else record(next.type, [], 'commande inconnue au rejeu');
     setReplay({ running: true, done: r.total - r.queue.length, total: r.total });
     // Une commande par rendu : l'effet suit chaque nouvel état.
     // eslint-disable-next-line react-hooks/exhaustive-deps
