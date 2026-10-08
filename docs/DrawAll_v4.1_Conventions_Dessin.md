@@ -513,6 +513,21 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Plan** : les pièces d'une zone sont remplies de sa couleur, translucide.
 - Zones et appartenances sont enregistrées avec la version (historique, annulation, paquet natif).
 
+### 8.9 Poteaux et poutres (règle, lot 13.4)
+
+- **Sections saisies** : rectangulaire (largeur b selon X, profondeur h selon Y) ou circulaire (diamètre). DrawAll ne propose aucun catalogue de profilés et aucune valeur par défaut : sans section saisie, rien n'est créé et la raison est donnée.
+- **Poteau** (outil « Poteau ») : centre de la section, hauteur facultative.
+  - En plan, le poteau est coupé par le plan de coupe : section pleine.
+  - L'inspecteur donne l'aire de la section (cm²) et le volume (m³) si la hauteur est saisie ; sinon « non évalué ».
+- **Poutre** (outil « Poutre ») : deux points de l'axe, section b × h.
+  - En plan, la poutre est au-dessus du plan de coupe : ses nus (± b/2) et ses extrémités sont en trait interrompu.
+  - L'inspecteur donne la longueur de l'axe et le volume = b × h × longueur.
+- **Comportement.**
+  - Classification métier « structure » ; classes IFC par défaut `IfcColumn` et `IfcBeam`.
+  - Export DXF : section du poteau en LWPOLYLINE fermée ou en CIRCLE ; poutre en LINE de type interrompu (ACAD_ISO02W100). Même dessin dans le PDF.
+  - Accrochage : centre et coins du poteau ; extrémités et milieu de la poutre.
+  - Un poteau rectangulaire tourne par quarts de tour (b et h échangés) ; un poteau circulaire et une poutre tournent librement.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

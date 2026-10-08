@@ -4,7 +4,7 @@ import type { Parameter } from '@/lib/params/expr';
 import type { PropertySet } from '@/lib/properties';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'column' | 'beam' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -201,6 +201,25 @@ export interface RoomObj extends Base {
   zoneId?: string;
 }
 
+/**
+ * Poteau (lot 13.4) : centre de la section, section rectangulaire (b selon X, h selon Y) ou circulaire
+ * (diamètre d), saisie par l'utilisateur ; hauteur facultative (volume).
+ */
+export interface ColumnObj extends Base {
+  kind: 'column';
+  x: number; y: number;
+  section: 'rect' | 'circle';
+  b?: number; h?: number; d?: number;
+  height?: number;
+}
+
+/** Poutre (lot 13.4) : axe de (x1, y1) à (x2, y2), section b (largeur, vue en plan) × h (hauteur). */
+export interface BeamObj extends Base {
+  kind: 'beam';
+  x1: number; y1: number; x2: number; y2: number;
+  b: number; h: number;
+}
+
 /** Zone (lot 13.3) : regroupement nommé de pièces, couleur de remplissage (#rrggbb). */
 export interface Zone { id: string; name: string; color: string }
 
@@ -348,7 +367,7 @@ export interface Asset {
   source: 'image' | 'pdf';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | ColumnObj | BeamObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
@@ -526,6 +545,8 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   room: 'Pièce',
   slab: 'Dalle',
   roof: 'Toiture',
+  column: 'Poteau',
+  beam: 'Poutre',
   north: 'Nord',
   section: 'Repère de coupe',
   levelMark: 'Cote de niveau',
@@ -623,6 +644,8 @@ export function dimensionOf(obj: CadObject): string {
       return `Dalle ép. ${fmt(obj.thickness)} mm · ${fmt(Math.abs(a) / 2e6, 2)} m²`;
     }
     case 'roof': return `Toiture ${obj.roofType === 'un-pan' ? 'à un pan' : obj.roofType === 'deux-pans' ? 'à deux pans' : 'à quatre pans'} · pente ${fmt(obj.pitch)}° · ${fmt(obj.w)} × ${fmt(obj.h)} mm`;
+    case 'column': return obj.section === 'circle' ? `Poteau Ø ${fmt(obj.d ?? 0)} mm` : `Poteau ${fmt(obj.b ?? 0)} × ${fmt(obj.h ?? 0)} mm`;
+    case 'beam': return `Poutre ${fmt(obj.b)} × ${fmt(obj.h)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'north': return `Nord à ${fmt(obj.rotation)}°`;
     case 'section': return `Coupe ${obj.label} · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'levelMark': return `Niveau ${fmt(obj.elevation / 1000)} m`;

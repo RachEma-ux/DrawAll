@@ -51,6 +51,7 @@ import { simplifyPath } from '@/lib/freehand';
 import { pickElement, type Pick } from '@/lib/constraints/model';
 import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
+import { structurePrimitives } from '@/lib/structure';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -69,7 +70,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'freehand' | 'constraint' | 'slab' | 'roof' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'freehand' | 'constraint' | 'slab' | 'roof' | 'column' | 'beam' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -124,6 +125,9 @@ interface Props {
   onAddSlabFromRoom?: (x: number, y: number) => void;
   /** Toiture (lot 13.2) : deux coins opposés du contour. */
   onAddRoof?: (x1: number, y1: number, x2: number, y2: number) => void;
+  /** Poteau (un point, centre de la section) et poutre (deux points de l'axe) (lot 13.4). */
+  onAddColumn?: (x: number, y: number) => void;
+  onAddBeam?: (x1: number, y1: number, x2: number, y2: number) => void;
   /** Contrainte (lot 12.1) : élément désigné (sommet, segment, cercle) ; polylignes munies d'identifiants. */
   onConstraintPick?: (pick: Pick, polylines: Map<string, PolylineObj>) => void;
   /** Symboles des contraintes et éléments déjà désignés pour la contrainte en cours. */
@@ -215,6 +219,8 @@ export default function CanvasView({
   onAddSlab,
   onAddSlabFromRoom,
   onAddRoof,
+  onAddColumn,
+  onAddBeam,
   zoneColors,
   constraintMarks,
   constraintPicks,
@@ -445,15 +451,16 @@ export default function CanvasView({
       setDraft({ kind: 'polyline', sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts, origin: 'pdim' });
       return;
     }
-    if (tool === 'roof') {
-      // Toiture : deux coins opposés du contour (nu extérieur des murs).
-      const previous = activeDraft?.kind === 'polyline' && activeDraft.origin === 'roof' ? activeDraft.points : [];
+    if (tool === 'column') { onAddColumn?.(point.x, point.y); return; }
+    if (tool === 'roof' || tool === 'beam') {
+      // Toiture : deux coins opposés du contour. Poutre : deux points de son axe.
+      const previous = activeDraft?.kind === 'polyline' && activeDraft.origin === tool ? activeDraft.points : [];
       if (previous.length >= 2) {
-        onAddRoof?.(previous[0], previous[1], point.x, point.y);
+        (tool === 'roof' ? onAddRoof : onAddBeam)?.(previous[0], previous[1], point.x, point.y);
         setDraft(null);
         return;
       }
-      setDraft({ kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y], origin: 'roof' });
+      setDraft({ kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y], origin: tool });
       return;
     }
     if (tool === 'symbol') {
@@ -525,7 +532,7 @@ export default function CanvasView({
     if (tool === 'line' || tool === 'rect' || tool === 'circle') {
       setDraft({ kind: tool, sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [] });
     }
-  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension, onAddWall, onAddSymbol, symbolPoints, editableObjects, onStretch, onAddRoof]);
+  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension, onAddWall, onAddSymbol, symbolPoints, editableObjects, onStretch, onAddRoof, onAddBeam, onAddColumn]);
 
   const handleDown = (e: React.PointerEvent) => {
     discardIncompatibleDraft();
@@ -789,6 +796,12 @@ export default function CanvasView({
       setDraft(null);
       return;
     }
+    if (activeDraft.kind === 'polyline' && activeDraft.origin === 'beam') {
+      // Poutre : la longueur saisie place la seconde extrémité de l'axe dans la direction du curseur.
+      if (activeLayer && !activeLayer.locked && L > MIN_LENGTH) onAddBeam?.(ox, oy, ex, ey);
+      setDraft(null);
+      return;
+    }
     if (activeDraft.kind === 'polyline' && activeDraft.origin === 'wall') {
       // Mur : la longueur saisie crée le mur depuis le point précédent, la chaîne continue de son extrémité.
       if (activeLayer && !activeLayer.locked && L > MIN_LENGTH) onAddWall?.(ox, oy, ex, ey);
@@ -810,7 +823,7 @@ export default function CanvasView({
       commitDraft({ ...activeDraft, cx: ex, cy: ey });
       setDraft(null);
     }
-  }, [lengthInput, activeDraft, activeLayer, onAdd, onAddWall, onAddRoof, commitDraft, displayUnit]);
+  }, [lengthInput, activeDraft, activeLayer, onAdd, onAddWall, onAddRoof, onAddBeam, commitDraft, displayUnit]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -869,7 +882,7 @@ export default function CanvasView({
       onAddSlabFromRoom?.(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'spline' || tool === 'slab' || tool === 'roof' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'stretch') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'spline' || tool === 'slab' || tool === 'roof' || tool === 'column' || tool === 'beam' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'stretch') {
       startOrContinueDraft(point);
       return;
     }
@@ -1343,7 +1356,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'stretch' || tool === 'polyline' || tool === 'area' || (tool === 'slab' && slabMode !== 'piece') || tool === 'roof' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'stretch' || tool === 'polyline' || tool === 'area' || (tool === 'slab' && slabMode !== 'piece') || tool === 'roof' || tool === 'column' || tool === 'beam' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
@@ -1453,6 +1466,10 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   }
   if (obj.kind === 'wall') return <WallShape obj={obj} geom={walls?.get(obj.id)} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   const islands = (obj.holes ?? []).map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
+  if (obj.kind === 'column' || obj.kind === 'beam') {
+    // Poteau coupé (section pleine), poutre au-dessus du plan de coupe (traits interrompus) (lot 13.4).
+    return <g data-structure={obj.id}>{structurePrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
+  }
   if (obj.kind === 'roof') {
     // Toiture (lot 13.2) : rive, faîtage, arêtiers et flèches de pente.
     return <g data-toiture={obj.id}>{roofPrimitives(obj, roofInput(obj)).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
@@ -1964,6 +1981,10 @@ function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[
     if (o.kind === 'arc' && distanceToArc(o, x, y) <= tol) return o;
     if (o.kind === 'ellipse' && distanceToEllipse(o, { x, y }) <= tol) return o;
     if (o.kind === 'spline' && distanceToSpline(o, { x, y }) <= tol) return o;
+    if (o.kind === 'column' && (o.section === 'circle' ? Math.hypot(x - o.x, y - o.y) <= o.d! / 2 + tol : Math.abs(x - o.x) <= o.b! / 2 + tol && Math.abs(y - o.y) <= o.h! / 2 + tol)) return o;
+    if (o.kind === 'beam') {
+      for (const p of structurePrimitives(o)) if (p.kind === 'line' && distanceSegment(x, y, p.x1, p.y1, p.x2, p.y2) <= tol) return o;
+    }
     if (o.kind === 'roof') {
       for (const p of roofPrimitives(o, roofInput(o))) {
         const pts = p.kind === 'line' ? [p.x1, p.y1, p.x2, p.y2] : p.kind === 'polyline' ? p.points : [];

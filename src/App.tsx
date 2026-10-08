@@ -27,6 +27,7 @@ import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
 import { pointInPolygon, slabContour, slabQuantities } from '@/lib/slab';
 import { roofError, roofGeometry, roofInput } from '@/lib/roof';
+import { beamError, columnError } from '@/lib/structure';
 import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
 import { zoneColors as zoneColorsOf } from '@/lib/zones';
@@ -71,6 +72,8 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'stretch', label: 'Étirer', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins de la fenêtre de capture, puis point de base et point d’arrivée : les sommets capturés se déplacent' },
   { id: 'ellipse', label: 'Ellipse', key: 'Z', levels: ['contextuel', 'complet'], hint: 'Centre, extrémité du premier axe, puis le second demi-axe' },
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
+  { id: 'column', label: 'Poteau', key: '', levels: ['contextuel', 'complet'], hint: 'Section saisie (rectangulaire ou circulaire), puis le centre du poteau' },
+  { id: 'beam', label: 'Poutre', key: '', levels: ['contextuel', 'complet'], hint: 'Section saisie, puis deux points de l’axe : traits interrompus (au-dessus du plan de coupe)' },
   { id: 'roof', label: 'Toiture', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins opposés du contour (nu extérieur des murs) ; type, pente, débord et axe dans le panneau' },
   { id: 'slab', label: 'Dalle', key: '', levels: ['contextuel', 'complet'], hint: 'Touchez l’intérieur d’une pièce pour reprendre son contour, ou tracez le contour point par point puis Terminer' },
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
@@ -458,6 +461,33 @@ function Workbench() {
     }
     flash(polygons.size ? 'Aucune pièce fermée à cet endroit : touchez l’intérieur d’une pièce, ou tracez le contour.' : 'Aucune pièce dans ce niveau : placez d’abord une pièce (outil Pièce), ou tracez le contour.');
   }, [project.objects, addSlab, flash]);
+  // Poteaux et poutres (lot 13.4) : sections saisies, aucun catalogue.
+  const [structParams, setStructParams] = useState({ section: 'rect' as 'rect' | 'circle', b: '', h: '', d: '', height: '', beamB: '', beamH: '' });
+  const structLayer = useCallback(() => {
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!layer || layer.locked) { flash('Calque actif verrouillé : déverrouillez-le pour créer un élément de structure.'); return null; }
+    return layer;
+  }, [project.layers, project.activeLayerId, flash]);
+  const numOrNaN = (v: string) => (v.trim() === '' ? NaN : Number(v.replace(',', '.')));
+  const addColumn = useCallback((x: number, y: number) => {
+    const layer = structLayer();
+    if (!layer) return;
+    const section = structParams.section;
+    const dims = section === 'circle' ? { d: numOrNaN(structParams.d) } : { b: numOrNaN(structParams.b), h: numOrNaN(structParams.h) };
+    const err = columnError({ section, ...dims });
+    if (err) { flash(`${err} Saisissez la section dans le panneau de l’outil.`); return; }
+    const height = numOrNaN(structParams.height);
+    if (structParams.height.trim() !== '' && !(height > 0)) { flash('Poteau : hauteur positive attendue (ou laissez vide).'); return; }
+    project.addObject({ kind: 'column', classification: 'structure', layerId: layer.id, hatch: 'none', x, y, section, ...dims, ...(height > 0 ? { height } : {}) });
+  }, [project, structParams, structLayer, flash]);
+  const addBeam = useCallback((x1: number, y1: number, x2: number, y2: number) => {
+    const layer = structLayer();
+    if (!layer) return;
+    const beam = { x1, y1, x2, y2, b: numOrNaN(structParams.beamB), h: numOrNaN(structParams.beamH) };
+    const err = beamError(beam);
+    if (err) { flash(`${err}${/section/.test(err) ? ' Saisissez la section dans le panneau de l’outil.' : ''}`); return; }
+    project.addObject({ kind: 'beam', classification: 'structure', layerId: layer.id, hatch: 'none', ...beam });
+  }, [project, structParams, structLayer, flash]);
   // Toitures (lot 13.2).
   const [roofParams, setRoofParams] = useState<{ type: RoofObj['roofType']; pitch: string; overhang: string; axis: 'x' | 'y'; highSide: 'min' | 'max' }>({ type: 'deux-pans', pitch: '30', overhang: '0', axis: 'x', highSide: 'min' });
   const addRoof = useCallback((x1: number, y1: number, x2: number, y2: number) => {
@@ -989,6 +1019,8 @@ function Workbench() {
         note: ['note', 'photo', 'releve', 'terrain', 'chantier', 'commentaire', 'remarque'],
         opening: ['porte', 'fenetre', 'baie', 'ouverture', 'door', 'window'],
         wall: ['mur', 'cloison', 'paroi', 'wall', 'batiment'],
+        column: ['poteau', 'colonne', 'pilier', 'column', 'structure', 'ossature'],
+        beam: ['poutre', 'linteau', 'solive', 'beam', 'structure', 'ossature'],
         roof: ['toiture', 'toit', 'pan', 'faitage', 'arretier', 'arêtier', 'croupe', 'pente', 'roof'],
         slab: ['dalle', 'plancher', 'chape', 'radier', 'slab', 'plancher bas', 'plancher haut'],
         pdim: ['cote', 'serie', 'chainee', 'cumulee', 'angulaire', 'angle', 'niveau', 'altitude', 'dimension'],
@@ -1335,6 +1367,8 @@ function Workbench() {
                  tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
                  tool === 'freehand' ? 'Main levée : tracez en maintenant appuyé ; la polyligne est simplifiée au relâcher' :
                  tool === 'offset' ? 'Décaler : touchez l’objet, puis un point du côté où poser la copie parallèle' :
+                 tool === 'column' ? 'Poteau : saisissez la section, puis touchez le centre du poteau' :
+                 tool === 'beam' ? 'Poutre : saisissez la section, puis deux points de l’axe' :
                  tool === 'roof' ? 'Toiture : touchez deux coins opposés du contour (nu extérieur des murs)' :
                  tool === 'slab' ? (slabParams.mode === 'piece' ? 'Dalle : touchez l’intérieur d’une pièce, son contour est repris' : 'Dalle : points du contour, puis Terminer (Entrée ou double-clic)') :
                  tool === 'constraint' ? `${CONSTRAINT_LABEL[constraintType]} : désignez ${CONSTRAINT_PICKS[constraintType].map(n => (n === 'point' ? 'un sommet' : n === 'seg' ? 'un segment' : 'un cercle')).join(' puis ')}` :
@@ -1462,6 +1496,8 @@ function Workbench() {
                 onAddSlab={points => addSlab(points)}
                 onAddSlabFromRoom={addSlabFromRoom}
                 onAddRoof={addRoof}
+                onAddColumn={addColumn}
+                onAddBeam={addBeam}
                 zoneColors={zoneColors}
                 constraintMarks={constraintMarks}
                 constraintPicks={constraintPicks.map(p => p.at)}
@@ -1623,6 +1659,31 @@ function Workbench() {
                         onChange={e => setPdimParams(p => ({ ...p, reference: e.target.value }))}
                         className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
                     </label>
+                  )}
+                </div>
+              )}
+              {(tool === 'column' || tool === 'beam') && (
+                <div className="absolute left-3 top-3 z-10 sm:top-12 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg">
+                  {tool === 'column' ? (
+                    <>
+                      <select aria-label="Section du poteau" value={structParams.section} onChange={e => setStructParams(p => ({ ...p, section: e.target.value as 'rect' | 'circle' }))} className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                        <option value="rect">Rectangulaire</option><option value="circle">Circulaire</option>
+                      </select>
+                      {structParams.section === 'rect' ? (
+                        <>
+                          <label className="flex items-center gap-1">b<input aria-label="Largeur du poteau (mm)" inputMode="decimal" value={structParams.b} onChange={e => setStructParams(p => ({ ...p, b: e.target.value }))} className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /></label>
+                          <label className="flex items-center gap-1">h<input aria-label="Profondeur du poteau (mm)" inputMode="decimal" value={structParams.h} onChange={e => setStructParams(p => ({ ...p, h: e.target.value }))} className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm</label>
+                        </>
+                      ) : (
+                        <label className="flex items-center gap-1">Ø<input aria-label="Diamètre du poteau (mm)" inputMode="decimal" value={structParams.d} onChange={e => setStructParams(p => ({ ...p, d: e.target.value }))} className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm</label>
+                      )}
+                      <label className="flex items-center gap-1">Hauteur<input aria-label="Hauteur du poteau (mm)" inputMode="decimal" placeholder="facultative" value={structParams.height} onChange={e => setStructParams(p => ({ ...p, height: e.target.value }))} className="w-20 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /></label>
+                    </>
+                  ) : (
+                    <>
+                      <label className="flex items-center gap-1">b<input aria-label="Largeur de la poutre (mm)" inputMode="decimal" value={structParams.beamB} onChange={e => setStructParams(p => ({ ...p, beamB: e.target.value }))} className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /></label>
+                      <label className="flex items-center gap-1">h<input aria-label="Hauteur de la poutre (mm)" inputMode="decimal" value={structParams.beamH} onChange={e => setStructParams(p => ({ ...p, beamH: e.target.value }))} className="w-14 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm</label>
+                    </>
                   )}
                 </div>
               )}

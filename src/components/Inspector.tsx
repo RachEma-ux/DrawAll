@@ -1,6 +1,7 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
 import type { ReactNode } from 'react';
+import { beamLength, beamVolumeM3, columnSectionArea, columnVolumeM3 } from '@/lib/structure';
 import { roofGeometry, roofInput } from '@/lib/roof';
 import { slabQuantities } from '@/lib/slab';
 import PropertiesEditor from '@/components/PropertiesEditor';
@@ -649,6 +650,52 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
             </div>
           </div>
         )}
+
+        {(obj.kind === 'column' || obj.kind === 'beam') && (() => {
+          const dim = (label: string, key: 'b' | 'h' | 'd' | 'height', optional = false) => {
+            const cur = (obj as unknown as Record<string, number | undefined>)[key];
+            return (
+              <label key={key} className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                {label}
+                <span className="flex items-center gap-1">
+                  <input key={`${obj.id}-${key}-${cur ?? ''}`} aria-label={`${label} (mm)`} defaultValue={cur === undefined ? '' : String(cur).replace('.', ',')} inputMode="decimal" placeholder={optional ? 'non saisie' : ''}
+                    onBlur={e => {
+                      const t = e.target.value.trim(), v = Number(t.replace(',', '.'));
+                      if (optional && t === '') { if (cur !== undefined) onUpdate(obj.id, { [key]: undefined }, `${label} retirée`); return; }
+                      if (v > 0 && v !== cur) onUpdate(obj.id, { [key]: v }, label); else e.target.value = cur === undefined ? '' : String(cur).replace('.', ',');
+                    }}
+                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+                </span>
+              </label>
+            );
+          };
+          const fr = (v: number, d: number) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
+          if (obj.kind === 'column') {
+            const vol = columnVolumeM3(obj);
+            return (
+              <div data-testid="poteau" className="flex flex-col gap-1.5">
+                <p className="ui-label">Poteau — section {obj.section === 'circle' ? 'circulaire' : 'rectangulaire'}</p>
+                {obj.section === 'circle' ? dim('Diamètre', 'd') : <>{dim('Largeur b', 'b')}{dim('Profondeur h', 'h')}</>}
+                {dim('Hauteur', 'height', true)}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                  <dt className="text-muted-foreground">Section</dt><dd data-testid="poteau-section" className="text-right">{fr(columnSectionArea(obj) / 1e4, 2)} cm²</dd>
+                  <dt className="text-muted-foreground">Volume</dt><dd data-testid="poteau-volume" className="text-right">{vol === null ? 'non évalué (hauteur non saisie)' : `${fr(vol, 3)} m³`}</dd>
+                </dl>
+              </div>
+            );
+          }
+          return (
+            <div data-testid="poutre" className="flex flex-col gap-1.5">
+              <p className="ui-label">Poutre</p>
+              {dim('Largeur b', 'b')}{dim('Hauteur h', 'h')}
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                <dt className="text-muted-foreground">Longueur</dt><dd data-testid="poutre-longueur" className="text-right">{Math.round(beamLength(obj)).toLocaleString('fr-FR')} mm</dd>
+                <dt className="text-muted-foreground">Volume</dt><dd data-testid="poutre-volume" className="text-right">{fr(beamVolumeM3(obj), 3)} m³</dd>
+              </dl>
+            </div>
+          );
+        })()}
 
         {obj.kind === 'roof' && (() => {
           const g = roofGeometry(roofInput(obj));
