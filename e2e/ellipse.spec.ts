@@ -24,7 +24,7 @@ test('lot 10.1 — ellipse par trois points saisis, rendue, exportée en ELLIPSE
   if (info.project.name === 'bureau') {
     // Inspecteur : demi-axes et rotation ; exporter en DXF écrit une entité ELLIPSE.
     await expect(page.getByText('Demi-axe 1 (mm)')).toBeVisible();
-    page.on('dialog', d => void d.accept());
+    page.on('dialog', d => { d.accept().catch(() => {}); });
     const menu = page.getByRole('button', { name: 'Menu' });
     if (await menu.isVisible().catch(() => false)) await menu.click();
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'DXF', exact: true }).click()]);

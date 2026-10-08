@@ -1,6 +1,7 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
 import type { Parameter } from '@/lib/params/expr';
+import type { PropertySet } from '@/lib/properties';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
 export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
@@ -58,6 +59,10 @@ interface Base {
   hatchParams?: HatchParams;
   /** Groupe (lot 10.5) : identifiant GRP-0001 partagé par les membres ; absent = objet isolé. */
   groupId?: string;
+  /** Classe IFC 4.3 choisie (lot 12.3) ; absente = classe par défaut du type d'objet. */
+  ifcClass?: string;
+  /** Jeux de propriétés (lot 12.3) : nom, propriétés (nom, valeur typée, unité). */
+  psets?: PropertySet[];
   /** Îlots non hachurés : identifiants de contours fermés situés dans l'objet. */
   holes?: string[];
   // Propriétés de trait propres à l'objet ; absentes = « du calque ».

@@ -44,6 +44,7 @@ import { linkedViews } from '@/lib/views';
 import { enforceConstraints, pruneConstraints } from '@/lib/constraints/model';
 import { isValidName, resolveParameters, type Parameter } from '@/lib/params/expr';
 import { bindConstraintValues, constraintExprError, usesOf } from '@/lib/params/bind';
+import { isIfcClass, normalizePsets } from '@/lib/properties';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -162,6 +163,9 @@ function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
     ? o.layerId
     : legacyLayerId ?? layers[0].id;
   const base = { ...o, layerId, hatch: o.hatch ?? 'none' } as CadObject;
+  // Propriétés et classe IFC (lot 12.3) : formes reconnues seulement.
+  if ('psets' in base) { const ps = normalizePsets(base.psets); if (ps) base.psets = ps; else delete base.psets; }
+  if ('ifcClass' in base && !isIfcClass(base.ifcClass)) delete base.ifcClass;
   return base;
 }
 

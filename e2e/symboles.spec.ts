@@ -34,11 +34,15 @@ test('lot 4.5 — nord, repère de coupe et cote de niveau posés puis exportés
   await expect(canvas.locator('g[data-symbole="levelMark"] text')).toHaveText('+0,15');
 
   if (info.project.name === 'bureau') {
-    page.on('dialog', d => d.accept());
     // Sous 1 536 px, les actions du projet sont dans le menu.
     const menu = page.getByRole('button', { name: 'Menu' });
     if (await menu.isVisible().catch(() => false)) await menu.click();
+    // Le rapport d'export s'affiche juste après le téléchargement : il est attendu ici, jamais laissé
+    // arriver pendant la fermeture de la page.
+    let report = '';
+    page.on('dialog', d => { report = d.message(); d.accept().catch(() => {}); });
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'DXF', exact: true }).click()]);
+    await expect.poll(() => report).toContain('Export DXF');
     const { readFileSync } = await import('node:fs');
     const dxf = readFileSync((await download.path())!, 'utf8');
     expect(dxf).toContain('\nSOLID\n');

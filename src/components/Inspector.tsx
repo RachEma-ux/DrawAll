@@ -1,6 +1,7 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
 import type { ReactNode } from 'react';
+import PropertiesEditor from '@/components/PropertiesEditor';
 import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj, Asset } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
@@ -225,6 +226,8 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             ))}
           </div>
         </div>
+
+        <PropertiesEditor obj={obj} onUpdate={onUpdate} />
 
         {(() => {
           const m = measureObject(obj);
