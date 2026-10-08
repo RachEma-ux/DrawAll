@@ -215,3 +215,30 @@ describe('pousser / tirer (lot 15.6) : volume après modification, références 
     expect(pushPullRecipe(cyl, { feature: 'C', role: 'wall' }, 10)).toEqual({ error: 'Pousser / tirer : face plane attendue.' });
   });
 });
+
+describe('vues projetées (lot 16.1) : arêtes vues et cachées du noyau', async () => {
+  const k = await loadKernel();
+  const norm = (lines: number[][]) => lines.map(l => (l[0] > l[2] || (l[0] === l[2] && l[1] > l[3]) ? [l[2], l[3], l[0], l[1]] : l)).map(l => l.join(' ')).sort();
+  const drilled: SolidRecipe = { op: 'cut', a: { op: 'box', x: 100, y: 50, z: 20 }, b: { op: 'cylinder', r: 10, h: 40, at: [50, 25, -10] } };
+
+  it('pavé percé : dessus (cercle vu, rien de caché), face et côté (perçage en interrompu)', () => {
+    const top = k.project(drilled, 'dessus');
+    expect(top.hidden).toEqual([]);
+    expect(top.visible.filter(l => l.length === 4)).toHaveLength(4);
+    const circle = top.visible.find(l => l.length > 4)!;
+    for (let i = 0; i < circle.length; i += 2) expect(Math.hypot(circle[i] - 50, circle[i + 1] - 25)).toBeCloseTo(10, 6);
+    const face = k.project(drilled, 'face');
+    expect(norm(face.visible)).toEqual(norm([[0, 0, 0, -20], [100, 0, 100, -20], [0, 0, 100, 0], [0, -20, 100, -20]]));
+    expect(norm(face.hidden)).toEqual(norm([[40, 0, 40, -20], [60, 0, 60, -20]]));
+    const side = k.project(drilled, 'cote');
+    expect(norm(side.visible)).toEqual(norm([[-50, 0, -50, -20], [0, 0, 0, -20], [-50, 0, 0, 0], [-50, -20, 0, -20]]));
+    expect(norm(side.hidden)).toEqual(norm([[-35, 0, -35, -20], [-15, 0, -15, -20]]));
+  });
+
+  it('la vue suit le solide : dessus tiré de 30 mm, la vue de face passe à 50 mm de haut', () => {
+    const block = take(extrudeRecipe(sq(0, 0, 100, 50), 20, 0, 'P'));
+    const ys = (r: SolidRecipe) => k.project(r, 'face').visible.flatMap(l => l.filter((_, i) => i % 2 === 1));
+    expect(Math.min(...ys(block))).toBeCloseTo(-20, 9);
+    expect(Math.min(...ys(take(pushPullRecipe(block, { feature: 'P', role: 'top' }, 30))))).toBeCloseTo(-50, 9);
+  });
+});

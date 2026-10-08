@@ -1,12 +1,13 @@
 // Accès au noyau 3D depuis l'interface (lot 11.2) : le Worker n'est créé qu'au premier appel.
-import type { MeshResult, SolidRecipe, Vec3 } from './recipe';
+import type { MeshResult, ProjLines, ProjView, SolidRecipe, Vec3 } from './recipe';
 
 export type KernelRequest =
   | { id: number; type: 'volume'; recipe: SolidRecipe }
   | { id: number; type: 'mesh'; recipe: SolidRecipe; tolerance?: number }
-  | { id: number; type: 'deviation'; recipe: SolidRecipe; points: Vec3[] };
+  | { id: number; type: 'deviation'; recipe: SolidRecipe; points: Vec3[] }
+  | { id: number; type: 'project'; recipe: SolidRecipe; view: ProjView };
 export type KernelResponse =
-  | { id: number; ok: true; result: number | MeshResult; loadMs: number }
+  | { id: number; ok: true; result: number | MeshResult | ProjLines; loadMs: number }
   | { id: number; ok: false; error: string };
 
 let worker: Worker | null = null;
@@ -52,4 +53,11 @@ export async function kernelDeviation(recipe: SolidRecipe, points: Vec3[]): Prom
   const r = await call({ type: 'deviation', recipe, points });
   if (!r.ok) throw new Error(r.error);
   return r.result as number;
+}
+
+/** Vue projetée d'un solide (lot 16.1). */
+export async function kernelProject(recipe: SolidRecipe, view: ProjView): Promise<ProjLines> {
+  const r = await call({ type: 'project', recipe, view });
+  if (!r.ok) throw new Error(r.error);
+  return r.result as ProjLines;
 }

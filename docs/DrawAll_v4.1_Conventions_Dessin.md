@@ -595,6 +595,14 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **En plan** : une face latérale tirée ajoute l'emprise de la tranche ; poussée, cette emprise est en traits interrompus. Le dessus ou le dessous ne change pas la trace.
 - **Contrôle** par le noyau (volume non nul), comme au §8.12.
 
+### 8.17 Vues projetées (règle, lot 16.1)
+
+- **Vues** : dessus (regard vers le bas), face (depuis le bas de l'écran, vers le haut) et côté (depuis la droite). Les axes suivent le plan : en face, X à droite et l'altitude vers le haut de l'écran ; en côté, le haut de l'écran du plan à droite.
+- **Calcul** : élimination des arêtes cachées par le noyau (HLR d'OCCT), dans le Worker. Arêtes vues en trait continu ; arêtes cachées en interrompu. Une arête cachée confondue avec une arête vue n'est pas tracée, et un cercle vu par la tranche devient un segment.
+- **Pose** : panneau Solides, « Poser les vues ». Les vues choisies sont posées en ligne à droite du solide, espacées d'un cinquième de la plus grande, en une seule version. Chaque vue se déplace librement ensuite.
+- **Associativité** : la vue est liée à son solide. Modifier le solide (perçage, pousser / tirer, booléen, déplacement…) la recalcule ; le supprimer la supprime. Pendant le calcul, le cadre de la vue est tracé avec la mention « calcul… ». Une erreur du noyau est affichée à la place de la vue.
+- **Échanges** : DXF et PDF écrivent les arêtes en lignes, cachées en interrompu, après avoir attendu le calcul de toutes les vues.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

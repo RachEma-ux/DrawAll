@@ -1,6 +1,8 @@
 // Éditeur de feuille (lot 2.2) : feuilles A4–A0, cadre, fenêtres placées et redimensionnées au
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
+import { kernelProject } from '@/lib/kernel/client';
+import { ensureProjections } from '@/lib/projection';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport, Zone } from '@/types/cad';
 import { fmt } from '@/types/cad';
@@ -115,8 +117,10 @@ export default function SheetEditor(p: Props) {
   };
 
   /** PDF vectoriel aux dimensions exactes de la feuille : téléchargé, ou ouvert pour impression à 100 %. */
-  const exportPdf = (print: boolean) => {
+  const exportPdf = async (print: boolean) => {
     if (!sheet) return;
+    // Vues projetées calculées avant d'écrire la feuille (lot 16.1).
+    await ensureProjections(p.objects, kernelProject);
     const pdf = sheetToPdf({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, versions: p.versions, pointer: p.pointer, profile: p.profile });
     const blob = new Blob([pdfBytes(pdf)], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);

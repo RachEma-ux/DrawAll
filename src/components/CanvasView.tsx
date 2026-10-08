@@ -53,6 +53,7 @@ import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
 import { structurePrimitives } from '@/lib/structure';
 import { solidPrimitives } from '@/lib/solids';
+import { VIEW_LABEL, placedView, projectionPrimitives } from '@/lib/projection';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -1493,6 +1494,18 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
     // Poteau coupé (section pleine), poutre au-dessus du plan de coupe (traits interrompus) (lot 13.4).
     return <g data-structure={obj.id}>{structurePrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
   }
+  if (obj.kind === 'projection') {
+    // Vue projetée (lot 16.1) : arêtes du noyau ; cadre en attendant le calcul.
+    const v = placedView(obj, objects.find(o => o.id === obj.sourceId));
+    if (!v) return null;
+    return (
+      <g data-projection={obj.id} data-vue={obj.view} data-etat={v.state} data-vues={v.visible.length} data-cachees={v.hidden.length}>
+        {v.state !== 'prête' && <rect x={v.frame.x} y={v.frame.y} width={v.frame.w} height={v.frame.h} fill="none" stroke="#64748b" strokeDasharray={`${4 / zoom} ${4 / zoom}`} strokeWidth={1 / zoom} />}
+        {projectionPrimitives(obj, objects.find(o => o.id === obj.sourceId)).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}
+        <text x={v.frame.x} y={v.frame.y + v.frame.h} dy={14 / zoom} fontSize={11 / zoom} fill="#94a3b8">{VIEW_LABEL[obj.view]}{v.state === 'calcul' ? ' — calcul…' : v.state === 'erreur' ? ` — ${v.error}` : ''}</text>
+      </g>
+    );
+  }
   if (obj.kind === 'solid') {
     // Solide (lot 15.2) : trace des fonctions, parties retirées en traits interrompus.
     return <g data-solide={obj.id}>{solidPrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
@@ -2011,6 +2024,10 @@ function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[
     if (o.kind === 'column' && (o.section === 'circle' ? Math.hypot(x - o.x, y - o.y) <= o.d! / 2 + tol : Math.abs(x - o.x) <= o.b! / 2 + tol && Math.abs(y - o.y) <= o.h! / 2 + tol)) return o;
     if (o.kind === 'beam') {
       for (const p of structurePrimitives(o)) if (p.kind === 'line' && distanceSegment(x, y, p.x1, p.y1, p.x2, p.y2) <= tol) return o;
+    }
+    if (o.kind === 'projection') {
+      const v = placedView(o, allObjects.find(s => s.id === o.sourceId));
+      if (v && v.visible.concat(v.hidden).some(s => distanceSegment(x, y, s[0], s[1], s[2], s[3]) <= tol)) return o;
     }
     if (o.kind === 'solid') {
       for (const p of solidPrimitives(o)) {

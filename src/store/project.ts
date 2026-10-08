@@ -53,6 +53,8 @@ import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switch
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications } from '@/lib/publication';
 import { BOOLEAN_LABEL, isRecipe, type BooleanOp } from '@/lib/solids';
+import { VIEW_LABEL, defaultPlacement } from '@/lib/projection';
+import type { ProjView } from '@/lib/kernel/recipe';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -176,6 +178,8 @@ function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
   if ('ifcClass' in base && !isIfcClass(base.ifcClass)) delete base.ifcClass;
   // Solide (lot 15.2) : recette mal formée = objet écarté (le noyau ne l'évaluerait pas).
   if (base.kind === 'solid' && !isRecipe(base.recipe)) return null;
+  // Vue projetée (lot 16.1) : vue connue, position finie.
+  if (base.kind === 'projection' && (!['dessus', 'face', 'cote'].includes(base.view) || typeof base.sourceId !== 'string' || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
   // Tableau de quantités (lot 13.5) : type inconnu = nomenclature.
   if (base.kind === 'bom' && base.table !== undefined && !['pieces', 'ouvertures', 'murs'].includes(base.table)) delete base.table;
   return base;
@@ -808,6 +812,23 @@ export function useProject() {
     return id;
   }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
 
+  /** Vues projetées d'un solide (lot 16.1), posées à droite de lui, en une seule version. */
+  const addProjections = useCallback((sourceId: string, views: ProjView[]) => {
+    const source = allObjects.find(o => o.id === sourceId);
+    if (source?.kind !== 'solid' || !views.length) return [];
+    let counter = state.counter;
+    const made = defaultPlacement(source, views).map(({ view, x, y }) => {
+      counter += 1;
+      const id = `OBJ-${String(counter).padStart(4, '0')}`;
+      return {
+        id, name: `${VIEW_LABEL[view]} de ${source.name}`, kind: 'projection', classification: source.classification, layerId: source.layerId, hatch: 'none',
+        createdSeq: current.seq, ...(source.levelId ? { levelId: source.levelId } : {}), sourceId, view, x, y,
+      } as CadObject;
+    });
+    commit(`Vues projetées de ${sourceId}`, { objects: [...allObjects, ...made], counter });
+    return made.map(o => o.id);
+  }, [allObjects, state.counter, current.seq, commit]);
+
   /**
    * Vue en coupe d'une face par un repère de coupe ; elle prend la place de la vue liée qui occuperait
    * le même emplacement (une coupe A–A vue du dessus remplace la vue de dessus).
@@ -1093,6 +1114,9 @@ export function useProject() {
       }
       if (o.kind === 'cut' && !allObjects.some(t => t.id === o.markId)) {
         out.push({ level: 'avertissement', text: `${o.id} : coupe orpheline — repère ${o.markId} absent.` });
+      }
+      if (o.kind === 'projection' && !allObjects.some(t => t.id === o.sourceId && t.kind === 'solid')) {
+        out.push({ level: 'avertissement', text: `${o.id} : vue projetée orpheline — solide ${o.sourceId} absent.` });
       }
       if (o.kind === 'views' && !allObjects.some(t => t.id === o.sourceId)) {
         out.push({ level: 'avertissement', text: `${o.id} : vues orphelines — face ${o.sourceId} absente.` });
@@ -1434,7 +1458,7 @@ export function useProject() {
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects, combineSolids,
+    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,

@@ -13,6 +13,7 @@ import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
 import { structurePrimitives } from '@/lib/structure';
 import { solidPrimitives } from '@/lib/solids';
+import { projectionPrimitives } from '@/lib/projection';
 import { norm360 } from '@/lib/arc';
 import { affineEllipse } from '@/lib/ellipse';
 import { isValidSpline, knotsOf } from '@/lib/spline';
@@ -411,6 +412,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
     }
     // Solide (lot 15.2) : sa trace en plan (LWPOLYLINE, CIRCLE ; parties retirées en interrompu).
     if (object.kind === 'solid') { counts.solid++; for (const p of solidPrimitives(object)) writeOne(p, layer); continue; }
+    // Vue projetée (lot 16.1) : arêtes vues en LINE, cachées en LINE interrompue.
+    if (object.kind === 'projection') { for (const p of projectionPrimitives(object, objects.find(o => o.id === object.sourceId))) writeOne(p, layer); continue; }
     if (object.kind === 'slab') counts.slab++;
     // Dalle (lot 13.1) : contour fermé en LWPOLYLINE.
     writeOne(object.kind === 'slab' ? slabAsPolyline(object) as PrimitiveObject : object, layer);

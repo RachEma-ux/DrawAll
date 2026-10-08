@@ -83,6 +83,7 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
     case 'balloon':
     case 'room':
     case 'column':
+    case 'projection':
       return inside(w, o.x, o.y) ? moveObject(o, dx, dy) : null;
     case 'note':
       return !o.targetId && inside(w, o.x, o.y) ? moveObject(o, dx, dy) : null;

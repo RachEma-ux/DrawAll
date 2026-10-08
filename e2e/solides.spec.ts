@@ -191,3 +191,30 @@ test('lot 15.6 — pousser / tirer le dessus, puis coque sur la face déplacée 
   await expect(panel.getByTestId('solide-volume')).toContainText('extrusion → pousser / tirer → coque');
   expect(errors).toEqual([]);
 });
+
+test('lot 16.1 — vues projetées associées : percer le solide fait apparaître les arêtes cachées dans les vues', async ({ page }, info) => {
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  const panel = await extrudeAt(page, info, 500, 0, '300');
+  await panel.getByRole('button', { name: 'Poser les vues' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText('3 vues posées à droite du solide.');
+  const views = page.locator('[data-projection]');
+  await expect(views).toHaveCount(3);
+  await expect(page.locator('[data-projection][data-etat="prête"]')).toHaveCount(3, { timeout: 90_000 });
+  const face = page.locator('[data-projection][data-vue="face"]');
+  await expect(face).toHaveAttribute('data-vues', '4');
+  await expect(face).toHaveAttribute('data-cachees', '0');
+  // Perçage Ø 100 traversant : deux arêtes cachées dans la vue de face et dans la vue de côté.
+  await panel.getByLabel('X du perçage (mm)').fill('500');
+  await panel.getByLabel('Y du perçage (mm)').fill('250');
+  await panel.getByLabel('Diamètre du perçage (mm)').fill('100');
+  await panel.getByRole('button', { name: 'Percer' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Perçage fait', { timeout: 90_000 });
+  await expect(face).toHaveAttribute('data-cachees', '2', { timeout: 90_000 });
+  await expect(page.locator('[data-projection][data-vue="cote"]')).toHaveAttribute('data-cachees', '2');
+  await expect(face.locator('[stroke-dasharray]')).toHaveCount(2);
+  const types = (await currentObjects(page)).filter(o => o.kind === 'projection').map(o => o.view);
+  expect(types).toEqual(['dessus', 'face', 'cote']);
+  expect(errors).toEqual([]);
+});

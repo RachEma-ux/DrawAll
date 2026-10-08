@@ -1,7 +1,7 @@
 // DrawAll v4.1 — application unique : atelier de dessin + documentation du dossier.
 // Cinq repères permanents (UX1) : navigateur, zone de travail, commandes, inspecteur,
 // panneau des modifications/problèmes.
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
 import CloudProjectsPanel from '@/components/CloudProjectsPanel';
 import Header from '@/components/Header';
@@ -41,7 +41,8 @@ import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
 import type { GeoConstraint, PolylineObj, RoofObj } from '@/types/cad';
 import { expandToGroups } from '@/lib/groups';
-import { kernelVolume } from '@/lib/kernel/client';
+import { kernelProject, kernelVolume } from '@/lib/kernel/client';
+import { ensureProjections, projectionsVersion, subscribeProjections } from '@/lib/projection';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
@@ -342,7 +343,13 @@ function Workbench() {
     flash(`Projet restauré depuis ${file.name} : ${result.summary}.`);
   }, [project, flash]);
 
-  const exportDxf = useCallback(() => {
+  // Vues projetées (lot 16.1) : calculées par le noyau à chaque changement de leur solide ;
+  // le rendu suit l'arrivée des résultats.
+  useSyncExternalStore(subscribeProjections, projectionsVersion);
+  useEffect(() => { if (project.allObjects.some(o => o.kind === 'projection')) void ensureProjections(project.allObjects, kernelProject); }, [project.allObjects]);
+
+  const exportDxf = useCallback(async () => {
+    await ensureProjections(project.allObjects, kernelProject);
     // Pas de hachure papier : convertis à l'échelle de la première fenêtre de feuille, sinon 1:1.
     const vp = project.sheets.flatMap(sh => sh.viewports)[0];
     const { content, report } = exportDxfFile(shownObjects, project.layers, shownBlocks, { hatchPaperScale: vp ? vp.scale.model / vp.scale.paper : 1 });
@@ -363,7 +370,7 @@ function Workbench() {
     if (report.transformed.length > 0 || report.lost.length > 0) {
       window.setTimeout(() => window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report)), 0);
     }
-  }, [cloudName, shownObjects, shownBlocks, project.layers, project.sheets, project.levels, project.activeLevelId]);
+  }, [cloudName, shownObjects, shownBlocks, project.allObjects, project.layers, project.sheets, project.levels, project.activeLevelId]);
 
   const importDxfFile = useCallback(async (file: File) => {
     // DWG : reconnu à sa signature et refusé avec la marche à suivre (convertisseur à décider, §7).
@@ -2079,7 +2086,7 @@ function Workbench() {
         <SolidsPanel objects={project.allObjects} selectedIds={project.selectedIds}
           onCreate={(from, recipe, label) => project.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe }, undefined, label)}
           onUpdate={(id, recipe, label) => project.updateObject(id, { recipe }, label)}
-          onCombine={project.combineSolids} onClose={() => setSolidsOpen(false)} />
+          onCombine={project.combineSolids} onProject={project.addProjections} onClose={() => setSolidsOpen(false)} />
       )}
       {view3dOpen && (
         <Suspense fallback={null}>

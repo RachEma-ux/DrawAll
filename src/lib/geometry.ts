@@ -15,6 +15,7 @@ import { openingGeometry } from '@/lib/opening';
 import { detectRoom } from '@/lib/rooms';
 import { roofGeometry, roofInput, roofPrimitives } from '@/lib/roof';
 import { beamEdges, columnCorners, structurePrimitives } from '@/lib/structure';
+import { placedView } from '@/lib/projection';
 import { mirrorSolid, moveSolid, recipeBounds, rotateSolid, scaleSolid, solidPrimitives } from '@/lib/solids';
 
 export interface Point { x: number; y: number }
@@ -251,6 +252,11 @@ function collectObjectSnaps(
     case 'cut': {
       const c = cutView(object, objects.find(o => o.id === object.sourceId), objects.find(o => o.id === object.markId), objects, 0, 0);
       if (c.ok) for (const [x1, y1, x2, y2] of c.value.visible) { add('endpoint', x1, y1); add('endpoint', x2, y2); }
+      return;
+    }
+    case 'projection': {
+      // Vue projetée (lot 16.1) : extrémités et milieux des arêtes vues.
+      for (const [x1, y1, x2, y2] of placedView(object, objects.find(o => o.id === object.sourceId))?.visible ?? []) { add('endpoint', x1, y1); add('endpoint', x2, y2); add('midpoint', (x1 + x2) / 2, (y1 + y2) / 2); }
       return;
     }
     case 'views': {
@@ -551,6 +557,10 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
       const c = cutView(object, objects.find(o => o.id === object.sourceId), objects.find(o => o.id === object.markId), objects, 0, 0);
       return c.ok ? { minX: c.value.frame.x, minY: c.value.frame.y, maxX: c.value.frame.x + c.value.frame.w, maxY: c.value.frame.y + c.value.frame.h } : null;
     }
+    case 'projection': {
+      const v = placedView(object, objects.find(o => o.id === object.sourceId));
+      return v ? { minX: v.frame.x, minY: v.frame.y, maxX: v.frame.x + v.frame.w, maxY: v.frame.y + v.frame.h } : null;
+    }
     case 'views': {
       const v = linkedViews(object, objects.find(o => o.id === object.sourceId), objects);
       return v && v.length ? unionBounds(v.map(g => ({ minX: g.frame.x, minY: g.frame.y, maxX: g.frame.x + g.frame.w, maxY: g.frame.y + g.frame.h }))) : null;
@@ -748,6 +758,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'wall': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'opening': return {}; // l'ouverture suit son mur
     case 'views': return {}; // les vues suivent leur face
+    case 'projection': return { x: object.x + dx, y: object.y + dy };
     case 'cut': return {};
     case 'room':
     case 'roof':
@@ -908,6 +919,7 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
       return transformPdim(object, q => rotatePoint(q.x, q.y, cx, cy, rad), { rotation: angleDeg });
     case 'opening':
     case 'views':
+    case 'projection': // recalculée depuis son solide
     case 'cut':
       return {};
     case 'room':
@@ -995,6 +1007,7 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
       return transformPdim(object, q => (axis === 'x' ? { x: mx(q.x), y: q.y } : { x: q.x, y: mx(q.y) })) ?? {};
     case 'opening':
     case 'views':
+    case 'projection':
     case 'cut':
       return {};
     case 'room':
@@ -1050,6 +1063,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'opening': return { position: round(object.position * factor), width: round(object.width * factor) };
     case 'views':
     case 'cut': return { depth: round(object.depth * factor), gap: round(object.gap * factor) };
+    case 'projection': return { x: s(object.x, cx), y: s(object.y, cy) };
     case 'room':
     case 'north':
     case 'roughness':
@@ -1108,6 +1122,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'balloon':
     case 'roughness':
     case 'views':
+    case 'projection':
     case 'cut':
     case 'underlay':
     case 'note':

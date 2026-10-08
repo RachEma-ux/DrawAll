@@ -78,6 +78,20 @@ export type SolidRecipe =
 
 export interface MeshResult { vertices: number[]; triangles: number[] }
 
+/**
+ * Vue projetée (lot 16.1) : dessus (regard vers −Z), face (depuis +Y, vers le nord du plan) ou côté
+ * (depuis +X). Coordonnées 2D dans le sens du plan (Y vers le bas à l'écran) : dessus (X, Y) ;
+ * face (X, −Z) ; côté (−Y, −Z).
+ */
+export type ProjView = 'dessus' | 'face' | 'cote';
+/** Arêtes vues et cachées, en polylignes (x, y alternés). */
+export interface ProjLines { visible: number[][]; hidden: number[][] }
+export const PROJ_CAMERAS: Record<ProjView, { dir: Vec3; xAxis: Vec3 }> = {
+  dessus: { dir: [0, 0, 1], xAxis: [1, 0, 0] },
+  face: { dir: [0, 1, 0], xAxis: [1, 0, 0] },
+  cote: { dir: [1, 0, 0], xAxis: [0, -1, 0] },
+};
+
 /** Volume d'un maillage fermé (théorème de la divergence) : contrôle indépendant du noyau. */
 export function meshVolume(m: MeshResult): number {
   let v = 0;

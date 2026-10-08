@@ -2,7 +2,8 @@
 // perçage. Chaque recette est contrôlée par le noyau OCCT (volume non nul) avant d'entrer au projet.
 import { useEffect, useState } from 'react';
 import type { CadObject, SolidObj } from '@/types/cad';
-import type { FaceRef, SolidRecipe } from '@/lib/kernel/recipe';
+import type { FaceRef, ProjView, SolidRecipe } from '@/lib/kernel/recipe';
+import { VIEW_LABEL } from '@/lib/projection';
 import { kernelDeviation, kernelVolume } from '@/lib/kernel/client';
 import { BOOLEAN_LABEL, contourOf, extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
 
@@ -14,6 +15,8 @@ interface Props {
   onCreate: (from: CadObject, recipe: SolidRecipe, label: string) => void;
   onUpdate: (id: string, recipe: SolidRecipe, label: string) => void;
   onCombine: (aId: string, bId: string, op: BooleanOp) => void;
+  /** Pose des vues projetées du solide (lot 16.1). */
+  onProject?: (sourceId: string, views: ProjView[]) => void;
   onClose: () => void;
 }
 
@@ -22,7 +25,7 @@ const button = 'rounded-sm border border-border px-2 py-1 text-foreground hover:
 const parse = (s: string) => Number(s.trim().replace(',', '.'));
 const m3 = (mm3: number) => `${(mm3 / 1e9).toLocaleString('fr-FR', { maximumFractionDigits: 6 })} m³`;
 
-export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, onCombine, onClose }: Props) {
+export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, onCombine, onProject, onClose }: Props) {
   const selected = selectedIds.map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
   const solids = selected.filter((o): o is SolidObj => o.kind === 'solid');
   const contours = selected.filter(o => o.kind !== 'solid' && !('error' in contourOf(o)));
@@ -35,6 +38,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const [loft, setLoft] = useState({ levels: '', ruled: true });
   const [shell, setShell] = useState<{ thickness: string; open: string[] }>({ thickness: '', open: [] });
   const [push, setPush] = useState({ face: '', distance: '' });
+  const [views, setViews] = useState<ProjView[]>(['dessus', 'face', 'cote']);
   const [hole, setHole] = useState({ x: '', y: '', d: '', depth: '' });
 
   // Volume du solide sélectionné, calculé par le noyau.
@@ -204,6 +208,18 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
         <label className="flex items-center gap-1">Distance <input aria-label="Distance (mm)" inputMode="decimal" value={push.distance} onChange={e => setPush(p => ({ ...p, distance: e.target.value }))} className={field} /> mm</label>
         <button type="button" className={button} disabled={!one || busy} onClick={doPush}>Appliquer</button>
       </section>
+
+      {onProject && (
+        <section aria-label="Vues projetées" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">
+          <span className="w-full text-foreground">Vues projetées (arêtes cachées en interrompu, associées au solide)</span>
+          {(['dessus', 'face', 'cote'] as const).map(v => (
+            <label key={v} className="flex items-center gap-1">
+              <input type="checkbox" checked={views.includes(v)} onChange={e => setViews(vs => (e.target.checked ? [...vs, v] : vs.filter(x => x !== v)))} /> {VIEW_LABEL[v]}
+            </label>
+          ))}
+          <button type="button" className={button} disabled={!one || !views.length || busy} onClick={() => { if (one) { onProject(one.id, (['dessus', 'face', 'cote'] as const).filter(v => views.includes(v))); setMessage({ error: false, text: `${views.length} vue${views.length > 1 ? 's' : ''} posée${views.length > 1 ? 's' : ''} à droite du solide.` }); } }}>Poser les vues</button>
+        </section>
+      )}
 
       {one && (
         <p data-testid="solide-volume" data-volume={shownVolume && 'v' in shownVolume ? shownVolume.v : undefined} className="text-foreground">

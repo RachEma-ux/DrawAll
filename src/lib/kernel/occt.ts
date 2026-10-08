@@ -3,9 +3,10 @@
 // séparé, chargé à la demande et remplaçable (décision de licence du maître d'ouvrage, feuille de
 // route §7). Ce fichier n'est importé que par le Worker du noyau et par les tests.
 import opencascade from 'replicad-opencascadejs';
-import { FaceFinder, assembleWire, basicFaceExtrusion, cast, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
-import type { EdgeRef, FaceRef, LoftSection, MeshResult, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './recipe';
+import { FaceFinder, ProjectionCamera, assembleWire, basicFaceExtrusion, cast, makeProjectedEdges, draw, genericSweep, getOC, iterTopo, loft, makeBSplineApproximation, makeBaseBox, makeCircle, makeCylinder, makeLine, makeVertex, measureDistanceBetween, makeThreePointArc, measureVolume, setOC, type Edge, type Face, type Shape3D } from 'replicad';
+import { PROJ_CAMERAS, type EdgeRef, type FaceRef, type LoftSection, type MeshResult, type PathSeg, type ProjLines, type ProjView, type SolidRecipe, type SweepProfile, type Vec3 } from './recipe';
 import { inventory, parseStepFile, type StepInventory } from './step-file';
+import { cleanProjection } from './hlr-clean';
 import { edgeLabel, faceLabel, featureSupports, pointOnSupport, supportOf, surfaceTypeOf, type RefReport, type Support, type Supports } from './references';
 
 /** Référence non résolue : l'opération n'est pas appliquée, la référence est à réparer (lot 11.3). */
@@ -33,6 +34,8 @@ export interface Kernel {
    * contrôle qu'un lissage passe bien par ses sections (lot 15.4).
    */
   boundaryDeviation(recipe: SolidRecipe, points: Vec3[]): number;
+  /** Vue projetée du solide, arêtes cachées séparées (lot 16.1). */
+  project(recipe: SolidRecipe, view: ProjView): ProjLines;
   /** Durée du chargement du module (ms). */
   loadMs: number;
 }
@@ -291,6 +294,22 @@ function makeKernel(loadMs: number): Kernel {
       } finally { s.delete(); }
     },
     importStep: text => importStep(text),
+    project: (r, view) => {
+      const s = build(r);
+      const { dir, xAxis } = PROJ_CAMERAS[view];
+      const cam = new ProjectionCamera([0, 0, 0], dir, xAxis);
+      try {
+        const { visible, hidden } = makeProjectedEdges(s, cam);
+        // Droites : deux points ; courbes : 48 segments (arcs, cercles, courbes de contour).
+        const lines = (edges: Edge[]) => edges.map(e => {
+          const n = e.geomType === 'LINE' ? 1 : 48, pts: number[] = [];
+          for (let i = 0; i <= n; i++) { const p = e.pointAt(i / n); pts.push(r9(p.x), r9(p.y)); p.delete(); }
+          e.delete();
+          return pts;
+        });
+        return cleanProjection({ visible: lines(visible), hidden: lines(hidden) });
+      } finally { cam.delete(); s.delete(); }
+    },
     boundaryDeviation: (r, points) => {
       const s = build(r);
       const faces = s.faces;
@@ -315,6 +334,7 @@ function makeKernel(loadMs: number): Kernel {
 }
 
 const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
+const r9 = (v: number) => { const x = Math.round(v * 1e9) / 1e9; return x === 0 ? 0 : x; };
 
 /** Lit un fichier STEP par le noyau ; la lecture du texte complète ce que le noyau ne rend pas. */
 function importStep(text: string): StepImportReport {
