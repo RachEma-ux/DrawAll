@@ -51,6 +51,7 @@ import { isHexColor } from '@/lib/zones';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
+import { buildPublication, normalizePublications } from '@/lib/publication';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -339,6 +340,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         ...(normalizeAssets(p.assets) ? { assets: normalizeAssets(p.assets) } : {}),
         ...(branch ? { branch } : {}),
         ...(branches.length ? { branches } : {}),
+        ...(normalizePublications(p.publications) ? { publications: normalizePublications(p.publications) } : {}),
       };
     }
   }
@@ -1388,7 +1390,22 @@ export function useProject() {
     return null;
   }, [state, commit]);
 
+  // ─── Publication (lot 14.4) ──────────────────────────────────────────────────
+  /** Publie la version courante : la nomme et fige le PDF de chaque feuille. */
+  const publish = useCallback((name: string): string | null => {
+    const ids = (state.publications ?? []).map(p => p.id);
+    const pub = buildPublication(state, nextId('PUB', ids), name, new Date());
+    if ('error' in pub) return pub.error;
+    setState(s => ({
+      ...s,
+      versions: s.versions.map((v, i) => (i === s.pointer && !v.named ? { ...v, named: pub.name } : v)),
+      publications: [...(s.publications ?? []), pub],
+    }));
+    return null;
+  }, [state]);
+
   return {
+    publish, publications: state.publications ?? [],
     branches, createVariant, switchVariant, removeVariant, mergeVariant,
     zones, addZone, updateZone, removeZone, setRoomZone,
     constraints, addConstraint, removeConstraint, setConstraintExpr,

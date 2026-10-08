@@ -632,6 +632,20 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Après une suppression**, un message résume ce qui est parti avec l'objet, ce qui a été recalculé et les feuilles à recalculer ; Ctrl+Z annule le tout.
 - Le graphe est calculé sur le modèle à chaque sélection : il ne garde aucune donnée propre.
 
+### 10.8 Publication (règle, lot 14.4)
+
+- **Publier** (bouton « Publier… » de l'éditeur de feuilles, ou palette) fige un dossier :
+  - un nom ;
+  - la version courante, nommée à cette occasion si elle ne l'était pas, et sa variante ;
+  - la date ;
+  - le PDF de chaque feuille, produit à cet instant et conservé tel quel.
+- **Figé** : le dossier ne change plus quand le projet évolue. Son PDF se télécharge identique octet pour octet, et il est conservé avec le projet (enregistrement, paquet natif), hors de l'historique : annuler ne le retire pas.
+- **État** de chaque dossier :
+  - « publié » : la version courante est la version publiée, ou elle n'en diffère pas ;
+  - « modifié depuis » : le projet a changé depuis la publication ;
+  - « autre variante » : la variante active n'est pas celle publiée.
+- Publier est refusé sans feuille ou sans nom, avec la raison.
+
 ## 11. Références
 
 | Sujet | Référence |

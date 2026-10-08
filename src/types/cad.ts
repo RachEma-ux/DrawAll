@@ -2,6 +2,7 @@
 // Identités stables, classifications métier (ontologies), représentations multiples.
 import type { Parameter } from '@/lib/params/expr';
 import type { PropertySet } from '@/lib/properties';
+import type { Publication } from '@/lib/publication';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
 export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'column' | 'beam' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
@@ -522,6 +523,8 @@ export interface ProjectState {
   branch?: { id: string; name: string; from?: { branchId: string; seq: number } };
   /** Autres branches, rangées. */
   branches?: Branch[];
+  /** Dossiers publiés (lot 14.4), figés, hors historique. */
+  publications?: Publication[];
   counter: number;         // compteur d'identifiants OBJ-
   layerCounter: number;    // compteur d'identifiants LAY-
   blockCounter: number;    // compteur d'identifiants BLQ-

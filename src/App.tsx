@@ -32,6 +32,7 @@ import { SCHEDULE_TITLE } from '@/lib/schedules';
 import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
 import MergePanel from '@/components/MergePanel';
+import PublicationsPanel from '@/components/PublicationsPanel';
 import type { Change } from '@/lib/merge';
 import { impactOf, impactSummary } from '@/lib/impact';
 import { zoneColors as zoneColorsOf } from '@/lib/zones';
@@ -779,6 +780,7 @@ function Workbench() {
   }, [project, impactContext, flash]);
   // Comparaison et fusion de variantes (lot 14.2).
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [overlay, setOverlay] = useState<{ changes: Change[]; otherId: string } | null>(null);
   const diffOverlay = useMemo(() => {
     if (!overlay) return undefined;
@@ -1068,6 +1070,7 @@ function Workbench() {
     { id: 'redo', title: 'Rétablir', hint: 'Revenir à la microversion suivante', keywords: ['retablir', 'redo'], run: project.redo },
     { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
+    { id: 'publish', title: 'Publier le dossier / dossiers publiés', hint: 'Version nommée + PDF des feuilles, figés ; état publié ou modifié depuis', keywords: ['publier', 'publication', 'dossier', 'diffusion', 'emission', 'pdf', 'fige'], run: () => setPublishOpen(true) },
     { id: 'merge', title: 'Comparer et fusionner des variantes', hint: 'Changements d’une autre variante en surimpression, fusion à trois voies, conflits tranchés', keywords: ['fusion', 'fusionner', 'merge', 'comparer', 'variante', 'branche', 'differences', 'conflit'], run: () => setMergeOpen(true) },
     { id: 'zones', title: 'Zones', hint: 'Regrouper des pièces : nom, couleur, surface cumulée', keywords: ['zone', 'zones', 'regrouper', 'pieces', 'surface cumulee', 'logement', 'lot', 'secteur'], run: () => setZonesOpen(true) },
     { id: 'parameters', title: 'Paramètres du projet', hint: 'Table des paramètres nommés (nom, expression, unité) ; les cotes de contrainte peuvent les citer', keywords: ['parametre', 'parametres', 'variable', 'expression', 'formule', 'cote pilotante'], run: () => setParamsOpen(true) },
@@ -1267,6 +1270,7 @@ function Workbench() {
           onAddViewport={project.addViewport}
           onUpdateViewport={project.updateViewport}
           onRemoveViewport={project.removeViewport}
+          onPublish={() => setPublishOpen(true)}
           versions={project.versions}
           pointer={project.pointer}
           onNameVersion={project.nameVersion}
@@ -2046,6 +2050,9 @@ function Workbench() {
       {snapPanelOpen && <SnapSettings active={snapTypes} onChange={setSnapTypes} onClose={() => setSnapPanelOpen(false)} />}
       {arrayMode && (
         <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
+      )}
+      {publishOpen && (
+        <PublicationsPanel state={project.state} publications={project.publications} onPublish={project.publish} onClose={() => setPublishOpen(false)} />
       )}
       {mergeOpen && (
         <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />

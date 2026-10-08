@@ -19,6 +19,8 @@ import {
 } from '@/lib/sheet';
 
 interface Props {
+  /** Publication du dossier (lot 14.4). */
+  onPublish?: () => void;
   sheets: Sheet[];
   /** Objets de tous les niveaux : chaque fenêtre montre celui qu'elle désigne. */
   objects: CadObject[];
@@ -240,6 +242,7 @@ export default function SheetEditor(p: Props) {
           <p className="text-muted-foreground/70">{fmt(size.w)} × {fmt(size.h)} mm · zone utile {fmt(area!.w)} × {fmt(area!.h)} mm</p>
           <div className="flex flex-wrap gap-1.5">
             <button onClick={() => exportPdf(false)} className={`${btn} border-cyan-400/50 text-cyan-300`}>Exporter en PDF</button>
+            {p.onPublish && <button onClick={p.onPublish} className={`${btn} border-emerald-400/50 text-emerald-300`}>Publier…</button>}
             <button onClick={() => exportPdf(true)} className={btn} title="Ouvre le PDF : imprimer à 100 % (taille réelle)">Imprimer</button>
             <button onClick={() => void exportSvg()} className={btn} title="SVG vectoriel aux dimensions de la feuille (mm)">Exporter en SVG</button>
           </div>
