@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BlockDef, CadObject } from '@/types/cad';
-import { PROFILES, effectiveHatch, occurrencePrimitives, profileById, withProfile, withProfileBlocks } from './materials';
+import { PROFILES, alternateNeighbours, effectiveHatch, occurrencePrimitives, profileById, withProfile, withProfileBlocks } from './materials';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', createdSeq: 0, name: 'o' };
 const wall: CadObject = { ...base, id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 100, h: 20, hatch: 'none', materialId: 'beton' };
@@ -55,5 +55,64 @@ describe('blocs et profils (lot 3.1)', () => {
     const prims = occurrencePrimitives(block, { hatch: 'diagonal' });
     expect(prims.map(p => p.hatch)).toEqual(['none', 'diagonal', 'none']);
     expect(occurrencePrimitives(block, { hatch: 'none' })).toBe(block.primitives);
+  });
+});
+
+describe('contexte de vue et pièces voisines (lot 3.3)', () => {
+  const steel = (id: string, x: number): CadObject => ({ ...base, id, kind: 'rect', x, y: 0, w: 100, h: 50, hatch: 'none', materialId: 'acier' });
+  const a = steel('A', 0), b = steel('B', 100), c = steel('C', 300);
+
+  it('en coupe, deux pièces voisines du même motif reçoivent des sens différents', () => {
+    const shown = withProfile([a, b, c], profileById('neutre'), 'coupe');
+    expect(shown[0].hatchParams).toBeUndefined();               // 45° par défaut
+    expect(shown[1].hatchParams).toMatchObject({ angle: 135 });  // voisine : autre sens
+    expect(shown[2].hatchParams).toBeUndefined();               // isolée : défaut
+  });
+
+  it('trois pièces mutuellement voisines : sens puis pas différents', () => {
+    const tri = [steel('A', 0), steel('B', 100), { ...steel('C', 0), y: 50, w: 200 } as CadObject];
+    const p = withProfile(tri, profileById('neutre'), 'coupe').map(o => o.hatchParams ?? { angle: 45, spacing: 3 });
+    expect(new Set(p.map(h => `${h.angle}/${h.spacing}`)).size).toBe(3);
+  });
+
+  it('un angle choisi à la main est respecté', () => {
+    const manual = { ...b, hatchParams: { angle: 45, spacing: 3, unit: 'papier' as const } };
+    expect(withProfile([a, manual], profileById('neutre'), 'coupe')[1].hatchParams).toEqual(manual.hatchParams);
+  });
+
+  it('en vue, les surfaces ne sont pas hachurées (sauf motif de surface du profil) ; le matériau reste', () => {
+    const shown = withProfile([a], profileById('neutre'), 'vue');
+    expect(shown[0]).toMatchObject({ hatch: 'none', materialId: 'acier' });
+    const glass: CadObject = { ...a, id: 'G', materialId: 'verre' };
+    expect(withProfile([glass], profileById('enseignement'), 'vue')[0].hatch).toBe('solid');
+    expect(effectiveHatch(a, profileById('neutre'), 'coupe')).toBe('diagonal');
+  });
+});
+
+describe('pièces voisines : cas limites (lot 3.3)', () => {
+  const r = (id: string, x: number, extra: Partial<CadObject> = {}): CadObject => ({ ...base, id, kind: 'rect', x, y: 0, w: 10, h: 10, materialId: 'acier', hatch: 'diagonal', ...extra } as CadObject);
+
+  it('traits croisés : voisins distingués par le pas (une grille à 135° est la même qu’à 45°)', () => {
+    const out = alternateNeighbours([r('A', 0, { hatch: 'cross' }), r('B', 10, { hatch: 'cross' })]);
+    expect(out[0].hatchParams).toBeUndefined();
+    expect(out[1].hatchParams).toMatchObject({ angle: 45, spacing: 4.5 });
+  });
+
+  it('une pièce réglée à la main reste fixe et contraint sa voisine', () => {
+    const out = alternateNeighbours([r('A', 0, { hatchParams: { angle: 45, spacing: 3, unit: 'papier' } }), r('B', 10)]);
+    expect(out[0].hatchParams).toEqual({ angle: 45, spacing: 3, unit: 'papier' });
+    expect(out[1].hatchParams).toMatchObject({ angle: 135 });
+  });
+
+  it('occurrences de blocs à matériau qui se touchent : alternées', () => {
+    const block: BlockDef = { id: 'BLQ-0001', name: 'Plaque', primitives: [{ ...base, id: 'BLQ-0001-P1', kind: 'rect', x: 0, y: 0, w: 10, h: 10, hatch: 'none' }] };
+    const ref = (id: string, x: number): CadObject => ({ ...base, id, kind: 'blockRef', blockId: 'BLQ-0001', x, y: 0, scale: 1, materialId: 'acier', hatch: 'diagonal' } as CadObject);
+    const out = alternateNeighbours([ref('A', 0), ref('B', 10)], [block]);
+    expect(out[1].hatchParams).toMatchObject({ angle: 135 });
+  });
+
+  it('tolérance de contact de 0,01 mm comptée une seule fois', () => {
+    expect(alternateNeighbours([r('A', 0), r('B', 10.015)])[1].hatchParams).toBeUndefined();
+    expect(alternateNeighbours([r('A', 0), r('B', 10.005)])[1].hatchParams).toMatchObject({ angle: 135 });
   });
 });

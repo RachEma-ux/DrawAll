@@ -16,11 +16,11 @@ export const hatchParamsOf = (o: Pick<CadObject, 'hatchParams'>): HatchParams =>
 const CIRCLE_TOLERANCE = 0.01;
 
 /** Contour fermé d'un objet sous forme de polygone (cercle approché à 0,01 mm) ; null si ouvert. */
-export function loopOf(o: CadObject): Loop | null {
+export function loopOf(o: CadObject, segments?: number): Loop | null {
   switch (o.kind) {
     case 'rect': return [{ x: o.x, y: o.y }, { x: o.x + o.w, y: o.y }, { x: o.x + o.w, y: o.y + o.h }, { x: o.x, y: o.y + o.h }];
     case 'circle': {
-      const n = Math.max(24, Math.min(4096, Math.ceil(Math.PI / Math.acos(Math.max(-1, 1 - CIRCLE_TOLERANCE / Math.max(o.r, 1e-9))))));
+      const n = segments ?? Math.max(24, Math.min(4096, Math.ceil(Math.PI / Math.acos(Math.max(-1, 1 - CIRCLE_TOLERANCE / Math.max(o.r, 1e-9))))));
       const out: Loop = [];
       for (let i = 0; i < n; i++) {
         const a = (2 * Math.PI * i) / n;

@@ -149,6 +149,11 @@ DrawAll les proposera sous forme de **profils de dessin** modifiables et version
 - Un objet sans matériau garde le motif choisi à la main. Avec un matériau, le motif vient du profil ; pour le forcer, on retire le matériau.
 - Le profil est versionné avec le projet (historique, annulation).
 
+### 4.6 Contexte coupe / vue et pièces voisines (règle, lot 3.3)
+
+- Chaque fenêtre de feuille, et l'atelier, a un **contexte** : *coupe* (défaut) ou *vue*. En coupe, un objet à matériau est haché selon le profil ; en vue, sa surface n'est pas hachurée, sauf motif de surface prévu par le profil (par exemple le verre en aplat dans le profil « Enseignement »). Le matériau ne change pas.
+- **Pièces voisines coupées** : deux objets à matériau, hachés du même motif et qui se touchent (côté commun, croisement, ou à 0,01 mm près), reçoivent des hachures de sens différent (45° puis 135°), puis de pas différent (3 mm puis 4,5 mm papier) si les deux sens sont déjà pris. Un angle choisi à la main n'est jamais modifié. L'alternance est calculée à l'affichage et à l'export ; le modèle n'est pas modifié.
+
 ### 4.5 Hachures paramétrées (règle, lot 3.2)
 
 - Motifs : diagonales (une famille de traits), croisées (deux familles à 90°), plein ; sur les contours fermés (rectangle, cercle, polyligne fermée).

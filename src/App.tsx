@@ -26,7 +26,7 @@ import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { measurePolygon, type Measure } from '@/lib/area';
-import { PROFILES, withProfile, withProfileBlocks } from '@/lib/materials';
+import { PROFILES, withProfile, withProfileBlocks, type ViewContext } from '@/lib/materials';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
@@ -106,9 +106,10 @@ function Workbench() {
   const [notice, setNotice] = useState<string | null>(null);
   // Objets tels qu'ils se dessinent avec le profil de dessin actif (motif tiré du matériau) ;
   // le modèle (project.objects) n'est pas modifié.
-  const shownObjects = useMemo(() => withProfile(project.objects, project.profile), [project.objects, project.profile]);
+  const [viewContext, setViewContext] = useState<ViewContext>('coupe');
+  const shownObjects = useMemo(() => withProfile(project.objects, project.profile, viewContext, project.blocks), [project.objects, project.profile, viewContext, project.blocks]);
   // Blocs : leurs primitives à matériau suivent aussi le profil (le modèle n'est pas modifié).
-  const shownBlocks = useMemo(() => withProfileBlocks(project.blocks, project.profile), [project.blocks, project.profile]);
+  const shownBlocks = useMemo(() => withProfileBlocks(project.blocks, project.profile, viewContext), [project.blocks, project.profile, viewContext]);
   // Incrémenté quand le projet est remplacé : le canevas oublie alors son dernier point posé.
   const [projectKey, setProjectKey] = useState(0);
   // Réglages d'affichage propres à ce navigateur : pas de grille et unité d'affichage.
@@ -697,9 +698,10 @@ function Workbench() {
       {mode === 'feuilles' ? (
         <SheetEditor
           sheets={project.sheets}
-          objects={shownObjects}
+          objects={project.objects}
+          profile={project.profile}
           layers={project.layers}
-          blocks={shownBlocks}
+          blocks={project.blocks}
           view={view}
           colorMode={colorMode}
           onAddSheet={project.addSheet}
@@ -1042,6 +1044,14 @@ function Workbench() {
                 <select aria-label="Profil de dessin" value={project.profile.id} onChange={e => project.setProfileId(e.target.value)}
                   className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
                   {PROFILES.map(p => <option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-1" title="Coupe : matériaux hachurés ; vue : surfaces vues (Conventions §4.1)">
+                contexte
+                <select aria-label="Contexte de l’atelier" value={viewContext} onChange={e => setViewContext(e.target.value as ViewContext)}
+                  className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                  <option value="coupe">coupe</option>
+                  <option value="vue">vue</option>
                 </select>
               </label>
               <label className="flex items-center gap-1">
