@@ -45,6 +45,7 @@ import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/
 import { distanceToEllipse, ellipseFrom3Points, ellipsePath } from '@/lib/ellipse';
 import { distanceToSpline, splinePath, withoutRepeatedPoints } from '@/lib/spline';
 import { stretchAll, stretchPreview, windowOf } from '@/lib/stretch';
+import { expandToGroups } from '@/lib/groups';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -552,8 +553,9 @@ export default function CanvasView({
           drag.current = { mode: null, lx: 0, ly: 0 };
           return;
         }
-        const ids = selectedIds.includes(hit.id) ? selectedIds : [hit.id];
-        if (!selectedIds.includes(hit.id)) onSelectMany([hit.id]);
+        // Un membre de groupe non désigné entraîne tout son groupe, dans la sélection comme dans le glisser.
+        const ids = selectedIds.includes(hit.id) ? selectedIds : expandToGroups(objects, [hit.id]);
+        if (!selectedIds.includes(hit.id)) onSelectMany(ids);
         drag.current = { mode: 'move', ids, lx: w.x, ly: w.y, grab: { x: w.x, y: w.y }, moved: false };
       } else {
         if (!e.shiftKey) onSelectMany([]);

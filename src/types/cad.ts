@@ -56,6 +56,8 @@ interface Base {
   materialId?: string;
   /** Paramètres des hachures (lot 3.2) ; absents = 45°, pas papier de 3 mm. */
   hatchParams?: HatchParams;
+  /** Groupe (lot 10.5) : identifiant GRP-0001 partagé par les membres ; absent = objet isolé. */
+  groupId?: string;
   /** Îlots non hachurés : identifiants de contours fermés situés dans l'objet. */
   holes?: string[];
   // Propriétés de trait propres à l'objet ; absentes = « du calque ».

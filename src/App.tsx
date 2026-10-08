@@ -25,6 +25,7 @@ import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
+import { expandToGroups } from '@/lib/groups';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
@@ -651,6 +652,17 @@ function Workbench() {
     project.applyPatches([{ id: a.id, patch: patchA }, { id: b.id, patch: patchB }], added, mode === 'fillet' ? 'Congé' : 'Chanfrein');
   }, [project, flash, cornerParams]);
 
+  // Groupes (lot 10.5) : désigner un membre sur le dessin désigne tout le groupe.
+  const selectWithGroups = useCallback((ids: string[]) => project.setSelectedIds(expandToGroups(project.objects, ids)), [project]);
+  const groupSelection = useCallback(() => {
+    if (selection.length < 2) { flash('Grouper : désignez au moins deux objets.'); return; }
+    const id = project.groupObjects(selection);
+    if (id) flash(`Groupe ${id} créé (${expandToGroups(project.objects, selection).length} objets).`);
+  }, [project, selection, flash]);
+  const ungroupSelection = useCallback(() => {
+    if (!project.ungroupObjects(selection)) flash('Dégrouper : aucun groupe dans la sélection.');
+  }, [project, selection, flash]);
+
   // Décalage à distance saisie (lot 10.4) : copie parallèle, propriétés de trait conservées.
   const offsetPicked = useCallback((id: string, side: { x: number; y: number }) => {
     const source = project.objects.find(o => o.id === id);
@@ -882,6 +894,8 @@ function Workbench() {
     { id: 'redo', title: 'Rétablir', hint: 'Revenir à la microversion suivante', keywords: ['retablir', 'redo'], run: project.redo },
     { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
+    { id: 'edit-group', title: 'Grouper la sélection', hint: 'Les objets forment un groupe (Ctrl+G)', keywords: ['grouper', 'groupe', 'group', 'assembler'], run: groupSelection },
+    { id: 'edit-ungroup', title: 'Dégrouper', hint: 'Dissout les groupes de la sélection (Ctrl+Maj+G)', keywords: ['degrouper', 'dégrouper', 'ungroup', 'groupe'], run: ungroupSelection },
     { id: 'edit-dup', title: 'Dupliquer la sélection', hint: 'Copie décalée de 20 mm (Ctrl+D)', keywords: ['dupliquer', 'copier', 'copie', 'duplicate', 'copy'], run: duplicateSelection },
     { id: 'edit-copy', title: 'Copier la sélection', hint: 'Presse-papiers interne (Ctrl+C)', keywords: ['copier', 'copy', 'presse-papiers'], run: copySelection },
     { id: 'edit-paste', title: 'Coller', hint: 'Au pointeur, ou décalé de 20 mm (Ctrl+V)', keywords: ['coller', 'paste', 'presse-papiers'], run: pasteClipboard },
@@ -929,6 +943,7 @@ function Workbench() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAll(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelection(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { e.preventDefault(); if (e.shiftKey) ungroupSelection(); else groupSelection(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && project.selectedIds.length > 0) { project.removeObjects(project.selectedIds); return; }
@@ -946,7 +961,7 @@ function Workbench() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, copySelection, pasteClipboard, nudgeSelection]);
+  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, copySelection, pasteClipboard, nudgeSelection, groupSelection, ungroupSelection]);
 
   const visibleTools = TOOLS.filter(t => t.levels.includes(level));
   const primaryTools = visibleTools.filter(t => PRIMARY_TOOLS.includes(t.id));
@@ -1261,6 +1276,8 @@ function Workbench() {
                 { label: 'Copier', hint: 'Ctrl+C — presse-papiers interne', run: copySelection },
                 { label: 'Coller', hint: 'Ctrl+V — au pointeur, ou décalé de 20 mm', run: pasteClipboard, always: true },
                 { label: 'Dupliquer', hint: 'Ctrl+D', run: duplicateSelection },
+                { label: 'Grouper', hint: 'Ctrl+G — désigner un membre désigne le groupe', run: groupSelection },
+                { label: 'Dégrouper', hint: 'Ctrl+Maj+G', run: ungroupSelection },
                 { label: 'Réseau rect.', hint: 'Copies en lignes et colonnes, au pas saisi', run: () => setArrayMode('rect') },
                 { label: 'Réseau polaire', hint: 'Copies réparties autour d’un centre', run: () => setArrayMode('polar') },
                 { label: '↺ −90°', hint: 'Rotation anti-horaire autour du centre de la sélection', run: () => rotateSelection(-90) },
@@ -1303,7 +1320,7 @@ function Workbench() {
                 snapEnabled={snapEnabled}
                 orthoEnabled={orthoEnabled}
                 onSelect={project.setSelectedId}
-                onSelectMany={project.setSelectedIds}
+                onSelectMany={selectWithGroups}
                 onAdd={project.addObject}
                 onAddDimension={project.addDimension}
                 onInsertBlock={project.insertBlock}
