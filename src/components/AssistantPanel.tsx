@@ -63,7 +63,7 @@ export default function AssistantPanel({ project, onClose, generator = localGene
     setBusy('proposer');
     setOutcome(null);
     basisRef.current = digest();
-    const r = await controlledLoop(generator, request, { objects: p.allObjects, layers: p.layers, activeLayerId: p.activeLayerId, activeLevelId: p.activeLevelId, levels: p.levels, blocks: p.blocks, zones: p.zones }, cache.current);
+    const r = await controlledLoop(generator, request, { objects: p.allObjects, layers: p.layers, activeLayerId: p.activeLayerId, activeLevelId: p.activeLevelId, levels: p.levels, blocks: p.blocks, zones: p.zones, constraints: p.constraints, parameters: p.parameters }, cache.current);
     setResult({ ...r, request });
     setBusy(null);
   };

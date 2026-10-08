@@ -2,7 +2,7 @@
 // supprimé, modifié) et fusion à trois voies par identifiant : une modification faite d'un seul côté
 // est reprise, des modifications différentes d'un même élément sont un conflit, listé puis tranché
 // (garder l'une ou l'autre). Rien n'est tranché en silence. Fonctions pures.
-import { parentsOf, withoutDanglingMates, type CadObject, type MicroVersion, type ProjectState } from '@/types/cad';
+import { parentsOf, withoutDanglingMates, type CadObject, type MicroVersion, type ProjectState, type Sheet } from '@/types/cad';
 import { constraintObjects } from './constraints/model';
 import { activeBranch } from './branches';
 
@@ -120,6 +120,11 @@ function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: Mic
     const present = new Set(list.map(x => x.id));
     const users = new Map<string, string[]>();
     for (const o of objects) { const r = of(o); if (r && !present.has(r) && !users.get(r)?.includes(o.id)) users.set(r, [...(users.get(r) ?? []), o.id]); }
+    // Fenêtres de feuille qui montrent un niveau (feuilles du résultat, et les deux valeurs d'une feuille en conflit).
+    if (where === 'levels') {
+      const sheets = [...((merged.sheets as Sheet[] | undefined) ?? []), ...conflicts.filter(c => c.where === 'sheets').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is Sheet => !!v))];
+      for (const sh of sheets) for (const vp of sh.viewports) if (vp.levelId && !present.has(vp.levelId) && !users.get(vp.levelId)?.includes(sh.id)) users.set(vp.levelId, [...(users.get(vp.levelId) ?? []), sh.id]);
+    }
     for (const [id, dependents] of users) {
       const find = (v: MicroVersion) => listOf(v, where).find(x => x.id === id) ?? null;
       const o = find(ours), t = find(theirs), b = find(base);
@@ -213,6 +218,18 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
           return rest as CadObject;
         });
         continue;
+      }
+      // Niveau supprimé : les fenêtres de feuille qui le montraient passent au premier niveau restant,
+      // comme lors de la suppression d'un niveau dans l'atelier.
+      if (c.where === 'levels' && out.sheets) {
+        const first = ((out.levels as WithId[] | undefined) ?? [])[0]?.id;
+        out.sheets = (out.sheets as Sheet[]).map(sh => ({ ...sh, viewports: sh.viewports.map(vp => {
+          if (vp.levelId !== c.id) return vp;
+          if (first) return { ...vp, levelId: first };
+          const { levelId: _l, ...rest } = vp;
+          void _l;
+          return rest;
+        }) }));
       }
       const ref = REFS.find(x => x.where === c.where);
       if (ref) { for (const o of objs) if (ref.of(o) === c.id) gone.add(o.id); continue; }

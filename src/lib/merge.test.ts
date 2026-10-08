@@ -175,6 +175,21 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect(kept.objects!.map(o => [o.id, o.layerId])).toEqual([['X', 'LAY-0102']]);
   });
 
+  it('niveau supprimé chez nous, feuille ajoutée chez eux qui le montre → conflit ; suppression retenue : fenêtre retournée au premier niveau', () => {
+    const L1 = { id: 'NIV-0001', name: 'Rez', elevation: 0 }, L2 = { id: 'NIV-0002', name: 'Étage', elevation: 3000 };
+    const sheet = { id: 'FEU-0001', name: 'Étage', format: 'A3', orientation: 'paysage', margins: { top: 10, right: 10, bottom: 10, left: 20 },
+      viewports: [{ id: 'FEN-0001', name: 'Plan', x: 20, y: 10, w: 200, h: 150, scale: { paper: 1, model: 50 }, center: { x: 0, y: 0 }, hiddenLayerIds: [], levelId: 'NIV-0002' }] } as unknown as NonNullable<MicroVersion['sheets']>[number];
+    const base = v(0, [], { levels: [L1, L2], sheets: [] });
+    const ours = v(1, [], { levels: [L1], sheets: [] });
+    const theirs = v(1, [], { levels: [L1, L2], sheets: [sheet] });
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts).toEqual([expect.objectContaining({ where: 'levels', id: 'NIV-0002', ours: 'supprimé', dependents: ['FEU-0001'] })]);
+    const out = resolve(r, { [conflictKey(r.conflicts[0])]: 'nôtre' });
+    if ('error' in out) throw new Error(out.error);
+    expect(out.levels!.map(l => l.id)).toEqual(['NIV-0001']);
+    expect(out.sheets![0].viewports[0].levelId).toBe('NIV-0001');
+  });
+
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
     const base = v(0, [line('A', 1)]);
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);

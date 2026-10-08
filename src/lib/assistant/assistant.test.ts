@@ -220,3 +220,16 @@ describe('liaisons d’assemblage dans la simulation', () => {
     expect(previewDiff(c.objects, r.objects, 'NIV-0001').modified.map(o => o.id).sort()).toEqual(['A', 'B']);
   });
 });
+
+describe('contraintes géométriques dans la simulation', () => {
+  it('une ligne contrainte horizontale reste horizontale après une rotation simulée, comme à l’enregistrement', () => {
+    const c = { ...ctx, constraints: [{ id: 'CTR-0001', type: 'horizontal', seg: { obj: 'OBJ-0001' } }] as AssistantContext['constraints'] };
+    const r = dryRun([{ type: 'transform', args: [['OBJ-0001'], { kind: 'rotate', cx: 0, cy: 0, deg: 30 }, 'Tourner'] }], c);
+    expect(r.errors).toEqual([]);
+    const l = r.objects[0] as unknown as { y1: number; y2: number };
+    expect(Math.abs(l.y2 - l.y1)).toBeLessThan(1e-6);
+    // Sans contrainte, la rotation est appliquée telle quelle.
+    const free = dryRun([{ type: 'transform', args: [['OBJ-0001'], { kind: 'rotate', cx: 0, cy: 0, deg: 30 }, 'Tourner'] }], ctx).objects[0] as unknown as { y1: number; y2: number };
+    expect(Math.abs(free.y2 - free.y1)).toBeGreaterThan(100);
+  });
+});

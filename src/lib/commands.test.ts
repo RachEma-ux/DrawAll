@@ -75,6 +75,12 @@ describe('API de commandes (lot 18.1)', () => {
     expect(add({ ...occ, sourceId: 'OBJ-0404' })).toBe('occurrence : objet désigné OBJ-0404 absent');
     expect(add({ ...occ, sourceId: 'OBJ-0001' })).toBe('occurrence : OBJ-0001 n’est pas un objet de type solid');
     expect(add({ kind: 'opening', position: 100, width: 900, type: 'porte', hostId: 'OBJ-0001' })).toBe('opening : OBJ-0001 n’est pas un objet de type wall');
+    // Ouverture : hauteur positive et allège positive ou nulle, si présentes.
+    const wallW = { ...line, id: 'WW', kind: 'wall', thickness: 200, justification: 'axe' } as unknown as CadObject;
+    const op = { kind: 'opening', position: 100, width: 900, type: 'fenetre', hostId: 'WW' };
+    expect(add({ ...op, height: 'bad' }, [wallW])).toBe('ouverture : hauteur positive attendue');
+    expect(add({ ...op, sill: -1 }, [wallW])).toBe('ouverture : allège positive ou nulle attendue');
+    expect(add({ ...op, height: 1200, sill: 900 }, [wallW])).toBeNull();
     const solid = { ...line, id: 'S', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
     expect(add({ ...occ, sourceId: 'S' }, [solid])).toBeNull();
     // Source d'occurrence : une pièce seulement (un solide simple n'aurait aucune géométrie d'occurrence).

@@ -3,9 +3,12 @@
 // blanc ; en cas d'erreur, les erreurs lui sont renvoyées, trois corrections au plus. La séquence
 // validée est aperçue puis exécutée seulement après accord explicite (hors de ce module). Les
 // hypothèses du générateur sont rendues avec la proposition. Fonctions pures, sauf l'appel au générateur.
-import type { CadObject, Layer } from '@/types/cad';
+import type { CadObject, GeoConstraint, Layer } from '@/types/cad';
+import type { Parameter } from '@/lib/params/expr';
 import { KIND_LABEL, withDependents, withoutDanglingMates } from '@/types/cad';
 import { resolveMates } from '@/lib/assembly';
+import { enforceConstraints, pruneConstraints } from '@/lib/constraints/model';
+import { bindConstraintValues } from '@/lib/params/bind';
 import { onLevel } from '@/lib/levels';
 import { applyTransform, scriptCommandError, validateCommand, type TransformOp } from '@/lib/commands';
 import { beamError, columnError } from '@/lib/structure';
@@ -35,6 +38,9 @@ export interface AssistantContext {
   levels?: { id: string }[];
   blocks?: { id: string }[];
   zones?: { id: string }[];
+  /** Contraintes géométriques et paramètres du projet (re-résolus après chaque opération simulée). */
+  constraints?: GeoConstraint[];
+  parameters?: Parameter[];
 }
 
 export interface GeneratorRequest {
@@ -97,6 +103,7 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
     if (closed) { errors.push(`${at} : ${closed}`); return; }
     const err = validateCommand(s.type, s.args, objects, ctx.layers, { levels: ctx.levels, blocks: ctx.blocks, zones: ctx.zones });
     if (err) { errors.push(`${at} : ${err}`); return; }
+    const prev = objects;
     if (s.type === 'addObject') {
       const o = s.args[0] as Record<string, unknown>;
       const e = objectError(o, ctx.layers);
@@ -127,7 +134,10 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
       if (e) { errors.push(`${at} : ${e}`); return; }
       objects = objects.map(o => (o.id === id ? next : o));
     }
-    // Comme l'enregistrement d'une version : les occurrences liées suivent leur cible.
+    // Comme l'enregistrement d'une version : contraintes géométriques re-résolues (cotes pilotées par
+    // les paramètres comprises), puis les occurrences liées suivent leur cible.
+    const constraints = bindConstraintValues(pruneConstraints(objects, ctx.constraints), ctx.parameters);
+    if (constraints?.length && objects !== prev) objects = enforceConstraints(prev, objects, constraints).objects;
     objects = resolveMates(objects).objects;
   });
   return { errors, objects, added };
