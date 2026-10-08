@@ -1,6 +1,6 @@
 // Modèle d'information commun — inspiré de l'Architecture de référence V4 §4
 // Identités stables, classifications métier (ontologies), représentations multiples.
-
+import type { Parameter } from '@/lib/params/expr';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
 export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
@@ -412,13 +412,17 @@ export interface Level { id: string; name: string; elevation: number }
 export interface PointRef { obj: string; at: string }
 export interface SegRef { obj: string; from?: string }
 export interface CurveRef { obj: string }
+/**
+ * Contraintes cotées (distance, longueur, rayon) : `expr` (lot 12.2), expression de paramètres qui
+ * pilote la valeur ; `value` est alors la dernière valeur calculée.
+ */
 export type GeoConstraint =
   | { id: string; type: 'coincident'; a: PointRef; b: PointRef }
   | { id: string; type: 'horizontal' | 'vertical'; seg: SegRef }
   | { id: string; type: 'parallel' | 'perpendicular' | 'equal'; s1: SegRef; s2: SegRef }
-  | { id: string; type: 'distance'; a: PointRef; b: PointRef; value: number }
-  | { id: string; type: 'length'; seg: SegRef; value: number }
-  | { id: string; type: 'radius'; curve: CurveRef; value: number }
+  | { id: string; type: 'distance'; a: PointRef; b: PointRef; value: number; expr?: string }
+  | { id: string; type: 'length'; seg: SegRef; value: number; expr?: string }
+  | { id: string; type: 'radius'; curve: CurveRef; value: number; expr?: string }
   | { id: string; type: 'tangent'; seg: SegRef; curve: CurveRef }
   | { id: string; type: 'fixed'; p: PointRef; x: number; y: number };
 
@@ -436,6 +440,7 @@ export interface MicroVersion {
   surfaceRule?: 'sia-416' | 'carrez'; // règle de surface des pièces (lot 4.3) ; absent = SIA 416
   levels?: Level[];        // niveaux (lot 4.4) ; absent = un seul niveau par défaut
   constraints?: GeoConstraint[]; // contraintes géométriques (lot 12.1) ; absent = aucune
+  parameters?: Parameter[];      // paramètres nommés (lot 12.2) ; absent = aucun
 }
 
 export interface ProjectState {

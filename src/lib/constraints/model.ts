@@ -323,9 +323,10 @@ export function constraintGlyph(k: GeoConstraint): string {
     case 'parallel': return '∥';
     case 'perpendicular': return '⊥';
     case 'equal': return '=';
-    case 'distance': return `↔ ${n(k.value)}`;
-    case 'length': return `L ${n(k.value)}`;
-    case 'radius': return `R ${n(k.value)}`;
+    // Cote pilotée par un paramètre (lot 12.2) : l'expression, puis sa valeur.
+    case 'distance': return `↔ ${k.expr ? `${k.expr} = ` : ''}${n(k.value)}`;
+    case 'length': return `L ${k.expr ? `${k.expr} = ` : ''}${n(k.value)}`;
+    case 'radius': return `R ${k.expr ? `${k.expr} = ` : ''}${n(k.value)}`;
     case 'tangent': return 'T';
     case 'fixed': return '⚓';
   }

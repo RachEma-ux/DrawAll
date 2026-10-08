@@ -134,6 +134,20 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
 - Les contraintes sont enregistrées avec la version (historique, annulation, paquet natif). Elles ne sont pas exportées en DXF.
 - Non couvert à ce lot : les extrémités d'arc (seuls le centre et le rayon), les ellipses, les splines et les rectangles (convertir en polyligne pour les contraindre).
 
+### 1.14 Paramètres nommés et cotes pilotantes (règle, lot 12.2)
+
+- **Table des paramètres** (palette « Paramètres du projet », ou bouton « Paramètres… » du panneau des contraintes) : nom, expression, unité (mm, °, ou sans unité) et valeur calculée.
+  - Nom : une lettre, puis des lettres, des chiffres ou `_`. Les noms de fonctions et `pi` sont exclus, et un nom ne sert qu'une fois.
+  - Expressions : nombres (virgule ou point décimal), noms de paramètres, `+ − * / ^`, parenthèses, `racine`, `abs`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan` (en degrés), `min`, `max`, `arrondi`, `pi`. Les arguments sont séparés par `;`.
+  - L'évaluateur est écrit pour DrawAll (analyse descendante) : aucun texte n'est exécuté comme du code.
+- **Refus.** Une saisie qui créerait une référence circulaire (le cycle est nommé, par exemple « L → H → L »), un nom inconnu, une erreur de syntaxe ou une cote non positive est refusée avec sa raison ; l'ancienne expression reste. Un paramètre cité par un autre paramètre ou par une cote ne se retire pas.
+- **Cotes pilotantes.**
+  - La valeur d'une contrainte cotée (distance, longueur, rayon) peut être une expression de paramètres, saisie à la création ou dans la liste des contraintes.
+  - Le symbole affiche l'expression et sa valeur (par exemple « L L = 1000 »).
+  - Changer un paramètre recalcule les cotes qui le citent, puis re-résout la géométrie.
+  - Saisir un nombre à la place d'une expression rompt le lien.
+- Paramètres et expressions sont enregistrés avec la version (historique, annulation, paquet natif).
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)
