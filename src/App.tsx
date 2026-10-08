@@ -25,6 +25,8 @@ import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
+import ParametersPanel from '@/components/ParametersPanel';
+import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
 import type { GeoConstraint, PolylineObj } from '@/types/cad';
 import { expandToGroups } from '@/lib/groups';
@@ -684,6 +686,7 @@ function Workbench() {
   }, [project, selection, flash]);
 
   // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
+  const [paramsOpen, setParamsOpen] = useState(false);
   const [constraintType, setConstraintType] = useState<GeoConstraint['type']>('horizontal');
   const [constraintValue, setConstraintValue] = useState('');
   const [constraintPicks, setConstraintPicks] = useState<Pick[]>([]);
@@ -703,14 +706,23 @@ function Workbench() {
       return;
     }
     setConstraintPicks([]);
-    const typed = constraintValue.trim() === '' ? undefined : Number(constraintValue.replace(',', '.'));
+    // Valeur saisie : un nombre, ou une expression de paramètres (cote pilotante, lot 12.2).
+    const text = constraintValue.trim();
+    const asNumber = Number(text.replace(',', '.'));
+    let typed: number | undefined, expr: string | undefined;
+    if (text !== '' && Number.isFinite(asNumber)) typed = asNumber;
+    else if (text !== '') {
+      const v = evaluateWith(text, resolveParameters(project.parameters));
+      if ('error' in v) { flash(`${CONSTRAINT_LABEL[constraintType]} : ${v.error}`); return; }
+      typed = v.value; expr = text;
+    }
     // Les objets à jour des identifiants de sommets servent à lire les mesures actuelles.
     const objects = project.allObjects.map(o => constraintPolylines.current.get(o.id) ?? o);
     if (typed !== undefined && !(typed > 0)) { flash(`${CONSTRAINT_LABEL[constraintType]} : valeur positive attendue.`); return; }
     // L'identifiant est attribué par le projet.
     const made = makeConstraint('', constraintType, picks, objects, typed);
     if ('error' in made) { flash(made.error); return; }
-    project.addConstraint(made, CONSTRAINT_LABEL[constraintType], constraintPolylines.current);
+    project.addConstraint(expr && 'value' in made ? { ...made, expr } as GeoConstraint : made, CONSTRAINT_LABEL[constraintType], constraintPolylines.current);
     constraintPolylines.current = new Map();
   }, [constraintPicks, constraintType, constraintValue, project, flash]);
 
@@ -947,6 +959,7 @@ function Workbench() {
     { id: 'redo', title: 'Rétablir', hint: 'Revenir à la microversion suivante', keywords: ['retablir', 'redo'], run: project.redo },
     { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
+    { id: 'parameters', title: 'Paramètres du projet', hint: 'Table des paramètres nommés (nom, expression, unité) ; les cotes de contrainte peuvent les citer', keywords: ['parametre', 'parametres', 'variable', 'expression', 'formule', 'cote pilotante'], run: () => setParamsOpen(true) },
     { id: 'kernel-trial', title: 'Essai du noyau 3D (P0)', hint: 'Charge OCCT (≈ 7 Mo compressés, une fois) et calcule un pavé percé', keywords: ['noyau', '3d', 'occt', 'essai', 'volume', 'p0'], run: () => { void kernelTrial(); } },
     { id: 'edit-group', title: 'Grouper la sélection', hint: 'Les objets forment un groupe (Ctrl+G)', keywords: ['grouper', 'groupe', 'group', 'assembler'], run: groupSelection },
     { id: 'edit-ungroup', title: 'Dégrouper', hint: 'Dissout les groupes de la sélection (Ctrl+Maj+G)', keywords: ['degrouper', 'dégrouper', 'ungroup', 'groupe'], run: ungroupSelection },
@@ -1559,12 +1572,13 @@ function Workbench() {
                     </select>
                     {(constraintType === 'distance' || constraintType === 'length' || constraintType === 'radius') && (
                       <label className="flex items-center gap-1">Valeur
-                        <input aria-label="Valeur de la contrainte (mm)" inputMode="decimal" placeholder="actuelle" value={constraintValue}
+                        <input aria-label="Valeur de la contrainte (mm)" title="Nombre, ou expression de paramètres" placeholder="actuelle" value={constraintValue}
                           onChange={e => setConstraintValue(e.target.value)}
                           className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
                       </label>
                     )}
                     <span data-testid="contrainte-designes">{constraintPicks.length}/{CONSTRAINT_PICKS[constraintType].length}</span>
+                    <button type="button" onClick={() => setParamsOpen(true)} className="rounded-sm border border-border px-1.5 py-0.5 text-foreground hover:bg-white/5">Paramètres…</button>
                   </div>
                   {constraintDiagnosis.conflicting.length > 0 && (
                     <p data-testid="contraintes-conflit" className="text-red-300">
@@ -1590,10 +1604,13 @@ function Workbench() {
                             <span className="w-16 shrink-0">{k.id}</span>
                             <span className="flex-1 truncate" title={constraintDiagnosis.states[k.id]}>{CONSTRAINT_LABEL[k.type]}</span>
                             {'value' in k && (
-                              <input aria-label={`Valeur de ${k.id} (mm)`} inputMode="decimal" defaultValue={String(k.value).replace('.', ',')} key={`${k.id}-${k.value}`}
-                                onBlur={e => { const v = Number(e.target.value.replace(',', '.')); if (v > 0) project.setConstraintValue(k.id, v); else e.target.value = String(k.value).replace('.', ','); }}
-                                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                                className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" />
+                              <>
+                                <input aria-label={`Valeur de ${k.id} (mm)`} title="Nombre, ou expression de paramètres (cote pilotante)" defaultValue={k.expr ?? String(k.value).replace('.', ',')} key={`${k.id}-${k.value}-${k.expr ?? ''}`}
+                                  onBlur={e => { const err = project.setConstraintExpr(k.id, e.target.value); if (err) { flash(`${k.id} : ${err}`); e.target.value = k.expr ?? String(k.value).replace('.', ','); } }}
+                                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                  className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" />
+                                {k.expr && <span data-valeur-pilotee={k.id}>= {String(Math.round(k.value * 1000) / 1000).replace('.', ',')}</span>}
+                              </>
                             )}
                             <button type="button" aria-label={`Retirer ${k.id}`} onClick={() => project.removeConstraint(k.id)} className="rounded-sm px-1 text-muted-foreground hover:text-red-300">×</button>
                           </li>
@@ -1829,6 +1846,9 @@ function Workbench() {
       {snapPanelOpen && <SnapSettings active={snapTypes} onChange={setSnapTypes} onClose={() => setSnapPanelOpen(false)} />}
       {arrayMode && (
         <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
+      )}
+      {paramsOpen && (
+        <ParametersPanel parameters={project.parameters} onAdd={project.addParameter} onUpdate={project.updateParameter} onRemove={project.removeParameter} onClose={() => setParamsOpen(false)} />
       )}
       <CommandPalette key={paletteOpen ? 'open' : 'closed'} open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} onOpenRequirement={openRequirement} />
 

@@ -42,6 +42,8 @@ import { cutView } from '@/lib/cuts';
 import { objectBounds, projectBounds, reanchorNote } from '@/lib/geometry';
 import { linkedViews } from '@/lib/views';
 import { enforceConstraints, pruneConstraints } from '@/lib/constraints/model';
+import { isValidName, resolveParameters, type Parameter } from '@/lib/params/expr';
+import { bindConstraintValues, constraintExprError, usesOf } from '@/lib/params/bind';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -209,6 +211,19 @@ export function normalizeConstraints(raw: unknown): GeoConstraint[] | undefined 
   return out.length ? out : undefined;
 }
 
+/** Paramètres nommés (lot 12.2) : nom valide et unique, expression textuelle, unité connue. */
+export function normalizeParameters(raw: unknown): Parameter[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<string>();
+  const out = raw.filter((p): p is Parameter => {
+    if (!p || typeof p !== 'object' || typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.expr !== 'string') return false;
+    if (!isValidName(p.name) || seen.has(p.name) || !['mm', '°', ''].includes(p.unit)) return false;
+    seen.add(p.name);
+    return true;
+  });
+  return out.length ? out : undefined;
+}
+
 export function normalizeProjectState(raw: unknown): ProjectState {
   const p = raw as Partial<ProjectState> | null;
   if (p && Array.isArray(p.versions) && p.versions.length > 0) {
@@ -257,6 +272,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
             viewports: sh.viewports.map(vp => (known.some(l => l.id === levelIdOf(vp)) ? vp : { ...vp, levelId: known[0].id })),
           })),
           ...(normalizeConstraints(v.constraints) ? { constraints: normalizeConstraints(v.constraints) } : {}),
+          ...(normalizeParameters(v.parameters) ? { parameters: normalizeParameters(v.parameters) } : {}),
           ...(typeof v.profileId === 'string' ? { profileId: v.profileId } : {}),
           ...(v.surfaceRule === 'carrez' || v.surfaceRule === 'sia-416' ? { surfaceRule: v.surfaceRule } : {}),
         };
@@ -338,6 +354,7 @@ interface SnapshotPatch {
   activeLevelId?: string;
   objects?: CadObject[];
   constraints?: GeoConstraint[];
+  parameters?: Parameter[];
   layers?: Layer[];
   blocks?: BlockDef[];
   counter?: number;
@@ -466,7 +483,9 @@ export function useProject() {
       // Contraintes (lot 12.1) : toute modification des objets ou des contraintes re-résout ; une
       // contrainte dont un objet a été supprimé part avec lui.
       let objects = patch.objects ?? cur.objects;
-      const constraints = pruneConstraints(objects, patch.constraints ?? cur.constraints);
+      // Paramètres (lot 12.2) : les cotes pilotées par une expression reçoivent leur valeur avant la résolution.
+      const parameters = patch.parameters ?? cur.parameters;
+      const constraints = bindConstraintValues(pruneConstraints(objects, patch.constraints ?? cur.constraints), parameters);
       if (constraints?.length && (objects !== cur.objects || constraints !== cur.constraints)) objects = enforceConstraints(cur.objects, objects, constraints).objects;
       const mv: MicroVersion = {
         seq,
@@ -480,6 +499,7 @@ export function useProject() {
         ...((patch.surfaceRule ?? cur.surfaceRule) ? { surfaceRule: patch.surfaceRule ?? cur.surfaceRule } : {}),
         ...((patch.levels ?? cur.levels) ? { levels: patch.levels ?? cur.levels } : {}),
         ...(constraints?.length ? { constraints } : {}),
+        ...(parameters?.length ? { parameters } : {}),
       };
       return {
         ...s,
@@ -1177,15 +1197,83 @@ export function useProject() {
     commit(`Retirer contrainte ${id}`, { constraints: constraints.filter(k => k.id !== id) });
   }, [constraints, commit]);
 
-  /** Nouvelle valeur d'une contrainte cotée (distance, longueur, rayon) : la géométrie suit. */
-  const setConstraintValue = useCallback((id: string, value: number) => {
+  // ─── Paramètres nommés (lot 12.2) ────────────────────────────────────────────
+  const parameters = useMemo(() => current.parameters ?? [], [current.parameters]);
+  const allParameterIds = useMemo(() => versions.flatMap(v => (v.parameters ?? []).map(p => p.id)), [versions]);
+
+  /**
+   * Valeur d'une contrainte cotée : un nombre, ou une expression de paramètres (cote pilotante).
+   * Renvoie un message d'erreur, ou null si la valeur est appliquée (la géométrie suit).
+   */
+  const setConstraintExpr = useCallback((id: string, text: string): string | null => {
     const k = constraints.find(c => c.id === id);
-    if (!k || !('value' in k) || !(value > 0) || !Number.isFinite(value) || k.value === value) return;
-    commit(`Valeur de ${id} : ${value}`, { constraints: constraints.map(c => (c.id === id ? { ...c, value } as GeoConstraint : c)) });
-  }, [constraints, commit]);
+    if (!k || !('value' in k)) return 'Contrainte sans valeur.';
+    const t = text.trim();
+    const n = Number(t.replace(',', '.'));
+    let next: GeoConstraint;
+    if (t !== '' && Number.isFinite(n)) {
+      if (!(n > 0)) return 'Une cote doit être positive.';
+      next = { ...k, value: n } as GeoConstraint;
+      delete (next as { expr?: string }).expr;
+    } else {
+      const err = constraintExprError(t, parameters);
+      if (err) return err;
+      next = { ...k, expr: t } as GeoConstraint;
+    }
+    if (JSON.stringify(next) === JSON.stringify(k)) return null;
+    commit(`Valeur de ${id} : ${t}`, { constraints: constraints.map(c => (c.id === id ? next : c)) });
+    return null;
+  }, [constraints, parameters, commit]);
+
+  /** Erreurs nouvelles qu'introduirait une table de paramètres (cycle, nom inconnu, cote non positive). */
+  const parameterErrors = useCallback((next: Parameter[]): string | null => {
+    const before = resolveParameters(parameters), after = resolveParameters(next);
+    const broken = [...after.errors.keys()].find(n => !before.errors.has(n));
+    if (broken) return `${broken} : ${after.errors.get(broken)}`;
+    for (const k of constraints) {
+      if (!('expr' in k) || !k.expr) continue;
+      const err = constraintExprError(k.expr, next);
+      if (err && !constraintExprError(k.expr, parameters)) return `${k.id} (${k.expr}) : ${err}`;
+    }
+    return null;
+  }, [parameters, constraints]);
+
+  const addParameter = useCallback((name: string, expr: string, unit: Parameter['unit']): string | null => {
+    const n = name.trim();
+    if (!isValidName(n)) return `Nom invalide « ${n} » : une lettre, puis des lettres, chiffres ou _ (noms de fonctions et pi exclus).`;
+    if (parameters.some(p => p.name === n)) return `Le paramètre « ${n} » existe déjà.`;
+    const next = [...parameters, { id: nextId('PAR', allParameterIds), name: n, expr: expr.trim(), unit }];
+    const err = parameterErrors(next);
+    if (err) return err;
+    commit(`Paramètre ${n} = ${expr.trim()}`, { parameters: next });
+    return null;
+  }, [parameters, allParameterIds, parameterErrors, commit]);
+
+  /** Nouvelle expression ou unité d'un paramètre ; refusée si elle crée un cycle ou une erreur. */
+  const updateParameter = useCallback((id: string, patch: Partial<Pick<Parameter, 'expr' | 'unit'>>): string | null => {
+    const p = parameters.find(q => q.id === id);
+    if (!p) return 'Paramètre inconnu.';
+    const next = parameters.map(q => (q.id === id ? { ...q, ...patch, ...(patch.expr !== undefined ? { expr: patch.expr.trim() } : {}) } : q));
+    if (JSON.stringify(next) === JSON.stringify(parameters)) return null;
+    const err = parameterErrors(next);
+    if (err) return err;
+    commit(`Paramètre ${p.name} = ${next.find(q => q.id === id)!.expr}`, { parameters: next });
+    return null;
+  }, [parameters, parameterErrors, commit]);
+
+  /** Retire un paramètre que rien ne cite. */
+  const removeParameter = useCallback((id: string): string | null => {
+    const p = parameters.find(q => q.id === id);
+    if (!p) return null;
+    const uses = usesOf(p.name, parameters, constraints);
+    if (uses.length) return `« ${p.name} » est utilisé par ${uses.join(', ')}.`;
+    commit(`Retirer paramètre ${p.name}`, { parameters: parameters.filter(q => q.id !== id) });
+    return null;
+  }, [parameters, constraints, commit]);
 
   return {
-    constraints, addConstraint, removeConstraint, setConstraintValue,
+    constraints, addConstraint, removeConstraint, setConstraintExpr,
+    parameters, addParameter, updateParameter, removeParameter,
     levels, activeLevelId, setActiveLevelId, addLevel, updateLevel, removeLevel, copyLevel, allObjects,
     profile, setProfileId, surfaceRule, setSurfaceRule,
     state, objects, layers, blocks, activeLayerId, sheets,
