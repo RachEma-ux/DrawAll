@@ -42,3 +42,30 @@ export function calibrate(u: Pick<UnderlayObj, 'x' | 'y' | 'w' | 'h'>, a: Pt, b:
 
 /** Le point est-il sur le fond (désignation) ? */
 export const onUnderlay = (u: Pick<UnderlayObj, 'x' | 'y' | 'w' | 'h'>, p: Pt) => p.x >= u.x && p.x <= u.x + u.w && p.y >= u.y && p.y <= u.y + u.h;
+
+/** Budget de stockage local des fonds de plan (caractères des data URL, tous fonds réunis). */
+export const ASSETS_BUDGET = 3_500_000;
+/** Taille visée pour un fond de plan seul. */
+export const ASSET_TARGET = 2_800_000;
+
+/** Place disponible pour un nouveau fond de plan, compte tenu de ceux déjà conservés. */
+export function assetRoom(assets: Record<string, { dataUrl: string }> | undefined): number {
+  const used = Object.values(assets ?? {}).reduce((n, a) => n + a.dataUrl.length, 0);
+  return Math.max(0, Math.min(ASSET_TARGET, ASSETS_BUDGET - used));
+}
+
+/**
+ * Encodage qui tient dans `budget` caractères : PNG, puis JPEG de qualité décroissante, puis image
+ * réduite d'un quart à chaque passe ; null si même une image de 64 px n'y tient pas.
+ */
+export function fitEncoding(px: { w: number; h: number }, budget: number, encode: (w: number, h: number, quality: number | null) => string): { dataUrl: string; w: number; h: number } | null {
+  let { w, h } = px;
+  while (w >= 64 && h >= 64) {
+    for (const q of [null, 0.9, 0.8, 0.7, 0.6, 0.5]) {
+      const dataUrl = encode(w, h, q);
+      if (dataUrl.length <= budget) return { dataUrl, w, h };
+    }
+    w = Math.round(w * 0.75); h = Math.round(h * 0.75);
+  }
+  return null;
+}

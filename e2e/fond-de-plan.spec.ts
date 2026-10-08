@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { join } from 'node:path';
-import { chooseTool, currentObjects, openAtelier, tapModel } from './helpers';
+import { chooseTool, currentObjects, openAtelier, tapModel, toScreen } from './helpers';
 
 const fixture = (name: string) => join(process.cwd(), 'e2e', 'fixtures', name);
 type Underlay = { id: string; kind: 'underlay'; x: number; y: number; w: number; h: number; locked?: boolean; assetId: string };
@@ -52,4 +52,34 @@ test('lot 6.2 — fond de plan PDF : première page à sa taille réelle', async
   const asset = await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return Object.values(s.assets as Record<string, { source: string; dataUrl: string }>)[0]; });
   expect(asset.source).toBe('pdf');
   expect(asset.dataUrl.startsWith('data:image/')).toBe(true);
+});
+
+test('lot 6.2 — une fenêtre de sélection ne prend pas le fond de plan', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'sélection par fenêtre à la souris');
+  await openAtelier(page);
+  await page.locator('input[aria-label="Fichier du fond de plan"]').setInputFiles(fixture('fond-de-plan.png'));
+  await expect.poll(async () => (await underlay(page))?.kind).toBe('underlay');
+  await page.getByRole('button', { name: 'Cadrer', exact: true }).click();
+  await chooseTool(page, /^Sélection/);
+  const u = await underlay(page);
+  // Fenêtre tirée sur le fond de la zone, autour de toute l'image.
+  const a = await toScreen(page, u.x - u.w * 0.04, u.y - u.h * 0.3);
+  const b = await toScreen(page, u.x + u.w * 1.04, u.y + u.h * 1.3);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 8 });
+  await page.mouse.up();
+  // Rien n'est sélectionné : Suppr ne retire pas le fond.
+  await page.keyboard.press('Delete');
+  expect((await currentObjects(page)).filter(o => o.kind === 'underlay')).toHaveLength(1);
+});
+
+test('lot 6.2 — stockage du navigateur plein : l’échec d’enregistrement est signalé', async ({ page }) => {
+  await openAtelier(page);
+  await expect(page.getByTestId('stockage-plein')).toHaveCount(0);
+  await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('quota', 'QuotaExceededError'); }; });
+  await chooseTool(page, /^Ligne/);
+  const point = page.getByLabel('Point précis');
+  for (const p of ['0;0', '1000;0']) { await point.fill(p); await point.press('Enter'); }
+  await expect(page.getByTestId('stockage-plein')).toBeVisible();
 });

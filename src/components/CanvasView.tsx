@@ -555,7 +555,9 @@ export default function CanvasView({
       const maxX = Math.max(marquee.x1, marquee.x2);
       const minY = Math.min(marquee.y1, marquee.y2);
       const maxY = Math.max(marquee.y1, marquee.y2);
+      // Un fond de plan ne se prend pas à la fenêtre (seulement en le touchant, en l'absence d'objet).
       const inside = editableObjects
+        .filter(o => o.kind !== 'underlay')
         .filter(o => {
           const b = objectBounds(o, blocks, objects);
           return !!b && b.minX >= minX && b.maxX <= maxX && b.minY >= minY && b.maxY <= maxY;

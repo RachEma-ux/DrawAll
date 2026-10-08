@@ -25,7 +25,7 @@ import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
-import { calibrate, fitPixels, imageSizeMm, pdfPageSizeMm } from '@/lib/underlay';
+import { assetRoom, calibrate, fitEncoding, fitPixels, imageSizeMm, pdfPageSizeMm } from '@/lib/underlay';
 import { measurePolygon, type Measure } from '@/lib/area';
 import { PROFILES, withProfile, withProfileBlocks, type ViewContext } from '@/lib/materials';
 import { openingFits, positionOnWall } from '@/lib/opening';
@@ -461,10 +461,25 @@ function Workbench() {
         canvas.getContext('2d')!.drawImage(bitmap, 0, 0, fit.w, fit.h);
         size = imageSizeMm({ w: bitmap.width, h: bitmap.height });
       }
-      // PNG si l'image reste légère, sinon JPEG de qualité décroissante (au plus 2 Mo environ).
-      let dataUrl = canvas.toDataURL('image/png');
-      for (const q of [0.9, 0.8, 0.7, 0.6]) { if (dataUrl.length <= 2_800_000) break; dataUrl = canvas.toDataURL('image/jpeg', q); }
-      project.addUnderlay({ name: file.name, dataUrl, px: { w: canvas.width, h: canvas.height }, source: isPdf ? 'pdf' : 'image' }, size);
+      // Stockage local borné : PNG si l'image reste légère, sinon JPEG de qualité décroissante, puis
+      // image réduite, jusqu'à tenir dans la place laissée par les autres fonds de plan.
+      const room = assetRoom(project.assets);
+      const encoded = fitEncoding({ w: canvas.width, h: canvas.height }, room, (w, h, q) => {
+        let c = canvas;
+        if (w !== canvas.width || h !== canvas.height) {
+          c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          const ctx = c.getContext('2d')!;
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(canvas, 0, 0, w, h);
+        }
+        return q === null ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
+      });
+      if (!encoded) {
+        window.alert('Fond de plan non importé : le stockage local du projet est plein. Supprimez un fond de plan existant, puis réessayez.');
+        return;
+      }
+      project.addUnderlay({ name: file.name, dataUrl: encoded.dataUrl, px: { w: encoded.w, h: encoded.h }, source: isPdf ? 'pdf' : 'image' }, size);
       setMode('atelier');
       flash(`Fond de plan importé : ${fmt(size.w)} × ${fmt(size.h)} mm${isPdf ? ' (taille de la page)' : ' (96 ppp supposés)'} — calez-le avec l’outil « Caler le fond ».`);
     } catch (e) {
@@ -1320,6 +1335,14 @@ function Workbench() {
 
             {/* Panneau des modifications / problèmes — repère permanent 5 (tiroir sur petit écran) */}
             {!compact && <div className="h-44 shrink-0 border-t border-border">{historyEl}</div>}
+
+            {project.storageFull && (
+              <div role="alert" data-testid="stockage-plein" className="absolute inset-x-0 top-2 z-20 flex justify-center px-3">
+                <span className="rounded-sm border border-red-400/60 bg-[#0c1220]/95 px-3 py-2 font-mono text-[11px] text-red-300 shadow-lg">
+                  Enregistrement local impossible : stockage du navigateur plein. Les dernières modifications ne seront pas conservées après fermeture — supprimez un fond de plan ou exportez le projet.
+                </span>
+              </div>
+            )}
 
             {notice && (
               <div role="status" className="pointer-events-none absolute inset-x-0 bottom-10 z-20 flex justify-center px-3">

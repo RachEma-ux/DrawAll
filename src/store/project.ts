@@ -1,6 +1,6 @@
 // État du projet : microversions Git-like, calques, blocs, cotes associatives,
 // annulation, versions nommées, persistance locale (brouillon explicite — Concept §8).
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   createDefaultLayers,
   type BlockDef,
@@ -309,6 +309,15 @@ function localizePrimitive(obj: PrimitiveObject, origin: { x: number; y: number 
   }
 }
 
+/** État de l'enregistrement local, partagé hors de React (le stockage du navigateur est externe). */
+const storageStatus = { full: false, listeners: new Set<() => void>() };
+function setStorageFull(full: boolean) {
+  if (storageStatus.full === full) return;
+  storageStatus.full = full;
+  storageStatus.listeners.forEach(l => l());
+}
+const subscribeStorage = (listener: () => void) => { storageStatus.listeners.add(listener); return () => { storageStatus.listeners.delete(listener); }; };
+
 export function useProject() {
   const [state, setState] = useState<ProjectState>(load);
   const [selectedId, setSelectedIdRaw] = useState<string | null>(null);
@@ -324,9 +333,13 @@ export function useProject() {
     setSelectedIdRaw(ids[ids.length - 1] ?? null);
   }, []);
 
+  // Enregistrement local : un échec (stockage plein) est signalé au lieu d'être ignoré.
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* quota : état visible, non bloquant */ }
+    let ok = true;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { ok = false; }
+    setStorageFull(!ok);
   }, [state]);
+  const storageFull = useSyncExternalStore(subscribeStorage, () => storageStatus.full, () => false);
 
   const current = state.versions[state.pointer];
   const allObjects = current.objects;
@@ -970,7 +983,7 @@ export function useProject() {
     addObject, updateObject, removeObject, removeObjects,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, assets, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
+    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, assets, storageFull, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };

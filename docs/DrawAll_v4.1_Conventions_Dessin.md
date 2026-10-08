@@ -306,7 +306,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 
 ### 7.3 Fond de plan (règle, lot 6.2)
 
-- Une image (PNG, JPEG…) ou la première page d'un PDF se place sous le dessin comme fond de plan. L'image est conservée une seule fois dans le projet (hors historique), réduite à 4 096 px de côté et à environ 2 Mo pour le stockage local.
+- Une image (PNG, JPEG…) ou la première page d'un PDF se place sous le dessin comme fond de plan. L'image est conservée une seule fois dans le projet (hors historique), réduite à 4 096 px de côté et à environ 2 Mo pour le stockage local ; l'ensemble des fonds d'un projet est borné (environ 3,5 Mo) : une image est encore réduite (qualité, puis taille) pour tenir dans la place restante, ou refusée avec un message si elle n'y tient pas. Un enregistrement local impossible (stockage du navigateur plein) est signalé à l'écran. Un fond de plan ne se prend pas par fenêtre de sélection.
 - Taille de départ :
   - une page PDF prend sa taille réelle (points PDF → mm) ;
   - une image, celle de ses pixels à 96 ppp, sans échelle connue.

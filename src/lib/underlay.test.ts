@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calibrate, fitPixels, imageSizeMm, onUnderlay, pdfPageSizeMm, pixelToModel } from './underlay';
+import { ASSETS_BUDGET, ASSET_TARGET, assetRoom, calibrate, fitEncoding, fitPixels, imageSizeMm, onUnderlay, pdfPageSizeMm, pixelToModel } from './underlay';
 
 describe('fond de plan (lot 6.2)', () => {
   it('tailles de départ : image à 96 ppp, page PDF à sa taille réelle', () => {
@@ -32,5 +32,23 @@ describe('fond de plan (lot 6.2)', () => {
     expect(calibrate(u, { x: 0, y: 0 }, { x: 10, y: 0 }, NaN)).toBeNull();
     expect(onUnderlay(u, { x: 50, y: 25 })).toBe(true);
     expect(onUnderlay(u, { x: 150, y: 25 })).toBe(false);
+  });
+});
+
+describe('stockage borné des fonds de plan', () => {
+  it('place disponible : budget total moins les fonds déjà conservés, au plus la taille visée', () => {
+    expect(assetRoom(undefined)).toBe(ASSET_TARGET);
+    expect(assetRoom({ a: { dataUrl: 'x'.repeat(ASSETS_BUDGET - 1000) } })).toBe(1000);
+    expect(assetRoom({ a: { dataUrl: 'x'.repeat(ASSETS_BUDGET + 5) } })).toBe(0);
+  });
+
+  it('encodage : qualité puis taille réduites jusqu’à tenir dans le budget ; refus sinon', () => {
+    // Encodeur simulé : taille ∝ pixels, PNG 4 fois plus lourd que le JPEG à qualité 1.
+    const enc = (w: number, h: number, q: number | null) => 'x'.repeat(Math.round(w * h * (q === null ? 4 : q)));
+    expect(fitEncoding({ w: 100, h: 100 }, 50_000, enc)).toMatchObject({ w: 100, h: 100 });
+    const r = fitEncoding({ w: 1000, h: 1000 }, 100_000, enc)!;
+    expect(r.dataUrl.length).toBeLessThanOrEqual(100_000);
+    expect(r.w).toBeLessThan(1000);
+    expect(fitEncoding({ w: 1000, h: 1000 }, 10, enc)).toBeNull();
   });
 });
