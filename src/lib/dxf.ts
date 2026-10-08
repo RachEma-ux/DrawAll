@@ -118,7 +118,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { roof: 0, slab: 0, room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, ellipse: 0, spline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { structure: 0, roof: 0, slab: 0, room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, ellipse: 0, spline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -399,7 +399,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
     // Toiture (lot 13.2) : rive en LWPOLYLINE fermée, faîtage, arêtiers et flèches en LINE.
     if (object.kind === 'roof') { counts.roof++; for (const p of roofPrimitives(object, roofInput(object))) writeOne(p, layer); continue; }
     // Poteau : LWPOLYLINE fermée ou CIRCLE ; poutre : LINE en trait interrompu (lot 13.4).
-    if (object.kind === 'column' || object.kind === 'beam') { for (const p of structurePrimitives(object)) writeOne(p, layer); continue; }
+    if (object.kind === 'column' || object.kind === 'beam') { counts.structure++; for (const p of structurePrimitives(object)) writeOne(p, layer); continue; }
     if (object.kind === 'slab') counts.slab++;
     // Dalle (lot 13.1) : contour fermé en LWPOLYLINE.
     writeOne(object.kind === 'slab' ? slabAsPolyline(object) as PrimitiveObject : object, layer);
@@ -429,6 +429,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.symbol) report.transformed.push(`Symboles (nord, repères de coupe, cotes de niveau, états de surface) : ${counts.symbol} → traits, cercles, surfaces pleines (SOLID) et textes, à la taille papier de l'échelle 1:${Math.round(hatchScale * 1000) / 1000}.`);
   if (counts.room) report.transformed.push(`Pièces : ${counts.room} → contour (LWPOLYLINE) et étiquette nom + surface (TEXT) ; la surface n'est plus recalculée.`);
   if (counts.opening) report.transformed.push(`Ouvertures : ${counts.opening} → traits et arcs (baies coupées dans les murs) ; le lien au mur est perdu.`);
+  if (counts.structure) report.transformed.push(`Poteaux et poutres : ${counts.structure} → sections (LWPOLYLINE, CIRCLE) et nus (LINE interrompue) ; sections et hauteurs ne sont plus éditables comme éléments de structure.`);
   if (counts.roof) report.transformed.push(`Toitures : ${counts.roof} → rive (LWPOLYLINE), faîtage, arêtiers et flèches (LINE) ; type, pente, débord et axe ne sont plus éditables comme toiture.`);
   if (counts.slab) report.transformed.push(`Dalles : ${counts.slab} → contour (LWPOLYLINE fermée) ; l'épaisseur et le lien à la pièce sont perdus.`);
   if (counts.wall) report.transformed.push(`Murs : ${counts.wall} → traits (LINE, jonctions nettoyées) et hachures ; épaisseur et justification ne sont plus éditables comme mur.`);

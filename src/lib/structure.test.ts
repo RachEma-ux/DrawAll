@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BeamObj, ColumnObj } from '@/types/cad';
 import { createDefaultLayers } from '@/types/cad';
-import { exportToDxf } from './dxf';
+import { exportDxf, exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
 import { stretchPreview } from './stretch';
 import { defaultIfcClass } from './properties';
@@ -64,5 +64,10 @@ describe('poteaux et poutres (lot 13.4)', () => {
     expect([doubled.b, doubled.h]).toEqual([400, 1000]);
     expect(beamVolumeM3(doubled)).toBeCloseTo(8 * beamVolumeM3(b), 12);
     expect(stretchPreview([b], { minX: 3900, minY: -100, maxX: 4100, maxY: 100 }, 1000, 0)).toEqual([{ x: 5000, y: 0 }]);
+  });
+
+  it('rapport d’échange DXF : poteaux et poutres signalés comme transformés', () => {
+    const { report } = exportDxf([col(), beam()], createDefaultLayers(), []);
+    expect(report.transformed.some(t => t.startsWith('Poteaux et poutres : 2 →'))).toBe(true);
   });
 });
