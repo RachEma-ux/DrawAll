@@ -17,7 +17,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { useProject } from '@/store/project';
 import type { CadObject, DisplayLevel, OpeningObj, PointDimensionMode, PointDimensionObj, RoughnessObj, SectionMarkObj, UnderlayObj, ViewReading, WallObj } from '@/types/cad';
-import { SYNC_META, type SyncStatus } from '@/types/cloud';
+import { PENDING_SHARE_KEY, SHARE_PARAM, SYNC_META, type CloudRole, type SyncStatus } from '@/types/cloud';
+import ObjectComments from '@/components/ObjectComments';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
 import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
@@ -91,6 +92,7 @@ function Workbench() {
   const saveCloudProject = trpc.projects.save.useMutation();
   const renameCloudProject = trpc.projects.rename.useMutation();
   const deleteCloudProject = trpc.projects.remove.useMutation();
+  const joinSharedProject = trpc.projects.join.useMutation();
   const skipDirtyTracking = useRef(false);
   const [mode, setMode] = useState<'atelier' | 'feuilles' | 'docs'>('atelier');
   const [docsSub, setDocsSub] = useState<'concept' | 'architecture' | 'exigences'>('concept');
@@ -104,6 +106,8 @@ function Workbench() {
   const [cloudOpen, setCloudOpen] = useState(false);
   const [cloudProjectId, setCloudProjectId] = useState<number | null>(null);
   const [cloudRevision, setCloudRevision] = useState<number | null>(null);
+  // Droit sur le projet cloud ouvert (lot 8.4) : en lecture, la synchronisation est refusée.
+  const [cloudRole, setCloudRole] = useState<CloudRole | null>(null);
   const [cloudName, setCloudName] = useState('Projet DrawAll');
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('local');
   const [conflictServer, setConflictServer] = useState<Project | null>(null);
@@ -651,8 +655,9 @@ function Workbench() {
     if (blockId) setActiveBlockId(blockId);
   }, [project]);
 
-  const applyCloudProject = useCallback((remote: Project) => {
+  const applyCloudProject = useCallback((remote: Project & { role?: CloudRole }) => {
     skipDirtyTracking.current = true;
+    if (remote.role) setCloudRole(remote.role);
     project.loadState(remote.data);
     setProjectKey(k => k + 1);
     setCloudProjectId(remote.id);
@@ -667,6 +672,11 @@ function Workbench() {
       setCloudOpen(true);
       return;
     }
+    if (!saveAsNew && cloudProjectId !== null && cloudRole === 'lecture') {
+      flash('Projet partagé en lecture seule : « Enregistrer comme nouveau » crée votre propre copie.');
+      setCloudOpen(true);
+      return;
+    }
     const name = cloudName.trim() || 'Projet DrawAll';
     // Historique par différences (lot 8.1) : le serveur reçoit l'état compact.
     const data = encodeHistory(project.state) as unknown as Record<string, unknown>;
@@ -677,6 +687,7 @@ function Workbench() {
         skipDirtyTracking.current = true;
         setCloudProjectId(created.id);
         setCloudRevision(created.revision);
+        setCloudRole('proprietaire');
         setCloudName(created.name);
         setConflictServer(null);
         setSyncStatus('synced');
@@ -703,7 +714,7 @@ function Workbench() {
       setSyncStatus('error');
       setCloudOpen(true);
     }
-  }, [auth.isAuthenticated, cloudName, cloudProjectId, cloudRevision, createCloudProject, saveCloudProject, project.state, utils.projects.list]);
+  }, [auth.isAuthenticated, cloudName, cloudProjectId, cloudRevision, cloudRole, flash, createCloudProject, saveCloudProject, project.state, utils.projects.list]);
 
   const loadCloudProject = useCallback(async (id: number) => {
     setSyncStatus('saving');
@@ -730,6 +741,7 @@ function Workbench() {
     if (id === cloudProjectId) {
       setCloudProjectId(null);
       setCloudRevision(null);
+      setCloudRole(null);
       setConflictServer(null);
       setSyncStatus('local');
     }
@@ -748,10 +760,56 @@ function Workbench() {
     if (!auth.isAuthenticated) {
       setCloudProjectId(null);
       setCloudRevision(null);
+      setCloudRole(null);
       setConflictServer(null);
       setSyncStatus('local');
     }
   }, [auth.isAuthenticated]);
+
+  // Invitation (lot 8.4) : `?partage=JETON` est retiré de l'adresse et gardé pour l'onglet le temps
+  // de la connexion ; une fois connecté (et le brouillon local repris), le projet partagé s'ouvre.
+  const [pendingShare, setPendingShare] = useState<string | null>(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get(SHARE_PARAM);
+    try {
+      if (fromUrl) sessionStorage.setItem(PENDING_SHARE_KEY, fromUrl);
+      return fromUrl ?? sessionStorage.getItem(PENDING_SHARE_KEY);
+    } catch { return fromUrl; }
+  });
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has(SHARE_PARAM)) return;
+    url.searchParams.delete(SHARE_PARAM);
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  }, []);
+  const sharePrompted = useRef(false);
+  useEffect(() => {
+    if (!pendingShare || auth.isLoading || !project.hydrated) return;
+    if (!auth.isAuthenticated) {
+      // Demande unique : le panneau peut ensuite être fermé sans se rouvrir.
+      if (!sharePrompted.current) {
+        sharePrompted.current = true;
+        flash('Invitation reçue : connectez-vous pour ouvrir le projet partagé.');
+        setCloudOpen(true);
+      }
+      return;
+    }
+    const token = pendingShare;
+    setPendingShare(null);
+    // Le jeton n'est oublié qu'une fois l'invitation acceptée ou refusée par le serveur ; une panne
+    // (réseau, serveur) le garde pour l'onglet, et un rechargement réessaie.
+    const forget = () => { try { sessionStorage.removeItem(PENDING_SHARE_KEY); } catch { /* jeton non conservé */ } };
+    joinSharedProject.mutateAsync({ token }).then(
+      joined => { forget(); void utils.projects.list.invalidate(); return loadCloudProject(joined.projectId); },
+      (e: { data?: { code?: string } | null }) => {
+        if (e?.data?.code === 'NOT_FOUND') {
+          forget();
+          flash('Invitation inconnue, déjà utilisée ou expirée : demandez un nouveau lien.');
+        } else {
+          flash('Invitation non acceptée pour l’instant (réseau ou serveur) : rechargez la page pour réessayer.');
+        }
+      },
+    );
+  }, [pendingShare, auth.isLoading, auth.isAuthenticated, project.hydrated, flash, joinSharedProject, loadCloudProject, utils.projects.list]);
 
   useEffect(() => {
     if (!auth.isAuthenticated || cloudProjectId === null) return;
@@ -923,6 +981,9 @@ function Workbench() {
       assets={project.assets}
       onAddNotePhoto={(id, f) => { void addNotePhoto(id, f); }}
       onRemoveNotePhoto={project.removeNotePhoto}
+      comments={selected && cloudProjectId !== null && cloudRole && auth.isAuthenticated
+        ? <ObjectComments key={`${cloudProjectId}-${selected.id}`} projectId={cloudProjectId} objectId={selected.id} role={cloudRole} userId={auth.user?.id ?? null} />
+        : undefined}
     />
   );
   const historyEl = (
@@ -1573,6 +1634,8 @@ function Workbench() {
         isAuthenticated={auth.isAuthenticated}
         currentId={cloudProjectId}
         currentRevision={cloudRevision}
+        currentRole={cloudRole}
+        userId={auth.user?.id ?? null}
         status={syncStatus}
         projectName={cloudName}
         setProjectName={setCloudName}
@@ -1583,6 +1646,7 @@ function Workbench() {
         onRename={renameCloud}
         onUseCloudVersion={useCloudVersion}
         onKeepLocalVersion={keepLocalVersion}
+        onLeave={() => { setCloudProjectId(null); setCloudRevision(null); setCloudRole(null); setConflictServer(null); setSyncStatus('local'); }}
       />
       {snapPanelOpen && <SnapSettings active={snapTypes} onChange={setSnapTypes} onClose={() => setSnapPanelOpen(false)} />}
       {arrayMode && (

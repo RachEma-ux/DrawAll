@@ -9,6 +9,8 @@ import {
   int,
   json,
   index,
+  uniqueIndex,
+  boolean,
 } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
@@ -59,6 +61,66 @@ export const projects = mysqlTable(
 
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = typeof projects.$inferInsert;
+
+/**
+ * Partage (lot 8.4) : membres d'un projet autres que son propriétaire, avec leur droit
+ * (« lecture » : ouvrir et commenter ; « ecriture » : aussi enregistrer).
+ */
+export const projectMembers = mysqlTable(
+  "project_members",
+  {
+    id: serial("id").primaryKey(),
+    projectId: bigint("projectId", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: bigint("userId", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: mysqlEnum("role", ["lecture", "ecriture"]).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("project_members_unique").on(t.projectId, t.userId), index("project_members_user_idx").on(t.userId)],
+);
+
+export type ProjectMember = typeof projectMembers.$inferSelect;
+
+/** Invitation par lien (lot 8.4) : jeton secret, droit accordé, date d'expiration. */
+export const projectInvites = mysqlTable(
+  "project_invites",
+  {
+    token: varchar("token", { length: 64 }).primaryKey(),
+    projectId: bigint("projectId", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    role: mysqlEnum("role", ["lecture", "ecriture"]).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+  },
+  (t) => [index("project_invites_project_idx").on(t.projectId)],
+);
+
+export type ProjectInvite = typeof projectInvites.$inferSelect;
+
+/** Commentaire (lot 8.4) ancré sur un objet du projet (identifiant OBJ-…), résolu ou non. */
+export const projectComments = mysqlTable(
+  "project_comments",
+  {
+    id: serial("id").primaryKey(),
+    projectId: bigint("projectId", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    authorId: bigint("authorId", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    objectId: varchar("objectId", { length: 64 }).notNull(),
+    text: text("text").notNull(),
+    resolved: boolean("resolved").notNull().default(false),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (t) => [index("project_comments_project_idx").on(t.projectId)],
+);
+
+export type ProjectComment = typeof projectComments.$inferSelect;
 
 // TODO: Add your tables here. See docs/Database.md for schema examples and patterns.
 //

@@ -415,6 +415,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - La vérification du `state` précède aussi le traitement d'une réponse d'erreur du fournisseur (refus, `access_denied`) : une erreur non sollicitée est refusée, et le cookie est effacé dans tous les cas.
 - Session de sept jours (cookie et jeton ; un an auparavant), puis nouvelle connexion. Le serveur refuse tout jeton émis depuis plus de sept jours, même s'il porte une expiration plus lointaine : les sessions d'un an déjà ouvertes avant ce lot expirent ainsi au plus tard sept jours après leur émission.
 
+### 10.4 Partage et commentaires (règle, lot 8.4)
+
+- Trois droits sur un projet cloud : **propriétaire** (tout : enregistrer, partager, renommer, supprimer), **écriture** (ouvrir, enregistrer, commenter, résoudre), **lecture** (ouvrir et commenter). Le serveur vérifie le droit à chaque appel ; un projet sans accès est « introuvable » (son existence n'est pas révélée), un droit insuffisant est « interdit ».
+- Le propriétaire partage par lien (`/?partage=JETON`) en lecture ou en écriture : jeton aléatoire de 192 bits, valable sept jours, à usage unique (un lien par personne invitée ; consommé à l'acceptation, il ne rend pas l'accès à un membre retiré). L'invité qui l'ouvre devient membre une fois connecté (le jeton est gardé pour l'onglet le temps de la connexion, et tant qu'une panne empêche de l'accepter) ; un lien en écriture relève un droit en lecture, jamais l'inverse. Le propriétaire change ou retire un droit ; un membre peut quitter le projet.
+- En lecture, la synchronisation est refusée ; « Enregistrer comme nouveau » crée une copie dont le compte est propriétaire. En écriture, les enregistrements concurrents restent arbitrés par la révision (§ conflits) : rien n'est écrasé.
+- Les commentaires sont ancrés sur un objet (identifiant `OBJ-…`), stockés côté serveur (hors du dessin et de ses exports), visibles de tous les membres dans l'inspecteur. Un commentaire est résolu ou rouvert par son auteur ou par un droit d'écriture.
+
 ## 11. Références
 
 | Sujet | Référence |
