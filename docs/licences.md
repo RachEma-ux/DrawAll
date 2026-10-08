@@ -5,6 +5,8 @@
 | Open CASCADE Technology, via `replicad-opencascadejs` 1.1.0 | Noyau géométrique 3D (lot 11.2) | **LGPL-2.1** | Module WebAssembly **séparé** (`assets/replicad_single-*.wasm`), chargé à la demande dans un Worker, jamais fusionné au code de l'application |
 | `replicad` 1.1.0 | API de modélisation au-dessus d'OCCT | MIT | Inclus dans le Worker du noyau |
 | `@salusoft89/planegcs` 1.2.0 (solveur de FreeCAD) | Oracle de test du solveur de contraintes (lot 11.1) | LGPL-2.0-or-later | Dépendance de développement : absent de l'application livrée |
+| `yjs` 13.6.33 | Essai CRDT de la note de décision P0 (lot 11.5) ; bibliothèque retenue pour la collaboration sur annotations et métadonnées | MIT | Dépendance de développement tant qu'aucun lot ne l'utilise dans l'application |
+| `@automerge/automerge` 3.5.0 | Essai CRDT (lot 11.5), candidat non retenu | MIT | Dépendance de développement de l'essai seulement |
 
 ## OCCT : conditions de la LGPL (décision du maître d'ouvrage, 8 octobre 2026)
 
