@@ -1,0 +1,169 @@
+{
+  "moteur": "Node v22.22.0",
+  "date": "2026-10-08",
+  "noyau": "replicad-opencascadejs 1.1.0 + replicad 1.1.0",
+  "cas": [
+    {
+      "cas": "congé R 5 sur l’arête dessus ∩ droite",
+      "modification": "—",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 6,
+      "serie": "pavé"
+    },
+    {
+      "cas": "même congé",
+      "modification": "pavé redimensionné en 120 × 60 × 30",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 6,
+      "serie": "pavé"
+    },
+    {
+      "cas": "même congé",
+      "modification": "perçage Ø 20 ajouté en amont",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 9,
+      "serie": "pavé"
+    },
+    {
+      "cas": "même congé",
+      "modification": "rainure selon Y : le dessus est coupé en deux, l’arête reste entière",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 12,
+      "serie": "pavé"
+    },
+    {
+      "cas": "même congé",
+      "modification": "rainure selon X : l’arête est coupée en deux",
+      "statut": "à réparer",
+      "raison": "arête partagée en 2 morceaux",
+      "candidats": 2,
+      "rangNoyau": null,
+      "serie": null
+    },
+    {
+      "cas": "même congé",
+      "modification": "coin enlevé : dessus et droite ne se touchent plus",
+      "statut": "à réparer",
+      "raison": "les deux faces ne se touchent plus",
+      "candidats": 0,
+      "rangNoyau": null,
+      "serie": null
+    },
+    {
+      "cas": "même congé",
+      "modification": "fonction renommée (B → C)",
+      "statut": "à réparer",
+      "raison": "fonction « B » absente de la recette",
+      "candidats": 0,
+      "rangNoyau": null,
+      "serie": null
+    },
+    {
+      "cas": "congé sur l’arête dessus ∩ gauche",
+      "modification": "pavé accolé à droite (union) : le dessus fusionne avec celui du voisin",
+      "statut": "à réparer",
+      "raison": "face disparue (B.zmax)",
+      "candidats": 0,
+      "rangNoyau": null,
+      "serie": null
+    },
+    {
+      "cas": "congé R 2 sur le bord supérieur du perçage",
+      "modification": "—",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 13,
+      "serie": "trou"
+    },
+    {
+      "cas": "même congé",
+      "modification": "perçage agrandi à Ø 30",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 13,
+      "serie": "trou"
+    },
+    {
+      "cas": "congé R 3 sur l’arête rentrante d’un profil en L",
+      "modification": "—",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 7,
+      "serie": "L"
+    },
+    {
+      "cas": "même congé",
+      "modification": "profil redimensionné",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 7,
+      "serie": "L"
+    },
+    {
+      "cas": "même congé",
+      "modification": "sommet inséré dans un autre segment (rangs décalés)",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 10,
+      "serie": "L"
+    },
+    {
+      "cas": "même congé",
+      "modification": "contour commencé à un autre sommet",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 0,
+      "serie": "L"
+    },
+    {
+      "cas": "même congé",
+      "modification": "segment visé coupé en deux : le coin appartient au nouveau morceau",
+      "statut": "à réparer",
+      "raison": "les deux faces ne se touchent plus",
+      "candidats": 0,
+      "rangNoyau": null,
+      "serie": null
+    },
+    {
+      "cas": "coque de 2 mm ouverte sur la face avant (Y min)",
+      "modification": "—",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 2,
+      "serie": "coque"
+    },
+    {
+      "cas": "même coque",
+      "modification": "pavé redimensionné en 120 × 60 × 30",
+      "statut": "conservée",
+      "raison": null,
+      "candidats": 1,
+      "rangNoyau": 2,
+      "serie": "coque"
+    },
+    {
+      "cas": "coque ouverte sur le dessus",
+      "modification": "rainure selon X : le dessus est coupé en deux",
+      "statut": "à réparer",
+      "raison": "face partagée en 2 morceaux",
+      "candidats": 2,
+      "rangNoyau": null,
+      "serie": null
+    }
+  ]
+}

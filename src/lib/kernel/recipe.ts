@@ -4,20 +4,34 @@
 
 export type Vec3 = [number, number, number];
 
+/**
+ * Référence topologique (lot 11.3) : une face est désignée par la fonction qui l'engendre (`feature`,
+ * le `name` d'une primitive) et par son rôle dans cette fonction, jamais par son rang dans le
+ * solide. Rôles : pavé `xmin` `xmax` `ymin` `ymax` `zmin` `zmax` ; cylindre `wall` `base` `cap` ;
+ * extrusion `bottom` `top` `side:<identifiant du segment>`.
+ */
+export interface FaceRef { feature: string; role: string }
+/** Arête désignée par les deux faces qu'elle sépare. */
+export interface EdgeRef { faces: [FaceRef, FaceRef] }
+
 export type SolidRecipe =
   /** Pavé de dimensions x, y, z, coin minimal en `at` (origine par défaut). */
-  | { op: 'box'; x: number; y: number; z: number; at?: Vec3 }
+  | { op: 'box'; x: number; y: number; z: number; at?: Vec3; name?: string }
   /** Cylindre de rayon r, hauteur h, base centrée en `at`, axe `dir` (Z par défaut). */
-  | { op: 'cylinder'; r: number; h: number; at?: Vec3; dir?: Vec3 }
-  /** Contour fermé du plan XY (sommets) extrudé de `height` selon Z. */
-  | { op: 'extrude'; profile: [number, number][]; height: number }
+  | { op: 'cylinder'; r: number; h: number; at?: Vec3; dir?: Vec3; name?: string }
+  /**
+   * Contour fermé du plan XY (sommets) extrudé de `height` selon Z. `segmentIds[i]` nomme le
+   * segment du sommet i au suivant (par défaut `s<i>`) : il suit le segment si l'on insère,
+   * retire ou fait tourner des sommets ailleurs dans le contour.
+   */
+  | { op: 'extrude'; profile: [number, number][]; height: number; name?: string; segmentIds?: string[] }
   /** Contour fermé du plan XZ (x ≥ 0 : rayon, z : hauteur) tourné autour de l'axe Z. */
   | { op: 'revolve'; profile: [number, number][]; angle: number }
   | { op: 'union' | 'cut' | 'intersect'; a: SolidRecipe; b: SolidRecipe }
-  /** Congé de rayon r sur toutes les arêtes. */
-  | { op: 'fillet'; of: SolidRecipe; r: number }
-  /** Coque : évidement d'épaisseur `thickness`, face du dessus (Z max) ouverte. */
-  | { op: 'shell'; of: SolidRecipe; thickness: number };
+  /** Congé de rayon r sur les arêtes désignées (`edges`), sinon sur toutes. */
+  | { op: 'fillet'; of: SolidRecipe; r: number; edges?: EdgeRef[] }
+  /** Coque : évidement d'épaisseur `thickness`, face `open` ouverte (par défaut celle du dessus, Z max). */
+  | { op: 'shell'; of: SolidRecipe; thickness: number; open?: FaceRef };
 
 export interface MeshResult { vertices: number[]; triangles: number[] }
 
