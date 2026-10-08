@@ -537,3 +537,19 @@ describe('coupes (lot 5.3)', () => {
     expect((content.match(/\n6\nCONTINUOUS\n370\n18\n100\nAcDbHatch\n/g) ?? []).length).toBe(3);
   });
 });
+
+describe('nomenclature (lot 5.4)', () => {
+  it('tableau et repère exportés (traits, cercle, textes, point plein), lisibles par ezdxf', () => {
+    const objs: CadObject[] = [
+      { ...base, id: 'OBJ-0001', name: 'Platine', kind: 'rect', x: 0, y: 0, w: 100, h: 60, part: 'Platine', materialId: 'acier' },
+      { ...base, id: 'OBJ-0002', name: 'Rep', kind: 'balloon', targetId: 'OBJ-0001', x: 130, y: -30 },
+      { ...base, id: 'OBJ-0003', name: 'BOM', kind: 'bom', x: 150, y: 0 },
+    ];
+    const { content, report } = exportDxf(objs, layers, []);
+    keepFixture('nomenclature.dxf', content);
+    expect(decodeDxfString(content)).toContain('Désignation');
+    expect(content).toMatch(/\n1\nPlatine\n/);
+    expect(content).toContain('\nSOLID\n');
+    expect(report.transformed.join(' ')).toMatch(/Nomenclature et repères : 2/);
+  });
+});

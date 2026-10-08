@@ -268,6 +268,7 @@ export default function Navigator(p: Props) {
               Insérer
             </button>
             <button
+              aria-label={`Supprimer le bloc ${block.id}`}
               onClick={() => { if (window.confirm(`Supprimer ${block.id} et ses occurrences ?`)) p.onRemoveBlock(block.id); }}
               className="rounded-sm border border-red-400/30 px-1.5 py-0.5 font-mono text-[9px] text-red-400 hover:bg-red-400/10"
             >

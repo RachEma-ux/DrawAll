@@ -30,6 +30,7 @@ import {
   gridSnap,
   objectBounds,
   projectBounds,
+  unionBounds,
   snapLabel,
   type Point,
   type ObjectSnapType,
@@ -47,8 +48,9 @@ import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/li
 import { openingGeometry, swingPath } from '@/lib/opening';
 import { areaM2, centroid, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
 import { distanceToViews, linkedViews } from '@/lib/views';
+import { annotationBounds, annotationGeometry, isAnnotation, type AnnotationObject } from '@/lib/bom';
 import { cutView, distanceToCut } from '@/lib/cuts';
-import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol, isSymbol, symbolGeometry, type SymbolObject } from '@/lib/symbols';
+import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
@@ -786,14 +788,25 @@ export default function CanvasView({
   };
 
   const fitView = () => {
-    const bounds = projectBounds(visibleObjects, blocks);
+    const base = projectBounds(visibleObjects, blocks);
     const rect = ref.current?.getBoundingClientRect();
-    if (!bounds || !rect) return;
+    if (!base || !rect) return;
     // Marge proportionnelle : une marge fixe écraserait les zones basses (téléphone en paysage).
     const pad = Math.min(70, rect.width * 0.08, rect.height * 0.08);
+    const scaleFor = (b: typeof base) => Math.min(4, Math.max(0.08, Math.min(
+      (rect.width - pad * 2) / Math.max(1, b.maxX - b.minX), (rect.height - pad * 2) / Math.max(1, b.maxY - b.minY))));
+    // Annotations (nomenclature, repères, symboles) à taille papier fixe : leur emprise dépend du
+    // zoom ; quelques passes suffisent à faire tenir le tableau entier.
+    const annotations = visibleObjects.filter(isAnnotation);
+    let bounds = base, k = scaleFor(base);
+    for (let i = 0; i < 4 && annotations.length; i++) {
+      const u = SCREEN_PX_PER_PAPER_MM / k;
+      const extents = annotations.map(o => annotationGeometry(o, u, objects, blocks)).map(g => (g ? annotationBounds(g) : null)).filter((b): b is NonNullable<typeof b> => !!b);
+      bounds = unionBounds([base, ...extents])!;
+      k = scaleFor(bounds);
+    }
     const width = Math.max(1, bounds.maxX - bounds.minX);
     const height = Math.max(1, bounds.maxY - bounds.minY);
-    const k = Math.min(4, Math.max(0.08, Math.min((rect.width - pad * 2) / width, (rect.height - pad * 2) / height)));
     setTf({
       k,
       x: (rect.width - width * k) / 2 - bounds.minX * k,
@@ -1103,7 +1116,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'cut') return <CutShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'views') return <ViewsShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
-  if (isSymbol(obj)) return <SymbolShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
+  if (isAnnotation(obj)) return <SymbolShape obj={obj} objects={objects} blocks={blocks} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'room') return <RoomShape obj={obj} poly={rooms?.get(obj.id) ?? null} selected={selected} zoom={zoom} paperScale={paperScale} />;
   if (obj.kind === 'opening') {
     const host = objects.find(o => o.id === obj.hostId);
@@ -1218,11 +1231,11 @@ function ViewsShape({ obj, objects, selected, zoom, layer, colorMode, paperScale
 }
 
 /** Symbole (nord, repère de coupe, cote de niveau) : taille papier sur une feuille, constante à l'écran. */
-function SymbolShape({ obj, selected, zoom, layer, colorMode, paperScale }: {
-  obj: SymbolObject; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale;
+function SymbolShape({ obj, objects, blocks, selected, zoom, layer, colorMode, paperScale }: {
+  obj: AnnotationObject; objects: CadObject[]; blocks: BlockDef[]; selected: boolean; zoom: number; layer?: Layer; colorMode: ColorMode; paperScale?: DrawingScale;
 }) {
   const u = paperScale ? paperToModelSize(1, paperScale) : SCREEN_PX_PER_PAPER_MM / zoom;
-  const g = symbolGeometry(obj, u);
+  const g = annotationGeometry(obj, u, objects, blocks);
   if (!g) return null;
   const st = effectiveStyle(obj, layer);
   const color = selected ? '#22d3ee' : colorMode === 'metier' ? CLASSIFICATION_META[obj.classification].color : st.color;
@@ -1570,9 +1583,9 @@ function hitTest(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], 
       const v = linkedViews(o, allObjects.find(s => s.id === o.sourceId), allObjects);
       if (v && distanceToViews(v, x, y) <= tol) return o;
     }
-    if (isSymbol(o)) {
+    if (isAnnotation(o)) {
       // Géométrie à la taille écran (tol ≈ 6 px) : le symbole se désigne par ses traits ou sa lettre.
-      const g = symbolGeometry(o, (tol / 6) * SCREEN_PX_PER_PAPER_MM);
+      const g = annotationGeometry(o, (tol / 6) * SCREEN_PX_PER_PAPER_MM, allObjects, blocks);
       if (g && distanceToSymbol(g, { x, y }) <= tol) return o;
     }
     if (o.kind === 'room') {

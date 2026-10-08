@@ -684,6 +684,7 @@ function Workbench() {
     { id: 'toggle-snap', title: 'Basculer l’accrochage objet', hint: 'Extrémités, milieux, centres, quadrants et intersections (F9)', keywords: ['snap', 'accrochage', 'precision'], run: () => setSnapEnabled(v => !v) },
     { id: 'toggle-ortho', title: 'Basculer le mode ortho', hint: 'Contraint le tracé horizontalement ou verticalement (F8)', keywords: ['ortho', 'horizontal', 'vertical', 'precision'], run: () => setOrthoEnabled(v => !v) },
     { id: 'import-dxf', title: 'Importer un fichier DXF', hint: 'LINE, CIRCLE et LWPOLYLINE — conversion vers les objets DrawAll', keywords: ['dxf', 'import', 'autocad', 'interoperabilite'], run: () => dxfInputRef.current?.click() },
+    { id: 'bom', title: 'Insérer la nomenclature', hint: 'Tableau repère / désignation / matériau / quantité, calculé depuis les pièces', keywords: ['nomenclature', 'bom', 'pieces', 'repere', 'quantite', 'tableau'], run: () => { setMode('atelier'); project.addBom(); } },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
     { id: 'export', title: 'Exporter le paquet du projet', hint: 'Manifeste versionné + objets + unités (JSON)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json'], run: exportPackage },
     { id: 'docs-concept', title: 'Documentation — Concept produit', hint: 'Vision, engagements, parcours de preuve', keywords: ['concept', 'vision', 'documentation', 'aide'], run: () => { setDocsSub('concept'); setMode('docs'); } },
@@ -780,6 +781,8 @@ function Workbench() {
       onSurfaceRule={project.setSurfaceRule}
       onAddViews={project.addViews}
       onAddCut={project.addCut}
+      onAddBalloon={project.addBalloon}
+      onAddBom={project.addBom}
       onSelect={project.setSelectedId}
     />
   );

@@ -18,7 +18,7 @@ import { textLines, TEXT_FONT_SCALE, TEXT_LINE_SPACING } from '@/lib/text';
 import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import { occurrencePrimitives, profileById, withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { onLevel, viewportLevelId } from '@/lib/levels';
-import { isSymbol, symbolGeometry } from '@/lib/symbols';
+import { annotationGeometry, isAnnotation } from '@/lib/bom';
 import { linkedViews } from '@/lib/views';
 import { cutView } from '@/lib/cuts';
 
@@ -223,9 +223,9 @@ export function sheetToPdf(input: PdfInput): string {
         }
         continue;
       }
-      if (isSymbol(o)) {
-        // Symbole à sa taille papier : traits fins 0,25 mm / forts 0,7 mm, surfaces pleines, textes.
-        const g = symbolGeometry(o, 1 / k);
+      if (isAnnotation(o)) {
+        // Symbole, nomenclature ou repère à sa taille papier : traits fins 0,25 mm / forts 0,7 mm, surfaces pleines, textes.
+        const g = annotationGeometry(o, 1 / k, objects, blocks);
         if (!g) continue;
         for (const c of g.circles) { setStroke(0.25); out(`${arcPath(toPdf(c.c), c.r * k * MM_TO_PT, 0, 360)} h S`); }
         for (const l of g.lines) {

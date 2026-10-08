@@ -146,7 +146,8 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 5.1 Tolérances | Fait | #31 |
 | 5.2 Vues alignées | Fait | #32 |
 | 5.3 Coupes | Fait | #33 |
-| 5.4 → 8.4 | À faire | — |
+| 5.4 Nomenclature | Fait | #34 |
+| 6.1 → 8.4 | À faire | — |
 
 ## 6. Parcours de preuve final
 
