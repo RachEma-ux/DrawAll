@@ -303,6 +303,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | Texte sur une ligne | Conservé (TEXT : contenu, hauteur, rotation, alignement ; %%c %%d %%p décodés) | Conservé (TEXT) |
 | Texte sur plusieurs lignes | Conservé (MTEXT : mise en forme simplifiée en texte brut) | Conservé (MTEXT, point d'attache en haut) |
 | Autres entités (POINT, SOLID, 3DFACE, ATTRIB, POLYLINE ancienne…) | Ignorées et signalées | — |
+| Fichier DWG | Reconnu à sa signature (version AutoCAD) et refusé avec la marche à suivre (enregistrer en DXF) : convertisseur à décider (feuille de route §7, lot 6.3) | — |
 
 ### 7.3 Fond de plan (règle, lot 6.2)
 

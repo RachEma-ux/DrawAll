@@ -77,6 +77,7 @@ Détail et matrice : [`docs/DrawAll_v4.1_Conventions_Dessin.md`](docs/DrawAll_v4
 
 - Le moteur est un moteur SVG 2D, pas un noyau B-Rep 3D.
 - Les blocs sont aplatis à l’export DXF ; les attributs de blocs (`ATTRIB`) et références externes ne sont pas encore pris en charge.
+- Les fichiers DWG sont reconnus mais pas lus : le choix du convertisseur (bibliothèque, licence) est une décision du maître d’ouvrage ; en attendant, enregistrer le fichier en DXF.
 - La collaboration en temps réel, le partage par droits et la comparaison visuelle de versions restent à implémenter.
 - Le bundle principal dépasse légèrement 500 kB ; un découpage par routes pourra être ajouté.
 

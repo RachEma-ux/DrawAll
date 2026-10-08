@@ -26,6 +26,7 @@ import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { assetRoom, calibrate, fitEncoding, fitPixels, imageSizeMm, pdfPageSizeMm } from '@/lib/underlay';
+import { detectDwg, dwgRefusal } from '@/lib/dwg';
 import { measurePolygon, type Measure } from '@/lib/area';
 import { PROFILES, withProfile, withProfileBlocks, type ViewContext } from '@/lib/materials';
 import { openingFits, positionOnWall } from '@/lib/opening';
@@ -314,6 +315,9 @@ function Workbench() {
   }, [cloudName, shownObjects, shownBlocks, project.layers, project.sheets, project.levels, project.activeLevelId]);
 
   const importDxfFile = useCallback(async (file: File) => {
+    // DWG : reconnu à sa signature et refusé avec la marche à suivre (convertisseur à décider, §7).
+    const dwg = detectDwg(new Uint8Array(await file.slice(0, 6).arrayBuffer()));
+    if (dwg) { window.alert(dwgRefusal(file.name, dwg)); return; }
     const text = await file.text();
     const options = {
       objectStart: project.state.counter,
@@ -763,7 +767,7 @@ function Workbench() {
     { id: 'toggle-snap', title: 'Basculer l’accrochage objet', hint: 'Extrémités, milieux, centres, quadrants et intersections (F9)', keywords: ['snap', 'accrochage', 'precision'], run: () => setSnapEnabled(v => !v) },
     { id: 'toggle-ortho', title: 'Basculer le mode ortho', hint: 'Contraint le tracé horizontalement ou verticalement (F8)', keywords: ['ortho', 'horizontal', 'vertical', 'precision'], run: () => setOrthoEnabled(v => !v) },
     { id: 'import-underlay', title: 'Importer un fond de plan', hint: 'Image ou PDF placé sous le dessin, calé par deux points et une distance connue, verrouillable', keywords: ['fond de plan', 'image', 'pdf', 'photo', 'scan', 'calque', 'underlay'], run: () => underlayInputRef.current?.click() },
-    { id: 'import-dxf', title: 'Importer un fichier DXF', hint: 'Traits, cercles, arcs, polylignes, textes, blocs (INSERT), cotes, hachures, splines et ellipses — rapport d’échange', keywords: ['dxf', 'import', 'autocad', 'interoperabilite'], run: () => dxfInputRef.current?.click() },
+    { id: 'import-dxf', title: 'Importer un fichier DXF ou DWG', hint: 'DXF : traits, cercles, arcs, polylignes, textes, blocs (INSERT), cotes, hachures, splines et ellipses — rapport d’échange. DWG : reconnu, la marche à suivre (enregistrer en DXF) est indiquée', keywords: ['dxf', 'dwg', 'import', 'autocad', 'interoperabilite'], run: () => dxfInputRef.current?.click() },
     { id: 'bom', title: 'Insérer la nomenclature', hint: 'Tableau repère / désignation / matériau / quantité, calculé depuis les pièces', keywords: ['nomenclature', 'bom', 'pieces', 'repere', 'quantite', 'tableau'], run: () => { setMode('atelier'); project.addBom(); } },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
     { id: 'export', title: 'Exporter le paquet du projet', hint: 'Manifeste versionné + objets + unités (JSON)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json'], run: exportPackage },
@@ -1472,7 +1476,7 @@ function Workbench() {
       <input
         ref={dxfInputRef}
         type="file"
-        accept=".dxf,text/plain"
+        accept=".dxf,.dwg,text/plain"
         className="hidden"
         onChange={e => {
           const file = e.target.files?.[0];
