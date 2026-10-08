@@ -8,7 +8,8 @@ import { publicationStatus, type Publication } from '@/lib/publication';
 interface Props {
   state: ProjectState;
   publications: Publication[];
-  onPublish: (name: string) => string | null;
+  /** Peut attendre (vues projetées calculées avant de figer les PDF). */
+  onPublish: (name: string) => string | null | Promise<string | null>;
   onClose: () => void;
 }
 
@@ -25,6 +26,16 @@ function download(p: Publication, sheet: Publication['sheets'][number]) {
 export default function PublicationsPanel({ state, publications, onPublish, onClose }: Props) {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const err = await onPublish(name);
+      setError(err);
+      if (!err) setName('');
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    setBusy(false);
+  };
   const color = { 'publié': 'text-emerald-300', 'modifié depuis': 'text-amber-300', 'autre variante': 'text-muted-foreground' } as const;
   return (
     <div role="dialog" aria-label="Publications" className="fixed inset-x-3 top-16 z-50 mx-auto flex max-h-[75vh] max-w-lg flex-col gap-2 overflow-y-auto rounded-md border border-border bg-[#0c1220] p-3 font-mono text-[12px] text-muted-foreground shadow-2xl">
@@ -32,10 +43,10 @@ export default function PublicationsPanel({ state, publications, onPublish, onCl
         <h2 className="text-sm text-foreground">Publications</h2>
         <button type="button" onClick={onClose} aria-label="Fermer les publications" className="rounded-sm px-2 py-0.5 hover:text-foreground">×</button>
       </div>
-      <form className="flex items-center gap-1.5" onSubmit={e => { e.preventDefault(); const err = onPublish(name); setError(err); if (!err) setName(''); }}>
+      <form className="flex items-center gap-1.5" onSubmit={e => { e.preventDefault(); if (!busy) void submit(); }} data-busy={busy || undefined}>
         <input aria-label="Nom du dossier à publier" placeholder="Nom du dossier (ex. Permis de construire)" value={name} onChange={e => setName(e.target.value)}
           className="min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 py-1 text-foreground" />
-        <button type="submit" aria-label="Publier la version courante" className="rounded-sm border border-cyan-400/60 bg-cyan-400/10 px-2 py-1 text-cyan-200">Publier</button>
+        <button type="submit" disabled={busy} aria-label="Publier la version courante" className="rounded-sm disabled:opacity-40 border border-cyan-400/60 bg-cyan-400/10 px-2 py-1 text-cyan-200">Publier</button>
       </form>
       <p className="text-[11px]">Publier fige la version courante (nommée) et le PDF de chaque feuille : le dossier ne change plus, même si le projet évolue.</p>
       {error && <p role="alert" data-testid="publication-erreur" className="text-red-300">{error}</p>}

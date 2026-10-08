@@ -52,6 +52,26 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('transformObjects', [['OBJ-0001'], (o: CadObject) => o], [line])).toBe('fonction en argument : utiliser une commande déclarative');
   });
 
+  it('références vérifiées : niveau, bloc, objet désigné présent et du bon type', () => {
+    const L = [{ id: 'LAY-0001' }];
+    const P = { levels: [{ id: 'NIV-0001' }], blocks: [{ id: 'BLK-0001' }] };
+    const add = (o: Record<string, unknown>, objects: CadObject[] = [line]) => validateCommand('addObject', [{ layerId: 'LAY-0001', ...o }], objects, L, P);
+    expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, levelId: 'NIV-0009' })).toBe('line : niveau NIV-0009 absent');
+    expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, levelId: 'NIV-0001' })).toBeNull();
+    expect(add({ kind: 'blockRef', x: 0, y: 0, scale: 1, blockId: 'BLK-0009' })).toBe('blockRef : bloc BLK-0009 absent');
+    expect(add({ kind: 'blockRef', x: 0, y: 0, scale: 1, blockId: 'BLK-0001' })).toBeNull();
+    const occ = { kind: 'occurrence', x: 0, y: 0, z: 0, angle: 0 };
+    expect(add({ ...occ, sourceId: 'OBJ-0404' })).toBe('occurrence : objet désigné OBJ-0404 absent');
+    expect(add({ ...occ, sourceId: 'OBJ-0001' })).toBe('occurrence : OBJ-0001 n’est pas un objet de type solid');
+    expect(add({ kind: 'opening', position: 100, width: 900, type: 'porte', hostId: 'OBJ-0001' })).toBe('opening : OBJ-0001 n’est pas un objet de type wall');
+    const solid = { ...line, id: 'S', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } } as unknown as CadObject;
+    expect(add({ ...occ, sourceId: 'S' }, [solid])).toBeNull();
+    expect(add({ ...occ, sourceId: 'S', mate: { to: 'X' } }, [solid])).toBe('occurrence : liaison vers X absente');
+    expect(add({ kind: 'dimension', offset: 5, style: 'aligned', targetId: 'OBJ-0404' })).toBe('dimension : objet désigné OBJ-0404 absent');
+    // Mise à jour : une référence rompue est refusée.
+    expect(validateCommand('updateObject', ['OBJ-0001', { levelId: 'NIV-0009' }], [line], L, P)).toBe('line : niveau NIV-0009 absent');
+  });
+
   it('scripts : seules les commandes entièrement validées sont ouvertes', () => {
     expect(scriptCommandError('addObject')).toBeNull();
     expect(scriptCommandError('undo')).toBeNull();

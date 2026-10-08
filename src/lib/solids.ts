@@ -253,13 +253,15 @@ export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
   const v3 = (v: unknown) => Array.isArray(v) && v.length === 3 && v.every(n => num(n));
   const p2 = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(n => num(n));
   const profile = (v: unknown) => Array.isArray(v) && v.length >= 3 && v.every(p2);
+  // Direction : composantes finies et longueur non nulle (on la divise par sa norme).
+  const dirOk = (v: unknown) => (v3(v) || p2(v)) && (v as number[]).some(n => n !== 0);
   const opt = (v: unknown, f: (v: unknown) => boolean) => v === undefined || f(v);
   switch (x.op) {
     case 'box': return num(x.x, true) && num(x.y, true) && num(x.z, true) && opt(x.at, v3);
-    case 'cylinder': return num(x.r, true) && num(x.h, true) && opt(x.at, v3) && opt(x.dir, v3);
+    case 'cylinder': return num(x.r, true) && num(x.h, true) && opt(x.at, v3) && opt(x.dir, d => v3(d) && dirOk(d));
     case 'extrude': return profile(x.profile) && num(x.height, true) && opt(x.z, num);
     case 'revolve': return profile(x.profile) && num(x.angle, true) && (x.angle as number) <= 360
-      && opt(x.axis, a => !!a && typeof a === 'object' && p2((a as Record<string, unknown>).origin) && p2((a as Record<string, unknown>).dir));
+      && opt(x.axis, a => !!a && typeof a === 'object' && p2((a as Record<string, unknown>).origin) && dirOk((a as Record<string, unknown>).dir) && p2((a as Record<string, unknown>).dir));
     case 'sweep': {
       const pr = x.profile as Record<string, unknown> | undefined;
       const prof = profile(x.profile) || (!!pr && !Array.isArray(pr) && num(pr.r, true) && p2(pr.c));

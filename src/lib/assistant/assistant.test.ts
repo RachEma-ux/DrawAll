@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject } from '@/types/cad';
-import { MAX_CORRECTIONS, controlledLoop, dryRun, requestKey, scriptedGenerator, type AssistantContext, type Proposal } from './loop';
+import { MAX_CORRECTIONS, controlledLoop, dryRun, previewDiff, requestKey, scriptedGenerator, type AssistantContext, type Proposal } from './loop';
 import { localGenerator } from './local-generator';
 
 const ctx: AssistantContext = {
@@ -139,5 +139,27 @@ describe('générateur local de démonstration (lot 18.3)', () => {
     const r = await controlledLoop(localGenerator, 'grille de 1 x 2 poteaux 300 x 300 mm entraxe 5 m', { ...ctx, activeLayerId: 'LAY-0002' });
     expect(r.status).toBe('failed');
     if (r.status === 'failed') { expect(r.attempts).toHaveLength(1 + MAX_CORRECTIONS); expect(r.errors[0]).toMatch(/verrouillé/); }
+  });
+});
+
+describe('aperçu du résultat simulé complet', () => {
+  it('créations, modifications et suppressions distinguées (pas seulement les créations)', () => {
+    const line = ctx.objects[0];
+    const other = { ...line, id: 'OBJ-0002', x1: 0, y1: 1000, x2: 1000, y2: 1000 } as CadObject;
+    const r = dryRun([
+      { type: 'transform', args: [['OBJ-0001'], { kind: 'move', dx: 0, dy: 500 }, 'Déplacer'] },
+      { type: 'removeObjects', args: [['OBJ-0002']] },
+      column(0),
+    ], { ...ctx, objects: [line, other] });
+    expect(r.errors).toEqual([]);
+    const d = previewDiff([line, other], r.objects, 'NIV-0001');
+    expect(d.added.map(o => o.id)).toEqual(['PROP-0001']);
+    expect(d.modified.map(o => o.id)).toEqual(['OBJ-0001']);
+    expect(d.removed.map(o => o.id)).toEqual(['OBJ-0002']);
+    expect(d.same).toEqual([]);
+    // Suppression seule : l'objet supprimé n'apparaît plus parmi les objets montrés tels quels.
+    const del = previewDiff([line, other], dryRun([{ type: 'removeObjects', args: [['OBJ-0002']] }], { ...ctx, objects: [line, other] }).objects, 'NIV-0001');
+    expect(del.removed.map(o => o.id)).toEqual(['OBJ-0002']);
+    expect(del.same.map(o => o.id)).toEqual(['OBJ-0001']);
   });
 });

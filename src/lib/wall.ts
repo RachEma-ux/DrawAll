@@ -235,7 +235,10 @@ export function gridIndex(items: { id: string; box: Box }[]) {
   const overlapping = (b: Box): Set<string> => {
     const out = new Set<string>();
     const take = (k: string) => { for (const id of cells.get(k) ?? []) if (hit(boxes.get(id)!, b)) out.add(id); };
-    range(b, take);
+    let huge = false;
+    range(b, k => { if (k === '*') huge = true; else take(k); });
+    // Requête démesurée : toutes les emprises sont examinées (les cases ordinaires comprises).
+    if (huge) { for (const [id, box] of boxes) if (hit(box, b)) out.add(id); return out; }
     take('*');
     return out;
   };

@@ -1577,7 +1577,7 @@ export function useProject() {
     });
   }, []);
   const cmd = <A extends unknown[], R>(type: string, fn: (...a: A) => R) => (...args: A): R => {
-    const err = validateCommand(type, args, allObjects, layers);
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks });
     if (err) {
       let safe: unknown[] = [];
       try { encodeArgs(args); safe = args; } catch { /* arguments non journalisables : non gardés */ }
@@ -1625,7 +1625,7 @@ export function useProject() {
     // Une commande dont les arguments ne sont pas entièrement validés reste réservée à l'interface.
     const closed = scriptCommandError(type);
     if (closed) return { ok: false, error: closed };
-    const err = validateCommand(type, args, allObjects, layers);
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks });
     if (err) { record(type, [], err); return { ok: false, error: `${type} : ${err}` }; }
     return { ok: true, result: (commands[type as CommandName] as (...a: unknown[]) => unknown)(...args) };
   };

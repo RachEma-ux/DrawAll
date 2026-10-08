@@ -6,29 +6,40 @@ import { useMemo, useRef, useState } from 'react';
 import { ObjectShape } from '@/components/CanvasView';
 import ExclusiveRun from '@/components/ExclusiveRun';
 import { useCommandRunner, type Project } from '@/hooks/useCommandRunner';
-import { controlledLoop, type Generator, type LoopResult, type Proposal } from '@/lib/assistant/loop';
+import { controlledLoop, previewDiff, type Generator, type LoopResult, type Proposal } from '@/lib/assistant/loop';
 import { localGenerator } from '@/lib/assistant/local-generator';
 import { objectBounds, unionBounds } from '@/lib/geometry';
-import { onLevel } from '@/lib/levels';
 import type { CadObject } from '@/types/cad';
 
 const DECISION_LABEL = { executee: 'exécutée', rejetee: 'rejetée', echec: 'échec, projet rétabli' } as const;
 
-/** Aperçu : objets du niveau actif en gris, objets proposés en surbrillance. */
-function Preview({ project, added }: { project: Project; added: CadObject[] }) {
-  const existing = useMemo(() => onLevel(project.allObjects, project.activeLevelId ?? 'NIV-0001').filter(o => o.kind !== 'underlay' && o.kind !== 'note'), [project.allObjects, project.activeLevelId]);
-  const all = [...existing, ...added];
-  const b = unionBounds(all.map(o => objectBounds(o, project.blocks, all)).filter((x): x is NonNullable<typeof x> => !!x));
+/**
+ * Aperçu du résultat simulé complet, sur le niveau actif : objets inchangés en gris, objets créés et
+ * modifiés en surbrillance (modifiés encadrés en orange), objets supprimés pâlis et encadrés en rouge.
+ */
+function Preview({ project, after }: { project: Project; after: CadObject[] }) {
+  const level = project.activeLevelId ?? 'NIV-0001';
+  const diff = useMemo(() => previewDiff(project.allObjects, after, level), [project.allObjects, after, level]);
+  const all = [...diff.same, ...diff.added, ...diff.modified, ...diff.removed];
+  const boundsOf = (o: CadObject) => objectBounds(o, project.blocks, all);
+  const b = unionBounds(all.map(boundsOf).filter((x): x is NonNullable<typeof x> => !!x));
   if (!b) return null;
   const pad = Math.max(b.maxX - b.minX, b.maxY - b.minY, 1000) * 0.08;
   const vb = { x: b.minX - pad, y: b.minY - pad, w: b.maxX - b.minX + 2 * pad, h: b.maxY - b.minY + 2 * pad };
   const zoom = 300 / Math.max(vb.w, vb.h);
+  const shape = (o: CadObject, selected: boolean) => <ObjectShape key={o.id} obj={o} objects={all} blocks={project.blocks} view="batiment" selected={selected} zoom={zoom} unit="mm" layer={project.layers.find(l => l.id === o.layerId)} colorMode="calque" />;
+  const frame = (o: CadObject, color: string) => {
+    const r = boundsOf(o), m = 6 / zoom;
+    return r && <rect key={`cadre-${o.id}`} x={r.minX - m} y={r.minY - m} width={r.maxX - r.minX + 2 * m} height={r.maxY - r.minY + 2 * m} fill="none" stroke={color} strokeWidth={1.5 / zoom} strokeDasharray={`${4 / zoom} ${3 / zoom}`} />;
+  };
   return (
-    <svg data-testid="apercu-assistant" data-proposes={added.length} viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} className="h-48 w-full rounded-sm border border-border bg-[#0e1526]">
-      <g opacity={0.45}>
-        {existing.map(o => <ObjectShape key={o.id} obj={o} objects={all} blocks={project.blocks} view="batiment" selected={false} zoom={zoom} unit="mm" layer={project.layers.find(l => l.id === o.layerId)} colorMode="calque" />)}
-      </g>
-      {added.map(o => <ObjectShape key={o.id} obj={o} objects={all} blocks={project.blocks} view="batiment" selected zoom={zoom} unit="mm" layer={project.layers.find(l => l.id === o.layerId)} colorMode="calque" />)}
+    <svg data-testid="apercu-assistant" data-proposes={diff.added.length} data-modifie={diff.modified.length} data-supprime={diff.removed.length}
+      viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} className="h-48 w-full rounded-sm border border-border bg-[#0e1526]">
+      <g opacity={0.45}>{diff.same.map(o => shape(o, false))}</g>
+      <g opacity={0.25}>{diff.removed.map(o => shape(o, false))}</g>
+      {diff.removed.map(o => frame(o, '#f87171'))}
+      {diff.modified.map(o => frame(o, '#fbbf24'))}
+      {[...diff.added, ...diff.modified].map(o => shape(o, true))}
     </svg>
   );
 }
@@ -46,7 +57,7 @@ export default function AssistantPanel({ project, onClose, generator = localGene
     const p = projectRef.current;
     setBusy('proposer');
     setOutcome(null);
-    const r = await controlledLoop(generator, request, { objects: p.allObjects, layers: p.layers, activeLayerId: p.activeLayerId, activeLevelId: p.activeLevelId }, cache.current);
+    const r = await controlledLoop(generator, request, { objects: p.allObjects, layers: p.layers, activeLayerId: p.activeLayerId, activeLevelId: p.activeLevelId, levels: p.levels, blocks: p.blocks }, cache.current);
     setResult({ ...r, request });
     setBusy(null);
   };
@@ -116,7 +127,7 @@ export default function AssistantPanel({ project, onClose, generator = localGene
               </p>
               <h3 className="text-foreground">Hypothèses</h3>
               <ul aria-label="Hypothèses" className="list-disc pl-4">{result.proposal.hypotheses.map((h, i) => <li key={i}>{h}</li>)}</ul>
-              <Preview project={project} added={result.preview.added} />
+              <Preview project={project} after={result.preview.objects} />
               <details>
                 <summary className="cursor-pointer">Opérations</summary>
                 <ol className="list-decimal pl-5">{result.proposal.steps.map((s, i) => <li key={i}>{s.type}{s.why ? ` — ${s.why}` : ''}</li>)}</ol>

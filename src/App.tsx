@@ -410,6 +410,15 @@ function Workbench() {
     } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
   }, [project]);
 
+  // Publication (lot 14.4) : les vues projetées, façades et coupes sont calculées avant que les PDF
+  // ne soient figés ; la publication porte ensuite sur l'état du projet à ce moment-là.
+  const latestProject = useRef(project);
+  useEffect(() => { latestProject.current = project; }, [project]);
+  const publishDossier = useCallback(async (name: string) => {
+    await ensureProjections(latestProject.current.allObjects, kernelProject, kernelProjectCamera);
+    return latestProject.current.publish(name);
+  }, []);
+
   const exportDxf = useCallback(async () => {
     await ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
     // Pas de hachure papier : convertis à l'échelle de la première fenêtre de feuille, sinon 1:1.
@@ -2169,7 +2178,7 @@ function Workbench() {
         <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
       )}
       {publishOpen && (
-        <PublicationsPanel state={project.state} publications={project.publications} onPublish={project.publish} onClose={() => setPublishOpen(false)} />
+        <PublicationsPanel state={project.state} publications={project.publications} onPublish={publishDossier} onClose={() => setPublishOpen(false)} />
       )}
       {mergeOpen && (
         <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />

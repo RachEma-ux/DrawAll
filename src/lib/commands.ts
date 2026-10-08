@@ -2,7 +2,7 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import { KIND_LABEL, type CadObject, type Layer, type MicroVersion } from '@/types/cad';
+import { KIND_LABEL, parentsOf, type CadObject, type Layer, type MicroVersion } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isRecipe } from './solids';
 
@@ -116,6 +116,33 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
   return spec.extra?.(o) ?? null;
 }
 
+/** Type attendu de l'objet désigné, pour les références typées (ouverture → mur, occurrence → pièce…). */
+const REF_KIND: Partial<Record<string, string>> = { opening: 'wall', occurrence: 'solid', projection: 'solid' };
+
+type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string> };
+
+/**
+ * Références d'un objet : niveau, définition de bloc, objets désignés (parent, repère de coupe, cible
+ * d'une liaison) présents et du bon type. Un objet orphelin serait enregistré sans être jamais dessiné.
+ */
+function referenceError(o: Record<string, unknown>, { objects, levelIds, blockIds }: Ctx): string | null {
+  const kind = o.kind as string;
+  if (o.levelId !== undefined && levelIds && !(str(o.levelId) && levelIds.has(o.levelId as string))) return `${kind} : niveau ${String(o.levelId)} absent`;
+  if (kind === 'blockRef' && blockIds && !blockIds.has(o.blockId as string)) return `blockRef : bloc ${String(o.blockId)} absent`;
+  const byId = new Map(objects.map(x => [x.id, x]));
+  const c = o as unknown as CadObject;
+  const refs = parentsOf(c);
+  for (const r of refs) {
+    const target = byId.get(r);
+    if (!target) return `${kind} : objet désigné ${r} absent`;
+    const want = r === (o as { markId?: unknown }).markId ? 'section' : REF_KIND[kind];
+    if (want && target.kind !== want) return `${kind} : ${r} n’est pas un objet de type ${want}`;
+  }
+  const mate = (o as { mate?: { to?: unknown } }).mate;
+  if (kind === 'occurrence' && mate && !(str(mate.to) && byId.get(mate.to as string)?.kind === 'occurrence')) return `occurrence : liaison vers ${String(mate.to)} absente`;
+  return null;
+}
+
 /** Toutes les fiches existent (vérifié par les tests) : chaque type connu est validé. */
 export const OBJECT_SPEC_KINDS = Object.keys(SPECS);
 
@@ -124,15 +151,17 @@ export const OBJECT_SPEC_KINDS = Object.keys(SPECS);
  * commandes validées ici sont ouvertes aux scripts et à l'assistant (`scriptCommandError`) :
  * l'interface ne passe que des arguments bien formés, un script peut passer n'importe quoi.
  */
-const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string> }) => string | null> = {
-  addObject: ([o], { layerIds }) => {
+const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> = {
+  addObject: ([o], ctx) => {
+    const { layerIds } = ctx;
     const n = o as { kind?: unknown; layerId?: unknown } | null;
     if (!n || typeof n !== 'object' || !str(n.kind)) return 'objet à créer : type attendu';
     if (!Object.prototype.hasOwnProperty.call(KIND_LABEL, n.kind as string)) return `type d’objet inconnu « ${String(n.kind)} »`;
     if (layerIds && !(str(n.layerId) && layerIds.has(n.layerId as string))) return `objet à créer : calque ${String(n.layerId)} absent`;
-    return objectShapeError(n as Record<string, unknown>);
+    return objectShapeError(n as Record<string, unknown>) ?? referenceError(n as Record<string, unknown>, ctx);
   },
-  updateObject: ([id, patch], { ids, objects, layerIds }) => {
+  updateObject: ([id, patch], ctx) => {
+    const { ids, objects, layerIds } = ctx;
     if (!str(id)) return 'identifiant attendu';
     if (!ids.has(id as string)) return `objet ${String(id)} absent`;
     if (!patch || typeof patch !== 'object') return 'modification attendue';
@@ -144,7 +173,8 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; obje
     const next = { ...current, ...p };
     if (layerIds && !(str(next.layerId) && layerIds.has(next.layerId as string))) return `modification : calque ${String(next.layerId)} absent`;
     // Un objet déjà incomplet (projet ancien) reste modifiable ; un objet complet ne peut pas le devenir moins.
-    return objectShapeError(current) ? null : objectShapeError(next);
+    if (objectShapeError(current)) return null;
+    return objectShapeError(next) ?? (referenceError(current, ctx) ? null : referenceError(next, ctx));
   },
   removeObject: ([id], { ids }) => (str(id) && ids.has(id as string) ? null : `objet ${String(id)} absent`),
   removeObjects: ([list], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : null),
@@ -198,10 +228,11 @@ export function decodeArgs(v: unknown): unknown {
 }
 
 /** Une commande est-elle valide (arguments journalisables et cohérents avec le projet) ? */
-export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: Pick<Layer, 'id'>[]): string | null {
+export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: Pick<Layer, 'id'>[], project?: { levels?: { id: string }[]; blocks?: { id: string }[] }): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];
-  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, ...(layers ? { layerIds: new Set(layers.map(l => l.id)) } : {}) }) : null;
+  const ids = (l: { id: string }[] | undefined) => (l ? new Set(l.map(x => x.id)) : undefined);
+  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), levelIds: ids(project?.levels), blockIds: ids(project?.blocks) }) : null;
 }
 
 /** Empreinte comparable d'une version : contenu du projet, sans horodatage ni libellé. */

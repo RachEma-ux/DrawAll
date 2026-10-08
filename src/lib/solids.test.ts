@@ -116,6 +116,12 @@ describe('solides : recettes (lot 15.2)', () => {
     expect(isRecipe({ op: 'union', a: e })).toBe(false);
     expect(isRecipe({ op: 'eval', code: 'x' })).toBe(false);
     expect(isRecipe({ op: 'translate', of: e, by: [1, 2, Number.NaN] })).toBe(false);
+    // Direction de longueur nulle (axe de cylindre, axe de révolution) : refusée.
+    expect(isRecipe({ op: 'cylinder', r: 1, h: 2, dir: [0, 0, 0] })).toBe(false);
+    expect(isRecipe({ op: 'cylinder', r: 1, h: 2, dir: [1, 0, 0] })).toBe(true);
+    const tri: [number, number][] = [[1, 0], [2, 0], [2, 1]];
+    expect(isRecipe({ op: 'revolve', profile: tri, angle: 90, axis: { origin: [0, 0], dir: [0, 0] } })).toBe(false);
+    expect(isRecipe({ op: 'revolve', profile: tri, angle: 90, axis: { origin: [0, 0], dir: [0, 1] } })).toBe(true);
     let deep: unknown = e;
     for (let i = 0; i < 300; i++) deep = { op: 'translate', of: deep, by: [0, 0, 0] };
     expect(isRecipe(deep)).toBe(false);

@@ -5,6 +5,7 @@
 // hypothèses du générateur sont rendues avec la proposition. Fonctions pures, sauf l'appel au générateur.
 import type { CadObject, Layer } from '@/types/cad';
 import { KIND_LABEL } from '@/types/cad';
+import { onLevel } from '@/lib/levels';
 import { applyTransform, validateCommand, type TransformOp } from '@/lib/commands';
 import { beamError, columnError } from '@/lib/structure';
 
@@ -29,6 +30,9 @@ export interface AssistantContext {
   layers: Pick<Layer, 'id' | 'name' | 'locked'>[];
   activeLayerId: string;
   activeLevelId?: string;
+  /** Niveaux et définitions de blocs du projet (références des objets proposés). */
+  levels?: { id: string }[];
+  blocks?: { id: string }[];
 }
 
 export interface GeneratorRequest {
@@ -87,7 +91,7 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
     const at = `opération ${i + 1} (${s.type})`;
     if (!(ASSISTANT_COMMANDS as readonly string[]).includes(s.type)) { errors.push(`${at} : commande non permise à l’assistant`); return; }
     if (!Array.isArray(s.args)) { errors.push(`${at} : arguments attendus`); return; }
-    const err = validateCommand(s.type, s.args, objects, ctx.layers);
+    const err = validateCommand(s.type, s.args, objects, ctx.layers, { levels: ctx.levels, blocks: ctx.blocks });
     if (err) { errors.push(`${at} : ${err}`); return; }
     if (s.type === 'addObject') {
       const o = s.args[0] as Record<string, unknown>;
@@ -113,6 +117,23 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
     }
   });
   return { errors, objects, added };
+}
+
+/**
+ * Différence entre le projet et le résultat simulé, sur un niveau (aperçu) : objets inchangés,
+ * créés, modifiés (même identifiant, contenu différent) et supprimés.
+ */
+export function previewDiff(before: CadObject[], after: CadObject[], levelId: string) {
+  const shown = (l: CadObject[]) => onLevel(l, levelId).filter(o => o.kind !== 'underlay' && o.kind !== 'note');
+  const b = shown(before), a = shown(after);
+  const old = new Map(b.map(o => [o.id, JSON.stringify(o)]));
+  const kept = new Set(a.map(o => o.id));
+  return {
+    same: a.filter(o => old.get(o.id) === JSON.stringify(o)),
+    added: a.filter(o => !old.has(o.id)),
+    modified: a.filter(o => old.has(o.id) && old.get(o.id) !== JSON.stringify(o)),
+    removed: b.filter(o => !kept.has(o.id)),
+  };
 }
 
 export interface Attempt {
