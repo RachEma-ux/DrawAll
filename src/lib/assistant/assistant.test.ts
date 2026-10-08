@@ -175,3 +175,16 @@ describe('identifiants provisoires', () => {
     expect(remapIds([['PROP-0009', 'OBJ-0001'], { kind: 'move', dx: 1, dy: 0 }], real)).toEqual([['PROP-0009', 'OBJ-0001'], { kind: 'move', dx: 1, dy: 0 }]);
   });
 });
+
+describe('suppression simulée comme la commande', () => {
+  it('les objets associatifs partent avec leur parent ; une opération qui les vise ensuite est refusée', () => {
+    const wall = { ...ctx.objects[0], id: 'OBJ-0010', kind: 'wall', classification: 'architecture', x1: 0, y1: 0, x2: 4000, y2: 0, thickness: 200, justification: 'axe' } as CadObject;
+    const door = { ...ctx.objects[0], id: 'OBJ-0011', kind: 'opening', classification: 'architecture', hostId: 'OBJ-0010', type: 'porte', position: 2000, width: 900 } as unknown as CadObject;
+    const c = { ...ctx, objects: [wall, door] };
+    const r = dryRun([{ type: 'removeObjects', args: [['OBJ-0010']] }], c);
+    expect(r.objects).toEqual([]);
+    expect(previewDiff(c.objects, r.objects, 'NIV-0001').removed.map(o => o.id)).toEqual(['OBJ-0010', 'OBJ-0011']);
+    expect(dryRun([{ type: 'removeObjects', args: [['OBJ-0010']] }, { type: 'transform', args: [['OBJ-0011'], { kind: 'move', dx: 1, dy: 0 }, 'x'] }], c).errors)
+      .toEqual(['opération 2 (transform) : objet OBJ-0011 absent']);
+  });
+});

@@ -43,6 +43,12 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'rect', b: 300, h: 0 }], [])).toBe('poteau rectangulaire : b et h positifs attendus');
     expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'circle', b: 300, h: 300 }], [])).toBe('poteau circulaire : diamètre d positif attendu');
     expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'circle', d: 400 }], [])).toBeNull();
+    // Dimensions strictement positives (rayon, largeur, épaisseur, hauteur de texte…).
+    expect(validateCommand('addObject', [{ kind: 'circle', cx: 0, cy: 0, r: -1 }], [])).toBe('circle : r positif attendu');
+    expect(validateCommand('addObject', [{ kind: 'circle', cx: 0, cy: 0, r: 0 }], [])).toBe('circle : r positif attendu');
+    expect(validateCommand('addObject', [{ kind: 'rect', x: 0, y: 0, w: 10, h: -5 }], [])).toBe('rect : h positif attendu');
+    expect(validateCommand('addObject', [{ kind: 'wall', x1: 0, y1: 0, x2: 1, y2: 0, thickness: 0, justification: 'axe' }], [])).toBe('wall : thickness positif attendu');
+    expect(validateCommand('addObject', [{ kind: 'circle', cx: -5, cy: -5, r: 2 }], [])).toBeNull();
     // Objet complet exigé : un solide sans recette, une ligne sans extrémité, des points invalides sont refusés.
     expect(validateCommand('addObject', [{ kind: 'solid', layerId: 'LAY-0001' }], [], [{ id: 'LAY-0001' }])).toBe('solide : recette attendue');
     expect(validateCommand('addObject', [{ kind: 'line', x1: 0, y1: 0, x2: 1 }], [])).toBe('line : y2 numérique fini attendu');

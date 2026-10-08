@@ -2,7 +2,7 @@
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
 import { kernelProject, kernelProjectCamera } from '@/lib/kernel/client';
-import { ensureProjections, setProjectionLevels } from '@/lib/projection';
+import { prepareProjections, setProjectionLevels } from '@/lib/projection';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport, Zone } from '@/types/cad';
 import { fmt } from '@/types/cad';
@@ -121,7 +121,8 @@ export default function SheetEditor(p: Props) {
     if (!sheet) return;
     // Vues projetées calculées avant d'écrire la feuille (lot 16.1).
     setProjectionLevels(p.levels);
-    await ensureProjections(p.objects, kernelProject, kernelProjectCamera);
+    // Une vue que le noyau n'a pas pu calculer refuse l'export, avec sa raison.
+    try { await prepareProjections(p.objects, kernelProject, kernelProjectCamera); } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); return; }
     const pdf = sheetToPdf({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, versions: p.versions, pointer: p.pointer, profile: p.profile });
     const blob = new Blob([pdfBytes(pdf)], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
@@ -140,6 +141,8 @@ export default function SheetEditor(p: Props) {
   /** SVG aux dimensions exactes de la feuille (lot 6.4), chargé à la demande (rendu React en chaîne). */
   const exportSvg = async () => {
     if (!sheet) return;
+    setProjectionLevels(p.levels);
+    try { await prepareProjections(p.objects, kernelProject, kernelProjectCamera); } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); return; }
     const { sheetToSvg } = await import('@/components/SheetSvg');
     const svg = sheetToSvg({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, profile: p.profile, view: p.view, versions: p.versions, pointer: p.pointer, zones: p.zones });
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));

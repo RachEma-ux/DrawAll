@@ -4,7 +4,7 @@
 // validée est aperçue puis exécutée seulement après accord explicite (hors de ce module). Les
 // hypothèses du générateur sont rendues avec la proposition. Fonctions pures, sauf l'appel au générateur.
 import type { CadObject, Layer } from '@/types/cad';
-import { KIND_LABEL } from '@/types/cad';
+import { KIND_LABEL, withDependents } from '@/types/cad';
 import { onLevel } from '@/lib/levels';
 import { applyTransform, scriptCommandError, validateCommand, type TransformOp } from '@/lib/commands';
 import { beamError, columnError } from '@/lib/structure';
@@ -103,7 +103,8 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
       added.push(obj);
       objects = [...objects, obj];
     } else if (s.type === 'removeObjects') {
-      const ids = new Set(s.args[0] as string[]);
+      // Comme la commande : les objets associatifs (ouvertures, cotes, vues liées) partent avec leur parent.
+      const ids = withDependents(objects, s.args[0] as string[]);
       objects = objects.filter(o => !ids.has(o.id));
     } else if (s.type === 'transform') {
       const ids = new Set(s.args[0] as string[]);

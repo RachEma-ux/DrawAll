@@ -50,7 +50,7 @@ import { expandToGroups } from '@/lib/groups';
 import { kernelExportStep, kernelImportStep, kernelProject, kernelProjectCamera, kernelVolume } from '@/lib/kernel/client';
 import { effectiveSolid } from '@/lib/solids';
 import type { SolidRecipe } from '@/lib/kernel/recipe';
-import { ensureProjections, projectionsVersion, setProjectionLevels, subscribeProjections } from '@/lib/projection';
+import { ensureProjections, prepareProjections, projectionsVersion, setProjectionLevels, subscribeProjections } from '@/lib/projection';
 import { polarArray, rectangularArray, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
@@ -419,13 +419,14 @@ function Workbench() {
     let prepared: CadObject[];
     do {
       prepared = latestProject.current.allObjects;
-      await ensureProjections(prepared, kernelProject, kernelProjectCamera);
+      await prepareProjections(prepared, kernelProject, kernelProjectCamera);
     } while (prepared !== latestProject.current.allObjects);
     return latestProject.current.publish(name);
   }, []);
 
   const exportDxf = useCallback(async () => {
-    await ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
+    // Une vue que le noyau n'a pas pu calculer refuse l'export, avec sa raison.
+    try { await prepareProjections(project.allObjects, kernelProject, kernelProjectCamera); } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); return; }
     // Pas de hachure papier : convertis à l'échelle de la première fenêtre de feuille, sinon 1:1.
     const vp = project.sheets.flatMap(sh => sh.viewports)[0];
     const { content, report } = exportDxfFile(shownObjects, project.layers, shownBlocks, { hatchPaperScale: vp ? vp.scale.model / vp.scale.paper : 1 });

@@ -61,31 +61,31 @@ function transformError(op: unknown): string | null {
  * Forme complète d'un objet à créer (scripts, assistant) : champs numériques finis, champs texte et
  * listes de points requis par son type. Un objet incomplet serait enregistré puis casserait le rendu.
  */
-type Spec = { nums?: string[]; strs?: string[]; /** Nombre minimal de points (x, y). */ points?: number; enums?: Record<string, readonly unknown[]>; extra?: (o: Record<string, unknown>) => string | null };
+type Spec = { nums?: string[]; /** Dimensions : strictement positives (rayon, largeur, épaisseur…). */ pos?: string[]; strs?: string[]; /** Nombre minimal de points (x, y). */ points?: number; enums?: Record<string, readonly unknown[]>; extra?: (o: Record<string, unknown>) => string | null };
 /** Champs requis de chaque type d'objet (tous les types de KIND_LABEL : un type sans fiche est refusé). */
 const SPECS: Record<string, Spec> = {
   line: { nums: ['x1', 'y1', 'x2', 'y2'] },
-  rect: { nums: ['x', 'y', 'w', 'h'] },
-  circle: { nums: ['cx', 'cy', 'r'] },
-  arc: { nums: ['cx', 'cy', 'r', 'start', 'end'] },
-  ellipse: { nums: ['cx', 'cy', 'rx', 'ry', 'rotation'] },
+  rect: { nums: ['x', 'y'], pos: ['w', 'h'] },
+  circle: { nums: ['cx', 'cy'], pos: ['r'] },
+  arc: { nums: ['cx', 'cy', 'start', 'end'], pos: ['r'] },
+  ellipse: { nums: ['cx', 'cy', 'rotation'], pos: ['rx', 'ry'] },
   spline: { nums: ['degree'], points: 2 },
   polyline: { points: 2 },
   dimension: { nums: ['offset'], strs: ['targetId'], enums: { style: ['horizontal', 'vertical', 'aligned', 'radial'] } },
   pdim: { nums: ['offset'], points: 1, enums: { mode: ['chain', 'baseline', 'angular', 'level'], axis: ['horizontal', 'vertical', 'aligned'] } },
   blockRef: { nums: ['x', 'y', 'scale'], strs: ['blockId'] },
-  text: { nums: ['x', 'y', 'height', 'rotation'], strs: ['content'] },
-  wall: { nums: ['x1', 'y1', 'x2', 'y2', 'thickness'], enums: { justification: ['axe', 'gauche', 'droite'] } },
-  opening: { nums: ['position', 'width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] } },
+  text: { nums: ['x', 'y', 'rotation'], pos: ['height'], strs: ['content'] },
+  wall: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['thickness'], enums: { justification: ['axe', 'gauche', 'droite'] } },
+  opening: { nums: ['position'], pos: ['width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] } },
   room: { nums: ['x', 'y'] },
-  slab: { nums: ['thickness'], points: 3 },
-  roof: { nums: ['x', 'y', 'w', 'h', 'pitch', 'overhang'] },
+  slab: { pos: ['thickness'], points: 3 },
+  roof: { nums: ['x', 'y', 'pitch', 'overhang'], pos: ['w', 'h'] },
   column: {
     nums: ['x', 'y'], enums: { section: ['rect', 'circle'] },
     // Dimensions selon la section : b × h pour un poteau rectangulaire, d pour un poteau circulaire.
     extra: o => (o.section === 'rect' ? (positive(o.b) && positive(o.h) ? null : 'poteau rectangulaire : b et h positifs attendus') : positive(o.d) ? null : 'poteau circulaire : diamètre d positif attendu'),
   },
-  beam: { nums: ['x1', 'y1', 'x2', 'y2', 'b', 'h'] },
+  beam: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['b', 'h'] },
   solid: { extra: o => (isRecipe(o.recipe) ? null : 'solide : recette attendue') },
   occurrence: { nums: ['x', 'y', 'z', 'angle'], strs: ['sourceId'] },
   projection: { nums: ['x', 'y'], strs: ['sourceId'], enums: { view: ['dessus', 'face', 'cote'] } },
@@ -98,7 +98,7 @@ const SPECS: Record<string, Spec> = {
   cut: { nums: ['depth', 'gap'], strs: ['sourceId', 'markId'] },
   bom: { nums: ['x', 'y'] },
   balloon: { nums: ['x', 'y'], strs: ['targetId'] },
-  underlay: { nums: ['x', 'y', 'w', 'h', 'opacity'], strs: ['assetId'] },
+  underlay: { nums: ['x', 'y', 'opacity'], pos: ['w', 'h'], strs: ['assetId'] },
   note: { nums: ['x', 'y', 'time'], extra: o => (typeof o.text === 'string' ? null : 'note : texte attendu') },
 };
 
@@ -107,6 +107,7 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
   const spec = SPECS[kind];
   if (!spec) return `type d’objet inconnu « ${String(kind)} »`;
   for (const k of spec.nums ?? []) if (!finite(o[k])) return `${kind} : ${k} numérique fini attendu`;
+  for (const k of spec.pos ?? []) if (!positive(o[k])) return `${kind} : ${k} positif attendu`;
   for (const k of spec.strs ?? []) if (!str(o[k])) return `${kind} : ${k} attendu`;
   for (const [k, values] of Object.entries(spec.enums ?? {})) if (!values.includes(o[k])) return `${kind} : ${k} parmi ${values.join(', ')} attendu`;
   if (spec.points) {

@@ -444,6 +444,16 @@ export function parentsOf(o: CadObject): string[] {
   return [...(p ? [p] : []), ...(o.kind === 'cut' ? [o.markId] : [])];
 }
 
+/** Identifiants donnés et, de proche en proche, ceux des objets associatifs qui en dépendent. */
+export function withDependents(objects: CadObject[], ids: Iterable<string>): Set<string> {
+  const out = new Set(ids);
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const o of objects) { const p = parentOf(o); if (p && out.has(p) && !out.has(o.id)) { out.add(o.id); changed = true; } }
+  }
+  return out;
+}
+
 /** Même objet rattaché aux copies de tous ses parents, ou null si l'un d'eux n'est pas copié. */
 export function withParents<T extends CadObject>(o: T, copyOf: (id: string) => string | undefined): T | null {
   let out: T = o;

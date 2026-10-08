@@ -4,7 +4,7 @@ import { createDefaultLayers, dimensionOf, parentOf } from '@/types/cad';
 import type { ProjLines, SolidRecipe } from './kernel/recipe';
 import { exportDxf, exportToDxf } from './dxf';
 import { moveObject, objectBounds } from './geometry';
-import { ELEVATION_LABEL, cachedProjection, defaultPlacement, elevationLabel, elevationPlacement, elevationSetup, ensureProjections, placedElevation, setProjectionLevels, viewPrimitives, placedView, projectionPrimitives, projectionsVersion, requestProjection, subscribeProjections, viewFrame } from './projection';
+import { ELEVATION_LABEL, cachedProjection, defaultPlacement, elevationLabel, elevationPlacement, elevationSetup, ensureProjections, placedElevation, prepareProjections, setProjectionLevels, viewPrimitives, placedView, projectionPrimitives, projectionsVersion, requestProjection, subscribeProjections, viewFrame } from './projection';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const recipe: SolidRecipe = { op: 'box', x: 100, y: 50, z: 20, at: [10, 20, 5] };
@@ -78,6 +78,20 @@ describe('vues projetées : cadre, cache, placement (lot 16.1)', () => {
     await exported;
     expect(compute).toHaveBeenCalledTimes(1);
     expect(cachedProjection(r4, 'face')).toEqual({ lines: faceLines });
+  });
+
+  it('préparation d’un export : erreur du noyau recalculée une fois, puis export refusé avec sa raison', async () => {
+    const r5: SolidRecipe = { op: 'box', x: 11, y: 11, z: 11 };
+    const objs = [{ ...solid, recipe: r5 }, proj('face')];
+    const failing = vi.fn(async () => { throw new Error('noyau absent'); });
+    // Rendu de fond : l'erreur est gardée et listée, sans rejet.
+    expect(await ensureProjections(objs, failing)).toEqual(['OBJ-0002 (vue de face de OBJ-0001) : noyau absent']);
+    // Préparation : nouvel essai, toujours en échec → refus explicite.
+    await expect(prepareProjections(objs, failing)).rejects.toThrow('Vues non calculées par le noyau, export refusé — OBJ-0002 (vue de face de OBJ-0001) : noyau absent');
+    expect(failing).toHaveBeenCalledTimes(2);
+    // Le noyau revenu : la préparation recalcule la vue en erreur et réussit.
+    await expect(prepareProjections(objs, async () => faceLines)).resolves.toBeUndefined();
+    expect(cachedProjection(r5, 'face')).toEqual({ lines: faceLines });
   });
 
   it('objet : parent = solide, déplacement libre, emprise = cadre, libellé', () => {

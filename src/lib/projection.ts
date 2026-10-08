@@ -25,11 +25,14 @@ export function requestProjection(recipe: SolidRecipe, view: ProjView, compute: 
   return requestKey(projectionKey(recipe, view), () => compute(recipe, view));
 }
 
-function requestKey(key: string, compute: () => Promise<ProjLines>): Promise<void> {
-  if (cache.has(key)) return Promise.resolve();
+function requestKey(key: string, compute: () => Promise<ProjLines>, retry = false): Promise<void> {
   // Un calcul déjà en cours est partagé : chaque demandeur attend que le cache soit rempli.
   const running = pending.get(key);
   if (running) return running;
+  const done = cache.get(key);
+  // Une erreur gardée n'est recalculée que sur demande (préparation d'un export ou d'une publication).
+  if (done && !(retry && 'error' in done)) return Promise.resolve();
+  cache.delete(key);
   const p = compute().then(lines => { cache.set(key, { lines }); }, e => { cache.set(key, { error: e instanceof Error ? e.message : String(e) }); })
     .finally(() => { pending.delete(key); version++; for (const l of listeners) l(); });
   pending.set(key, p);
@@ -75,17 +78,35 @@ export function projectionPrimitives(o: ProjectionObj, source: CadObject | undef
 
 export type CameraCompute = (r: SolidRecipe, camera: Camera, clip?: Clip) => Promise<ProjLines>;
 
-/** Toutes les vues projetées, façades et coupes du projet calculées (avant un export). */
-export async function ensureProjections(objects: CadObject[], compute: (r: SolidRecipe, v: ProjView) => Promise<ProjLines>, computeCamera?: CameraCompute): Promise<void> {
+/**
+ * Toutes les vues projetées, façades et coupes du projet calculées. Rend la liste des vues que le
+ * noyau n'a pas pu calculer (vue et raison) ; `retry` recalcule celles dont l'erreur était gardée.
+ */
+export async function ensureProjections(objects: CadObject[], compute: (r: SolidRecipe, v: ProjView) => Promise<ProjLines>, computeCamera?: CameraCompute, retry = false): Promise<string[]> {
+  const failures: string[] = [];
+  const check = (key: string, label: string) => () => { const e = cache.get(key); if (e && 'error' in e) failures.push(`${label} : ${e.error}`); };
   await Promise.all(objects.flatMap(o => {
     if (o.kind === 'elevation' && computeCamera) {
       const set = elevationSetup(o, objects);
-      return 'error' in set ? [] : [requestKey(set.key, () => computeCamera(set.recipe, set.camera, set.clip))];
+      return 'error' in set ? [] : [requestKey(set.key, () => computeCamera(set.recipe, set.camera, set.clip), retry).then(check(set.key, `${o.id} (${o.view})`))];
     }
     if (o.kind !== 'projection') return [];
     const s = objects.find(x => x.id === o.sourceId);
-    return s?.kind === 'solid' ? [requestProjection(s.recipe, o.view, compute)] : [];
+    if (s?.kind !== 'solid') return [];
+    const key = projectionKey(s.recipe, o.view);
+    return [requestKey(key, () => compute(s.recipe, o.view), retry).then(check(key, `${o.id} (${VIEW_LABEL[o.view].toLowerCase()} de ${s.id})`))];
   }));
+  return failures;
+}
+
+/**
+ * Préparation d'un export ou d'une publication : toutes les vues calculées, les erreurs gardées
+ * recalculées une fois ; si une vue reste en erreur, l'export est refusé (jamais de fichier où
+ * une vue manquerait sans le dire).
+ */
+export async function prepareProjections(objects: CadObject[], compute: (r: SolidRecipe, v: ProjView) => Promise<ProjLines>, computeCamera?: CameraCompute): Promise<void> {
+  const failures = await ensureProjections(objects, compute, computeCamera, true);
+  if (failures.length) throw new Error(`Vues non calculées par le noyau, export refusé — ${failures.join(' ; ')}`);
 }
 
 /** Placement par défaut de vues neuves à droite du solide, en ligne, séparées d'un cinquième de la plus grande. */

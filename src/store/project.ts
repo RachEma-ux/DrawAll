@@ -26,6 +26,7 @@ import {
   type Orientation,
   KIND_LABEL,
   parentOf,
+  withDependents,
   withParent,
   polylineExtents,
   supportedDimensionStyles,
@@ -405,15 +406,8 @@ export function normalizeLevels(raw: unknown): Level[] | undefined {
   return out.length ? out : undefined;
 }
 
-/** Identifiants donnés et, de proche en proche, ceux des objets associatifs qui en dépendent. */
-export function withDependents(objects: CadObject[], ids: Iterable<string>): Set<string> {
-  const out = new Set(ids);
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const o of objects) { const p = parentOf(o); if (p && out.has(p) && !out.has(o.id)) { out.add(o.id); changed = true; } }
-  }
-  return out;
-}
+/** Suppression en cascade (fonction pure, partagée avec la validation à blanc de l'assistant). */
+export { withDependents };
 
 /** Images des fonds de plan : seules les images en data URL avec leurs dimensions sont gardées. */
 export function normalizeAssets(raw: unknown): Record<string, Asset> | undefined {
