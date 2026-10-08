@@ -260,7 +260,8 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
         }
       };
       for (const v of views) {
-        write(v.visible, { ...own, lineWeight: own.lineWeight ?? 0.5 });
+        // Comme à l'écran et en PDF : arêtes vues en trait continu fort 0,5 mm, quel que soit le style propre.
+        write(v.visible, { ...own, lineType: 'continu', lineWeight: 0.5 });
         write(v.hidden, { ...own, lineType: 'interrompu', lineWeight: 0.25 });
         write(v.axes, { ...own, lineType: 'mixte', lineWeight: 0.18 });
       }
