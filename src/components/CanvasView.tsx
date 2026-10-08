@@ -44,6 +44,7 @@ import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 import { distanceToEllipse, ellipseFrom3Points, ellipsePath } from '@/lib/ellipse';
 import { distanceToSpline, splinePath, withoutRepeatedPoints } from '@/lib/spline';
+import { capturedVertices, stretchAll, windowOf } from '@/lib/stretch';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -62,7 +63,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -107,6 +108,8 @@ interface Props {
   onTrimExtend: (mode: 'trim' | 'extend', id: string, x: number, y: number) => void;
   /** Congé ou chanfrein entre deux lignes, chacune désignée du côté à conserver. */
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
+  /** Étirer (lot 10.3) : modifications calculées sur les objets modifiables. */
+  onStretch?: (patches: { id: string; patch: Partial<CadObject> }[]) => void;
   /** Outil Aire : contour désigné par points (aucun objet créé). */
   onMeasureArea: (points: number[]) => void;
   /** Outil Cote par points : points désignés, et nombre de points qui termine seul (angulaire 3, niveau 1). */
@@ -138,11 +141,11 @@ interface Props {
 
 /** Les points d'un arc ne sont pas contraints par Ortho (ils seraient alignés). */
 function isArcDraft(d: { kind: string } | null): boolean {
-  return d?.kind === 'arc' || d?.kind === 'arcCenter' || d?.kind === 'ellipse';
+  return d?.kind === 'arc' || d?.kind === 'arcCenter' || d?.kind === 'ellipse' || d?.kind === 'stretch';
 }
 
 interface Draft {
-  kind: 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'polyline' | 'measure';
+  kind: 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'stretch' | 'polyline' | 'measure';
   sx: number; sy: number;
   cx: number; cy: number;
   points: number[];
@@ -182,6 +185,7 @@ export default function CanvasView({
   onEditText,
   onTrimExtend,
   onCorner,
+  onStretch,
   onMeasureArea,
   onAddPointDimension,
   onAddWall,
@@ -221,7 +225,7 @@ export default function CanvasView({
   const activeDraft = draft && (
     (draft.kind === 'polyline' && (draft.origin ?? 'polyline') === tool) ||
     (draft.kind === 'measure' && tool === 'measure') ||
-    ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle' || draft.kind === 'arc' || draft.kind === 'arcCenter' || draft.kind === 'ellipse') && draft.kind === tool)
+    ((draft.kind === 'line' || draft.kind === 'rect' || draft.kind === 'circle' || draft.kind === 'arc' || draft.kind === 'arcCenter' || draft.kind === 'ellipse' || draft.kind === 'stretch') && draft.kind === tool)
   ) ? draft : null;
   const [hoverSnap, setHoverSnap] = useState<SnapPoint | null>(null);
   const [pointText, setPointText] = useState('');
@@ -320,7 +324,7 @@ export default function CanvasView({
       const compatible =
         (d.kind === 'polyline' && (d.origin ?? 'polyline') === tool) ||
         (d.kind === 'measure' && tool === 'measure') ||
-        ((d.kind === 'line' || d.kind === 'rect' || d.kind === 'circle' || d.kind === 'arc' || d.kind === 'arcCenter' || d.kind === 'ellipse') && d.kind === tool);
+        ((d.kind === 'line' || d.kind === 'rect' || d.kind === 'circle' || d.kind === 'arc' || d.kind === 'arcCenter' || d.kind === 'ellipse' || d.kind === 'stretch') && d.kind === tool);
       return compatible ? d : null;
     });
   }, [tool]);
@@ -433,6 +437,20 @@ export default function CanvasView({
       setDraft(null);
       return;
     }
+    if (tool === 'stretch') {
+      // Étirer : deux coins de la fenêtre de capture, puis point de base et point d'arrivée.
+      const previous = activeDraft?.kind === 'stretch' ? activeDraft.points : [];
+      const pts = [...previous, point.x, point.y];
+      if (pts.length < 8) {
+        setDraft({ kind: 'stretch', sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts });
+        return;
+      }
+      const win = windowOf({ x: pts[0], y: pts[1] }, { x: pts[2], y: pts[3] });
+      const patches = stretchAll(editableObjects, win, pts[6] - pts[4], pts[7] - pts[5]);
+      if (patches.length) onStretch?.(patches);
+      setDraft(null);
+      return;
+    }
     if (tool === 'ellipse') {
       // Ellipse : centre, extrémité du premier axe, puis un point donnant le second demi-axe.
       const previous = activeDraft?.kind === 'ellipse' ? activeDraft.points : [];
@@ -453,7 +471,7 @@ export default function CanvasView({
     if (tool === 'line' || tool === 'rect' || tool === 'circle') {
       setDraft({ kind: tool, sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [] });
     }
-  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension, onAddWall, onAddSymbol, symbolPoints]);
+  }, [activeLayer, tool, activeDraft, onAdd, pdimAutoFinish, onAddPointDimension, onAddWall, onAddSymbol, symbolPoints, editableObjects, onStretch]);
 
   const handleDown = (e: React.PointerEvent) => {
     discardIncompatibleDraft();
@@ -699,7 +717,7 @@ export default function CanvasView({
   /** Dernier point du tracé en cours, sinon dernier point posé. */
   const lastPoint = (): Point | null => {
     const d = activeDraft;
-    if (d && (d.kind === 'polyline' || d.kind === 'arc' || d.kind === 'arcCenter' || d.kind === 'ellipse') && d.points.length >= 2) {
+    if (d && (d.kind === 'polyline' || d.kind === 'arc' || d.kind === 'arcCenter' || d.kind === 'ellipse' || d.kind === 'stretch') && d.points.length >= 2) {
       return { x: d.points[d.points.length - 2], y: d.points[d.points.length - 1] };
     }
     if (d) return { x: d.sx, y: d.sy };
@@ -729,7 +747,7 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'spline' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'spline' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'stretch') {
       startOrContinueDraft(point);
       return;
     }
@@ -1099,6 +1117,23 @@ export default function CanvasView({
               </g>
             );
           })()}
+          {activeDraft && activeDraft.kind === 'stretch' && (() => {
+            // Aperçu : fenêtre de capture (verte, pointillée), sommets capturés, puis déplacement.
+            const p = activeDraft.points;
+            const cur = { x: activeDraft.cx, y: activeDraft.cy };
+            const dash = `${6 / tf.k} ${4 / tf.k}`;
+            const win = windowOf({ x: p[0], y: p[1] }, p.length >= 4 ? { x: p[2], y: p[3] } : cur);
+            const caught = capturedVertices(editableObjects, win);
+            const d = p.length >= 6 ? { x: cur.x - p[4], y: cur.y - p[5] } : { x: 0, y: 0 };
+            const h = 3 / tf.k;
+            return (
+              <g data-apercu-etirer>
+                <rect x={win.minX} y={win.minY} width={win.maxX - win.minX} height={win.maxY - win.minY} fill="#34d399" fillOpacity={0.06} stroke="#34d399" strokeWidth={1 / tf.k} strokeDasharray={dash} />
+                {caught.map((q, i) => <rect key={i} data-sommet-capture x={q.x + d.x - h} y={q.y + d.y - h} width={2 * h} height={2 * h} fill="none" stroke="#34d399" strokeWidth={1 / tf.k} />)}
+                {p.length >= 6 && <line x1={p[4]} y1={p[5]} x2={cur.x} y2={cur.y} stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={dash} />}
+              </g>
+            );
+          })()}
           {activeDraft && activeDraft.kind === 'ellipse' && (() => {
             // Aperçu : premier axe vers le curseur, puis ellipse complète.
             const p = activeDraft.points;
@@ -1159,7 +1194,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'stretch' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (

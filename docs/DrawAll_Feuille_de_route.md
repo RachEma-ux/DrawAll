@@ -250,7 +250,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | Parcours de preuve final (§6) | Fait (partage et commentaires prouvés au niveau de l'API) | #46 |
 | 10.1 Ellipse native | Fait | #48 |
 | 10.2 Spline native | Fait | #49 |
-| 10.3 Étirer | À faire | — |
+| 10.3 Étirer | Fait | #50 |
 | 10.4 Décalage à distance saisie | À faire | — |
 | 10.5 Groupes | À faire | — |
 | 10.6 Main levée | À faire | — |

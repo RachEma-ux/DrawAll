@@ -74,6 +74,14 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
 - Accrochages : extrémités ; plus proche, perpendiculaire et intersections par une approche à 0,01 mm. Longueur par approche à 10⁻⁵ mm.
 - Rendu à l'écran et PDF : polyligne à 0,005 mm papier de la courbe. Une spline n'est pas un contour de hachure ; son décalage relève du lot 10.4.
 
+### 1.9 Étirer (règle, lot 10.3)
+
+- Outil « Étirer » (palette et barre d'outils, sans raccourci clavier : toutes les lettres sont prises) : deux coins d'une fenêtre de capture, puis un point de base et un point d'arrivée (cliqués, touchés ou saisis, `@dx;dy` compris). Les sommets capturés sont signalés pendant l'opération.
+- Sommets capturés déplacés, les autres fixes : extrémités de ligne, de mur et de repère de coupe ; sommets de polyligne et de cote par points ; points de contrôle de spline.
+- Rectangle (il reste aligné sur les axes) : un côté dont les deux coins sont capturés se déplace selon sa normale ; un coin capturé seul entraîne ses deux côtés ; un rectangle qui s'aplatirait n'est pas modifié.
+- Cercle, arc, ellipse : déplacés entiers si leur centre est capturé. Texte, bloc, symboles, pièce, note libre : déplacés si leur point d'insertion l'est.
+- Les objets associés suivent leur hôte : cotes, ouvertures, vues liées, coupes. Une seule version « Étirer » est créée ; « Annuler » la défait entièrement. Les calques verrouillés et masqués ne sont pas touchés.
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)
