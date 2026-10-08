@@ -46,6 +46,7 @@ import { distanceToEllipse, ellipseFrom3Points, ellipsePath } from '@/lib/ellips
 import { distanceToSpline, splinePath, withoutRepeatedPoints } from '@/lib/spline';
 import { stretchAll, stretchPreview, windowOf } from '@/lib/stretch';
 import { expandToGroups } from '@/lib/groups';
+import { simplifyPath } from '@/lib/freehand';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -64,7 +65,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'stretch' | 'offset' | 'freehand' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -167,6 +168,8 @@ function pathLength(p: number[]): number {
 const MIN_LENGTH = 1e-6;
 /** Déplacement minimal de la souris pour qu'un tracé soit pris en compte (pixels écran). */
 const DRAG_THRESHOLD_PX = 3;
+/** Main levée (lot 10.6) : écart maximal du tracé simplifié au geste, en pixels d'écran. */
+const FREEHAND_TOLERANCE_PX = 1.5;
 
 export default function CanvasView({
   objects,
@@ -244,8 +247,10 @@ export default function CanvasView({
   const showLen = (mm: number) => `${showNum(mm)} ${displayUnit}`;
   const [lengthInput, setLengthInput] = useState('');
   const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  // Tracé de main levée en cours (lot 10.6), points du modèle.
+  const [freehand, setFreehand] = useState<{ x: number; y: number }[] | null>(null);
   const drag = useRef<{
-    mode: 'pan' | 'move' | 'marquee' | null;
+    mode: 'pan' | 'move' | 'marquee' | 'freehand' | null;
     ids?: string[];
     lx: number;
     ly: number;
@@ -486,6 +491,13 @@ export default function CanvasView({
       drag.current = { mode: 'pan', lx: e.clientX, ly: e.clientY };
       return;
     }
+    if (tool === 'freehand') {
+      // Main levée (lot 10.6) : le tracé suit le pointeur, sans accrochage, jusqu'au relâcher.
+      if (!activeLayer || activeLayer.locked) return;
+      drag.current = { mode: 'freehand', lx: w.x, ly: w.y };
+      setFreehand([w]);
+      return;
+    }
     if (tool === 'trim' || tool === 'extend') {
       // Désigner la portion à retirer (ajuster) ou l'extrémité à prolonger.
       const hit = hitTest(editableObjects, objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
@@ -599,6 +611,15 @@ export default function CanvasView({
       updateHover(w);
       return;
     }
+    if (drag.current.mode === 'freehand') {
+      // Un point retenu dès que le pointeur a bougé d'un demi-pixel.
+      if (Math.hypot(w.x - drag.current.lx, w.y - drag.current.ly) >= 0.5 / tf.k) {
+        drag.current.lx = w.x; drag.current.ly = w.y;
+        setFreehand(f => (f ? [...f, w] : [w]));
+      }
+      onCursor(w.x, w.y);
+      return;
+    }
     if (drag.current.mode === 'marquee') {
       drag.current.moved = true;
       setMarquee(m => (m ? { ...m, x2: w.x, y2: w.y } : m));
@@ -626,6 +647,17 @@ export default function CanvasView({
 
   const handleUp = (e: React.PointerEvent) => {
     const w = toWorld(e);
+    if (drag.current.mode === 'freehand') {
+      // Tracé simplifié à 1,5 pixel d'écran (Douglas–Peucker), puis polyligne.
+      const raw = [...(freehand ?? []), w];
+      const pts = simplifyPath(raw, FREEHAND_TOLERANCE_PX / tf.k).flatMap(p => [Math.round(p.x * 1000) / 1000, Math.round(p.y * 1000) / 1000]);
+      setFreehand(null);
+      drag.current = { mode: null, lx: 0, ly: 0 };
+      if (pts.length >= 4 && pathLength(pts) > DRAG_THRESHOLD_PX / tf.k && activeLayer && !activeLayer.locked) {
+        onAdd({ kind: 'polyline', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', points: pts });
+      }
+      return;
+    }
     if (drag.current.mode === 'move' && drag.current.ids && drag.current.grab && drag.current.moved) {
       const point = resolvePoint(w, drag.current.grab);
       const dx = Math.round((point.x - drag.current.grab.x) * 1000) / 1000;
@@ -815,7 +847,8 @@ export default function CanvasView({
     const r = ref.current!.getBoundingClientRect();
     return { clientX: r.left + p.x, clientY: r.top + p.y, button: 0, shiftKey: false, pointerType: 'touch' } as unknown as React.PointerEvent;
   };
-  const reticleTool = reticle && tool !== 'select' && tool !== 'pan';
+  // La main levée suit le doigt lui-même : pas de réticule décalé.
+  const reticleTool = reticle && tool !== 'select' && tool !== 'pan' && tool !== 'freehand';
 
   const restoreGestureStart = () => {
     pendingDown.current = null;
@@ -1137,6 +1170,9 @@ export default function CanvasView({
               </g>
             );
           })()}
+          {freehand && freehand.length > 1 && (
+            <polyline data-apercu-main-levee points={freehand.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeLinejoin="round" strokeLinecap="round" />
+          )}
           {activeDraft && activeDraft.kind === 'stretch' && (() => {
             // Aperçu : fenêtre de capture (verte, pointillée), sommets capturés, puis déplacement.
             const p = activeDraft.points;

@@ -56,6 +56,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'circle', label: 'Cercle', key: 'C', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Centre puis rayon' },
   { id: 'arc', label: 'Arc 3 points', short: 'Arc', key: 'A', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Début, point de passage, fin' },
   { id: 'spline', label: 'Spline', key: 'S', levels: ['contextuel', 'complet'], hint: 'Points de contrôle, puis Terminer (Entrée ou double-clic) : courbe lisse de degré 3' },
+  { id: 'freehand', label: 'Main levée', key: '', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Tracez librement à la souris, au stylet ou au doigt : polyligne simplifiée au relâcher' },
   { id: 'offset', label: 'Décaler', key: '', levels: ['contextuel', 'complet'], hint: 'Distance saisie, puis l’objet, puis un point du côté de la copie parallèle' },
   { id: 'stretch', label: 'Étirer', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins de la fenêtre de capture, puis point de base et point d’arrivée : les sommets capturés se déplacent' },
   { id: 'ellipse', label: 'Ellipse', key: 'Z', levels: ['contextuel', 'complet'], hint: 'Centre, extrémité du premier axe, puis le second demi-axe' },
@@ -868,6 +869,7 @@ function Workbench() {
         ellipse: ['ellipse', 'ovale', 'axe', 'courbe'],
         spline: ['spline', 'courbe', 'lisse', 'bezier', 'nurbs'],
         stretch: ['etirer', 'étirer', 'stretch', 'allonger', 'deformer'],
+        freehand: ['main levee', 'main levée', 'croquis', 'esquisse', 'libre', 'freehand', 'crayon'],
         offset: ['decaler', 'décaler', 'offset', 'parallele', 'parallèle', 'copie parallele'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
         room: ['piece', 'surface', 'local', 'room', 'sia', 'carrez'],
@@ -1210,6 +1212,7 @@ function Workbench() {
                  tool === 'block' ? (activeBlockId ? `Cliquez pour insérer ${activeBlockId}` : 'Choisissez un bloc dans le navigateur') :
                  tool === 'pan' ? 'Glissez pour déplacer la vue' :
                  tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
+                 tool === 'freehand' ? 'Main levée : tracez en maintenant appuyé ; la polyligne est simplifiée au relâcher' :
                  tool === 'offset' ? 'Décaler : touchez l’objet, puis un point du côté où poser la copie parallèle' :
                  tool === 'stretch' ? 'Étirer : deux coins de la fenêtre de capture, puis le point de base et le point d’arrivée' :
                  tool === 'spline' ? 'Spline : cliquez les points de contrôle, puis Terminer (Entrée ou double-clic)' :
