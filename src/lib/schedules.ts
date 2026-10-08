@@ -21,6 +21,8 @@ export const SCHEDULE_TITLE: Record<ScheduleKind, string> = { pieces: 'Tableau d
 const idNumber = (id: string) => Number(id.match(/(\d+)$/)?.[1] ?? 0);
 const ordered = (objects: CadObject[]) => [...objects].sort((a, b) => a.createdSeq - b.createdSeq || idNumber(a.id) - idNumber(b.id));
 const fr = (v: number, d: number) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
+/** Cote du modèle (mm) telle quelle : décimales gardées (812,5), jamais arrondie au millimètre. */
+const mm = (v: number) => v.toLocaleString('fr-FR', { maximumFractionDigits: 6 });
 
 export function scheduleTable(kind: ScheduleKind, objects: CadObject[]): Table {
   if (kind === 'pieces') {
@@ -46,7 +48,7 @@ export function scheduleTable(kind: ScheduleKind, objects: CadObject[]): Table {
     }
     return {
       header: ['Type', 'Largeur (mm)', 'Qté'], cols: [36, 30, 16], centered: [false, true, true],
-      rows: groups.map(g => [g.type, fr(g.width, 0), String(g.n)]),
+      rows: groups.map(g => [g.type, mm(g.width), String(g.n)]),
       total: ['Total', '', String(groups.reduce((s, g) => s + g.n, 0))],
     };
   }
@@ -55,7 +57,7 @@ export function scheduleTable(kind: ScheduleKind, objects: CadObject[]): Table {
     const w = o as Extract<CadObject, { kind: 'wall' }>;
     const l = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) / 1000;
     total += l;
-    return [w.name, fr(w.thickness, 0), fr(l, 2)];
+    return [w.name, mm(w.thickness), fr(l, 2)];
   });
   return { header: ['Mur', 'Épaisseur (mm)', 'Longueur (m)'], cols: [36, 30, 30], centered: [false, true, true], rows, total: ['Total', '', fr(total, 2)] };
 }

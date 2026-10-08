@@ -27,12 +27,16 @@ describe('tableaux de quantités (lot 13.5)', () => {
     const t = scheduleTable('ouvertures', model);
     expect(t.rows).toEqual([['Porte', '900', '2'], ['Fenêtre', '1\u202f200', '1'], ['Porte', '800', '1']]);
     expect(t.total).toEqual(['Total', '', '4']);
+    // Largeurs fractionnaires : écrites telles quelles, deux groupes distincts restent distincts.
+    const frac = scheduleTable('ouvertures', [...walls, opening('O5', 'porte', 812.5), opening('O6', 'porte', 813)]);
+    expect(frac.rows).toEqual([['Porte', '812,5', '1'], ['Porte', '813', '1']]);
   });
 
   it('murs : épaisseur, longueur d’axe, total ; modifier un mur met le tableau à jour', () => {
     const t = scheduleTable('murs', model);
     expect(t.rows[0]).toEqual(['W1', '200', '5,00']);
     expect(t.rows[4]).toEqual(['W5', '100', '4,00']);
+    expect(scheduleTable('murs', [wall('W6', 0, 0, 1000, 0, 162.5)]).rows[0]).toEqual(['W6', '162,5', '1,00']);
     expect(t.total).toEqual(['Total', '', '22,00']);
     const longer = model.map(o => (o.id === 'W1' ? { ...o, x2: 6500 } as CadObject : o));
     expect(scheduleTable('murs', longer).rows[0]).toEqual(['W1', '200', '6,50']);
