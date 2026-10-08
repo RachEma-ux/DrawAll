@@ -76,7 +76,14 @@ describe('API de commandes (lot 18.1)', () => {
     expect(add({ kind: 'opening', position: 100, width: 900, type: 'porte', hostId: 'OBJ-0001' })).toBe('opening : OBJ-0001 n’est pas un objet de type wall');
     const solid = { ...line, id: 'S', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } } as unknown as CadObject;
     expect(add({ ...occ, sourceId: 'S' }, [solid])).toBeNull();
-    expect(add({ ...occ, sourceId: 'S', mate: { to: 'X' } }, [solid])).toBe('occurrence : liaison vers X absente');
+    expect(add({ ...occ, sourceId: 'S', mate: { type: 'fixe', to: 'X', rel: [0, 0, 0, 0] } }, [solid])).toBe('occurrence : liaison vers X absente');
+    // Liaison incomplète (faces manquantes) : refusée avant toute résolution.
+    expect(add({ ...occ, sourceId: 'S', mate: { type: 'coaxiale', to: 'X' } }, [solid])).toBe('occurrence : liaison mal formée (type, faces et cible attendus)');
+    // Jeux de propriétés : forme relue telle quelle seulement.
+    const ln = { kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 };
+    expect(add({ ...ln, psets: {} })).toBe('line : jeux de propriétés mal formés (nom, propriétés nommées, valeurs texte, nombre ou booléen)');
+    expect(add({ ...ln, psets: [{ name: 'P', props: [{ name: 'a', value: { x: 1 } }] }] })).toMatch(/jeux de propriétés mal formés/);
+    expect(add({ ...ln, psets: [{ name: 'P', props: [{ name: 'a', value: 2 }, { name: 'b', value: 'x' }] }] })).toBeNull();
     expect(add({ kind: 'dimension', offset: 5, style: 'aligned', targetId: 'OBJ-0404' })).toBe('dimension : objet désigné OBJ-0404 absent');
     // Mise à jour : une référence rompue est refusée.
     expect(validateCommand('updateObject', ['OBJ-0001', { levelId: 'NIV-0009' }], [line], L, P)).toBe('line : niveau NIV-0009 absent');

@@ -96,11 +96,12 @@ export function merge3(base: MicroVersion, ours: MicroVersion, theirs: MicroVers
   return { merged: merged as MergeResult['merged'], conflicts, taken };
 }
 
-/** Références d'un objet vers les calques, blocs et niveaux. */
-const REFS: { where: 'layers' | 'blocks' | 'levels'; of: (o: CadObject) => string | undefined }[] = [
+/** Références d'un objet vers les calques, blocs, niveaux et zones (pièce → zone). */
+const REFS: { where: 'layers' | 'blocks' | 'levels' | 'zones'; of: (o: CadObject) => string | undefined }[] = [
   { where: 'layers', of: o => o.layerId },
   { where: 'blocks', of: o => (o.kind === 'blockRef' ? o.blockId : undefined) },
   { where: 'levels', of: o => o.levelId },
+  { where: 'zones', of: o => (o.kind === 'room' ? o.zoneId : undefined) },
 ];
 
 /**
@@ -196,6 +197,17 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
     const list = (out[c.where] as WithId[] | undefined) ?? [];
     if (value === null) {
       out[c.where] = list.filter(x => x.id !== c.id);
+      // Zone supprimée : ses pièces restent, sans zone (comme la suppression d'une zone dans l'atelier).
+      if (c.where === 'zones') {
+        const rooms = new Set(c.dependents);
+        out.objects = ((out.objects as CadObject[] | undefined) ?? []).map(o => {
+          if (!rooms.has(o.id) || o.kind !== 'room') return o;
+          const { zoneId: _z, ...rest } = o;
+          void _z;
+          return rest as CadObject;
+        });
+        continue;
+      }
       for (const d of c.dependents) gone.add(d);
     }
   }

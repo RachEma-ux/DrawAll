@@ -96,6 +96,24 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect(r.conflicts).toEqual([expect.objectContaining({ where: 'layers', id: 'LAY-0009', theirs: 'supprimé', dependents: ['N'] })]);
   });
 
+  it('zone supprimée chez nous, pièce rangée dans cette zone chez eux → conflit ; suppression retenue : pièce gardée, sans zone', () => {
+    const zone = { id: 'ZON-0001', name: 'Jour', color: '#ffcc00' };
+    const room = { ...base0, id: 'R1', name: 'Séjour', kind: 'room', x: 0, y: 0 } as CadObject;
+    const base = v(0, [room], { zones: [zone] });
+    const ours = v(1, [room], { zones: [] });
+    const theirs = v(1, [{ ...room, zoneId: 'ZON-0001' } as CadObject], { zones: [zone] });
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts).toEqual([expect.objectContaining({ where: 'zones', id: 'ZON-0001', ours: 'supprimé', dependents: ['R1'] })]);
+    expect(r.merged.zones!.map(z => z.id)).toEqual(['ZON-0001']);
+    const kept = resolve(r, { [conflictKey(r.conflicts[0])]: 'nôtre' });
+    if ('error' in kept) throw new Error(kept.error);
+    expect(kept.zones).toEqual([]);
+    expect(kept.objects!.map(o => [o.id, (o as { zoneId?: string }).zoneId])).toEqual([['R1', undefined]]);
+    const theirsWins = resolve(r, { [conflictKey(r.conflicts[0])]: 'leur' });
+    if ('error' in theirsWins) throw new Error(theirsWins.error);
+    expect((theirsWins.objects![0] as { zoneId?: string }).zoneId).toBe('ZON-0001');
+  });
+
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
     const base = v(0, [line('A', 1)]);
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);

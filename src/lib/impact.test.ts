@@ -31,6 +31,13 @@ describe('analyse d’impact (lot 14.3)', () => {
     expect(impactSummary(i)).toBe('2 objet(s) associé(s) supprimé(s) avec : O1, D1 ; 3 objet(s) recalculé(s) : R1, T1, T2 ; feuille(s) à recalculer : Feuille FEU-0001');
   });
 
+  it('suppression d’un repère de coupe : la coupe qui en dépend est annoncée, comme la suppression l’emporte', () => {
+    const mark = { ...base, id: 'M1', name: 'A', kind: 'section', x1: 0, y1: 0, x2: 10, y2: 0, label: 'A' } as CadObject;
+    const cut = { ...base, id: 'C1', name: 'Coupe', kind: 'cut', sourceId: 'W1', markId: 'M1', depth: 10, gap: 5 } as unknown as CadObject;
+    const i = impactOf(['M1'], 'suppression', { ...ctx, objects: [...objects, mark, cut] });
+    expect(i.removedWith.map(x => x.id)).toEqual(['C1']);
+  });
+
   it('modification d’un mur : associés suivis, rien d’emporté', () => {
     const i = impactOf(['W1'], 'modification', ctx);
     expect(i.removedWith).toEqual([]);

@@ -3,7 +3,7 @@
 // pièces délimitées par un mur, tableaux et nomenclature calculés, contraintes, et feuilles dont une
 // fenêtre montre un élément touché (feuilles « à recalculer »). Fonctions pures.
 import type { BlockDef, CadObject, GeoConstraint, Level, Sheet, WallObj } from '@/types/cad';
-import { KIND_LABEL, parentOf } from '@/types/cad';
+import { KIND_LABEL, parentsOf } from '@/types/cad';
 import { constraintObjects } from './constraints/model';
 import { objectBounds } from './geometry';
 import { levelIdOf, viewportLevelId } from './levels';
@@ -45,8 +45,9 @@ export function impactOf(ids: string[], mode: 'suppression' | 'modification', ct
   for (let changed = true; changed;) {
     changed = false;
     for (const o of objects) {
-      const p = parentOf(o);
-      if (p && seen.has(p) && !seen.has(o.id)) { seen.add(o.id); associated.push(item(o, `associé à ${p}`)); changed = true; }
+      // Tous les parents, comme la suppression (une coupe dépend aussi de son repère).
+      const p = parentsOf(o).find(x => seen.has(x));
+      if (p && !seen.has(o.id)) { seen.add(o.id); associated.push(item(o, `associé à ${p}`)); changed = true; }
     }
   }
   const touched = [...targets, ...associated.map(a => byId.get(a.id)!)];

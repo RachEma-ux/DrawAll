@@ -754,11 +754,11 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - d'une pièce désignée par une occurrence ;
   - d'un mur désigné par une ouverture ;
   - d'une source de vue ;
-  - de la cible d'une cote, d'une note ou d'une liaison.
+  - de la cible d'une cote, d'une note ou d'une liaison ;
+  - d'un objet désigné par une contrainte ;
+  - d'une zone à laquelle une pièce est rattachée.
 
-  - d'un objet désigné par une contrainte.
-
-  Retenir la suppression retire aussi, de proche en proche, ce qui en dépend (objets et contraintes) : aucune référence orpheline.
+  Retenir la suppression retire aussi, de proche en proche, ce qui en dépend (objets et contraintes) : aucune référence orpheline. Une zone fait exception : ses pièces restent, sans zone, comme lorsqu'on supprime une zone dans l'atelier.
 - **Géoréférencement** : il est fusionné comme un réglage. Son ajout, son retrait (valeur absente) et sa modification sont repris d'un côté, ou mis en conflit s'ils sont faits des deux côtés.
   - Un changement fait d'un seul côté est repris.
   - Un même changement fait des deux côtés est accepté.
@@ -819,7 +819,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - En outre, `indexedDB`, `localStorage`, `sessionStorage`, `caches`, `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `BroadcastChannel`, `importScripts`, `navigator`, les Workers et la messagerie brute sont retirés de l'objet global et de toute sa chaîne de prototypes.
   - Le script ne lit et n'écrit les données du projet que par l'API. Retirer le cadre arrête le Worker.
 - **Commandes ouvertes** : un script (et l'assistant) n'accède qu'aux commandes dont les arguments sont entièrement validés : `addObject`, `updateObject`, `removeObject(s)`, `transform`, `duplicateObjects`, `addLayer`, `addLevel`, `setActiveLayerId`, `setActiveLevelId`, `nameVersion`, `goTo`, `undo`, `redo`. Les autres restent réservées à l'interface, qui ne leur passe que des arguments bien formés ; un script qui les appelle est refusé (« commande non ouverte aux scripts »). Le nombre d'arguments est borné et les arguments facultatifs de type texte (nom, libellé) sont vérifiés.
-- **Objets complets** : champs communs vérifiés (classification connue, hachure permise) ; chaque type d'objet a sa fiche (champs numériques finis, points, recette d'un solide, désignations, valeurs permises, dimensions d'un poteau selon sa section, dimensions strictement positives : rayon, largeur, épaisseur, hauteur de texte). `addObject` l'exige en plus d'un type connu et d'un calque existant. `updateObject` valide l'objet résultant : le type et l'identifiant ne changent pas, et un objet complet ne peut pas le devenir moins. Les références sont vérifiées aussi : niveau et définition de bloc existants, objet désigné présent et du bon type (ouverture → mur, occurrence et vue projetée → solide, repère → coupe, liaison → occurrence). Une recette de solide refuse une direction de longueur nulle.
+- **Objets complets** : champs communs vérifiés (classification connue, hachure permise, jeux de propriétés bien formés, liaison d'assemblage complète) ; chaque type d'objet a sa fiche (champs numériques finis, points, recette d'un solide, désignations, valeurs permises, dimensions d'un poteau selon sa section, dimensions strictement positives : rayon, largeur, épaisseur, hauteur de texte). `addObject` l'exige en plus d'un type connu et d'un calque existant. `updateObject` valide l'objet résultant : le type et l'identifiant ne changent pas, et un objet complet ne peut pas le devenir moins. Les références sont vérifiées aussi : niveau et définition de bloc existants, objet désigné présent et du bon type (ouverture → mur, occurrence et vue projetée → solide, repère → coupe, liaison → occurrence). Une recette de solide refuse une direction de longueur nulle.
 - **Tout ou rien** : un script qui échoue est annulé en entier. Les cas d'échec sont une exception, une commande refusée, un délai dépassé ou un arrêt à la main. Le projet revient à son état d'avant le script, journal compris. Pendant l'exécution, l'atelier est gelé (ni clic ni raccourci clavier ; de même pendant l'exécution d'une proposition de l'assistant) : l'annulation ne peut donc emporter aucune autre modification.
   - Délai réglable de 1 à 120 s, 10 s par défaut. Au-delà, le Worker est arrêté.
   - Un script réussi laisse ses commandes au journal et ses versions dans l'historique.

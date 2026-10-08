@@ -4,6 +4,8 @@
 // journal depuis son état de base reproduit le projet. Fonctions pures.
 import { CLASSIFICATION_META, KIND_LABEL, parentsOf, type CadObject, type Layer, type MicroVersion } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
+import { isMate } from './assembly';
+import { normalizePsets } from './properties';
 import { isRecipe } from './solids';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
@@ -116,6 +118,8 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
   if (!Object.prototype.hasOwnProperty.call(CLASSIFICATION_META, o.classification as string)) return `${kind} : classification parmi ${Object.keys(CLASSIFICATION_META).join(', ')} attendue`;
   if (o.hatch !== undefined && !HATCHES.includes(o.hatch as string)) return `${kind} : hachure parmi ${HATCHES.join(', ')} attendue`;
   for (const k of ['part', 'materialId', 'groupId']) if (o[k] !== undefined && !str(o[k])) return `${kind} : ${k} texte attendu`;
+  // Jeux de propriétés : la forme que la relecture d'un projet garde telle quelle (export IFC).
+  if (o.psets !== undefined && !(Array.isArray(o.psets) && JSON.stringify(normalizePsets(o.psets) ?? []) === JSON.stringify(o.psets))) return `${kind} : jeux de propriétés mal formés (nom, propriétés nommées, valeurs texte, nombre ou booléen)`;
   for (const k of spec.nums ?? []) if (!finite(o[k])) return `${kind} : ${k} numérique fini attendu`;
   for (const k of spec.pos ?? []) if (!positive(o[k])) return `${kind} : ${k} positif attendu`;
   for (const k of spec.strs ?? []) if (!str(o[k])) return `${kind} : ${k} attendu`;
@@ -149,8 +153,12 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
     const want = r === (o as { markId?: unknown }).markId ? 'section' : REF_KIND[kind];
     if (want && target.kind !== want) return `${kind} : ${r} n’est pas un objet de type ${want}`;
   }
-  const mate = (o as { mate?: { to?: unknown } }).mate;
-  if (kind === 'occurrence' && mate && !(str(mate.to) && byId.get(mate.to as string)?.kind === 'occurrence')) return `occurrence : liaison vers ${String(mate.to)} absente`;
+  const mate = (o as { mate?: unknown }).mate as { to?: unknown } | undefined;
+  if (kind === 'occurrence' && mate !== undefined) {
+    // Liaison complète (type, faces, cible) avant de la résoudre.
+    if (!isMate(mate)) return 'occurrence : liaison mal formée (type, faces et cible attendus)';
+    if (byId.get(mate.to as string)?.kind !== 'occurrence') return `occurrence : liaison vers ${String(mate.to)} absente`;
+  }
   return null;
 }
 
