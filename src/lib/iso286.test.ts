@@ -47,6 +47,18 @@ describe('ISO 286 (lot 5.1) — échantillon de cotes', () => {
     expect(deviations(25, parseClass('P8')!).ok).toBe(false);
   });
 
+  it('degré 3 des alésages K, M, N, P : Δ = IT3 − IT2', () => {
+    expect(dev(8, 'K3')).toEqual([0, -2.5]);
+    expect(dev(20, 'M3')).toEqual([-6.5, -10.5]);
+    expect(dev(2, 'N3')).toEqual([-4, -6]);
+  });
+
+  it('palier choisi sur la taille ramenée au micromètre (bruit d’arrondi des coordonnées)', () => {
+    expect(dev(30.000276, 'H7')).toEqual(dev(30, 'H7'));
+    expect(dev(30.000276, 'g6')).toEqual(dev(30, 'g6'));
+    expect(dev(30.001, 'H7')).toEqual(dev(40, 'H7'));
+  });
+
   it('js / JS : ±IT/2, arrondi pair de IT7 à IT11', () => {
     expect(dev(25, 'js6')).toEqual([6.5, -6.5]);
     expect(dev(25, 'js7')).toEqual([10, -10]);

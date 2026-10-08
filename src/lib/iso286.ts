@@ -22,6 +22,12 @@ const IT: Record<number, number[]> = {
   14: [250, 300, 360, 430, 520, 620, 740, 870, 1000, 1150, 1300, 1400, 1550],
 };
 
+/**
+ * IT2 (µm), ISO 286-1 tableau 1 : sert seulement au calcul de Δ = IT3 − IT2 des alésages K, M, N, P
+ * de degré 3 (le degré IT2 lui-même n'est pas proposé).
+ */
+const IT2 = [1.2, 1.5, 1.5, 2, 2.5, 2.5, 3, 4, 5, 7, 8, 9, 10];
+
 /** Écart supérieur es des arbres d à h (µm), ISO 286-1 tableau 2. */
 const SHAFT_UPPER: Record<string, number[]> = {
   d: [-20, -30, -40, -50, -65, -80, -100, -120, -145, -170, -190, -210, -230],
@@ -55,13 +61,20 @@ export function parseClass(text: string): ToleranceClass | null {
 
 export const formatClass = (c: ToleranceClass) => `${c.hole ? c.letter.toUpperCase() : c.letter}${c.grade}`;
 
+/**
+ * Taille nominale ramenée au micromètre : une longueur mesurée sur des coordonnées arrondies
+ * (30,000276 mm après une rotation) reste dans le palier de la cote affichée (30 mm).
+ */
+const normalized = (nominal: number) => Math.round(nominal * 1000) / 1000;
+
 function step(nominal: number): number {
-  return STEPS.findIndex(s => nominal <= s);
+  const d = normalized(nominal);
+  return STEPS.findIndex(s => d <= s);
 }
 
 /** Degré de tolérance ITn (µm) pour une taille nominale, ou erreur hors du domaine couvert. */
 export function itValue(nominal: number, grade: number): Result<number> {
-  if (!(nominal > 0) || nominal > 500) return { ok: false, error: `Taille ${nominal} mm hors du domaine couvert (0 à 500 mm).` };
+  if (!(normalized(nominal) > 0) || normalized(nominal) > 500) return { ok: false, error: `Taille ${nominal} mm hors du domaine couvert (0 à 500 mm).` };
   const row = IT[grade];
   if (!row) return { ok: false, error: `Degré IT${grade} non couvert (IT3 à IT14).` };
   return { ok: true, value: row[step(nominal)] };
@@ -94,7 +107,7 @@ export function deviations(nominal: number, cls: ToleranceClass): Result<Deviati
     // K, M, N jusqu'à IT8 et P jusqu'à IT7 : ES = −ei + Δ, Δ = ITn − ITn−1 (nul jusqu'à 3 mm).
     const max = cls.letter === 'p' ? 7 : 8;
     if (cls.grade < 3 || cls.grade > max) return { ok: false, error: `${name} : seuls les degrés IT3 à IT${max} sont couverts pour cette position.` };
-    const delta = i === 0 ? 0 : T - IT[cls.grade - 1][i];
+    const delta = i === 0 ? 0 : T - (cls.grade === 3 ? IT2 : IT[cls.grade - 1])[i];
     let es = -SHAFT_LOWER[cls.letter][i] + delta;
     // Cas particulier de la norme : M6 de 250 à 315 mm, ES = −9 µm.
     if (cls.letter === 'm' && cls.grade === 6 && i === 10) es = -9;
