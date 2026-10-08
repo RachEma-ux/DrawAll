@@ -19,6 +19,7 @@ import type {
   ViewsObj,
   CutObj,
   UnderlayObj,
+  NoteObj,
   Asset,
 } from '@/types/cad';
 import { CLASSIFICATION_META, dimensionValue, fmt, isClosedPolyline } from '@/types/cad';
@@ -30,6 +31,7 @@ import {
   distanceSegment,
   findSnap,
   gridSnap,
+  notePosition,
   objectBounds,
   projectBounds,
   unionBounds,
@@ -58,7 +60,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -114,6 +116,8 @@ interface Props {
   onAddOpening?: (wallId: string, x: number, y: number) => void;
   /** Outil Pièce : point intérieur désigné. */
   onAddRoom?: (x: number, y: number) => void;
+  /** Note de terrain (lot 7.3) : point touché et objet désigné, s'il y en a un. */
+  onAddNote?: (x: number, y: number, targetId?: string) => void;
   /** Images des fonds de plan (lot 6.2). */
   assets?: Record<string, Asset>;
   /** Outil Caler le fond : deux points désignés sur l'image (sans accrochage). */
@@ -181,6 +185,7 @@ export default function CanvasView({
   onAddWall,
   onAddOpening,
   onAddRoom,
+  onAddNote,
   onAddSymbol,
   symbolPoints = 1,
   symbolKind,
@@ -440,6 +445,12 @@ export default function CanvasView({
     }
     if (tool === 'room') {
       onAddRoom?.(w.x, w.y);
+      return;
+    }
+    if (tool === 'note') {
+      // Note jointe à l'objet touché (elle le suit), sinon au point touché.
+      const hit = hitTest(editableObjects.filter(o => o.kind !== 'note' && o.kind !== 'underlay'), objects, blocks, w.x, w.y, (coarse.current ? 14 : 6) / tf.k);
+      onAddNote?.(w.x, w.y, hit?.id);
       return;
     }
     if (tool === 'calibrate') {
@@ -1194,6 +1205,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'pdim') return <PointDimensionShape obj={obj} selected={selected} zoom={zoom} paperScale={paperScale} layer={layer} colorMode={colorMode} />;
   if (obj.kind === 'underlay') return <UnderlayShape obj={obj} asset={assets?.[obj.assetId]} selected={selected} zoom={zoom} />;
+  if (obj.kind === 'note') return <NoteShape obj={obj} objects={objects} blocks={blocks} selected={selected} zoom={zoom} />;
   if (obj.kind === 'cut') return <CutShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'views') return <ViewsShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (isAnnotation(obj)) return <SymbolShape obj={obj} objects={objects} blocks={blocks} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
@@ -1255,6 +1267,19 @@ function RoomShape({ obj, poly, selected, zoom, paperScale }: { obj: RoomObj; po
 }
 
 /** Fond de plan : image étirée sur son emprise, opacité réglable ; cadre en pointillé s'il est sélectionné. */
+/** Note de terrain : repère à taille d'écran fixe (crayon, ou appareil photo si une photo est jointe). */
+function NoteShape({ obj, objects, blocks, selected, zoom }: { obj: NoteObj; objects: CadObject[]; blocks: BlockDef[]; selected: boolean; zoom: number }) {
+  const p = notePosition(obj, objects, blocks);
+  const r = NOTE_MARKER_PX / zoom;
+  return (
+    <g data-note={obj.id}>
+      <title>{obj.text}</title>
+      <circle cx={p.x} cy={p.y} r={r} fill={selected ? '#22d3ee' : '#f59e0b'} stroke="#070b16" strokeWidth={1.5 / zoom} />
+      <text x={p.x} y={p.y + 4 / zoom} fontSize={11 / zoom} textAnchor="middle" fill="#070b16" fontFamily="JetBrains Mono, monospace">{obj.photoIds?.length ? '◉' : '✎'}</text>
+    </g>
+  );
+}
+
 function UnderlayShape({ obj, asset, selected, zoom }: { obj: UnderlayObj; asset?: Asset; selected: boolean; zoom: number }) {
   return (
     <g data-fond={obj.id} pointerEvents="none">
@@ -1655,9 +1680,15 @@ function hitTest(candidates: CadObject[], allObjects: CadObject[], blocks: Block
 
 function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[], x: number, y: number, tol: number): CadObject | null {
   // Une ouverture est entièrement dans l'épaisseur de son mur : elle est testée avant lui.
-  const candidates = [...all.filter(o => o.kind !== 'opening'), ...all.filter(o => o.kind === 'opening')];
+  // Les notes, posées sur le dessin, sont testées avant tout.
+  const candidates = [...all.filter(o => o.kind !== 'opening' && o.kind !== 'note'), ...all.filter(o => o.kind === 'opening'), ...all.filter(o => o.kind === 'note')];
   for (let i = candidates.length - 1; i >= 0; i--) {
     const o = candidates[i];
+    if (o.kind === 'note') {
+      const p = notePosition(o, allObjects, blocks);
+      if (Math.hypot(x - p.x, y - p.y) <= Math.max(tol * 2, 0)) return o;
+      continue;
+    }
     if (o.kind === 'line' && distanceSegment(x, y, o.x1, o.y1, o.x2, o.y2) <= tol) return o;
     if (o.kind === 'rect') {
       const inside = x >= o.x - tol && x <= o.x + o.w + tol && y >= o.y - tol && y <= o.y + o.h + tol;
@@ -1787,3 +1818,6 @@ function Loupe({ aim, sceneId, width, height }: { aim: { x: number; y: number };
     </g>
   );
 }
+
+/** Rayon du repère de note à l'écran (px). */
+const NOTE_MARKER_PX = 9;

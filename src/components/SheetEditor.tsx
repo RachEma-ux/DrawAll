@@ -434,7 +434,7 @@ export default function SheetEditor(p: Props) {
               return (
                 <g key={v.id} data-testid={`fenetre-${v.id}`}>
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
-                    {drawn.filter(o => visibleLayer.get(o.layerId)).map(o => (
+                    {drawn.filter(o => visibleLayer.get(o.layerId) && o.kind !== 'note').map(o => (
                       <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false} assets={p.assets}
                         zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} rooms={rooms} />
                     ))}

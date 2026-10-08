@@ -54,6 +54,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'wall', label: 'Mur', key: 'W', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Points successifs : un mur par segment, jonctions nettoyées — Entrée ou Terminer' },
   { id: 'opening', label: 'Ouverture', key: 'O', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez un mur : porte ou fenêtre centrée sur ce point' },
   { id: 'room', label: 'Pièce', key: 'I', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Touchez l’intérieur d’une pièce fermée par des murs : nom et surface' },
+  { id: 'note', label: 'Note', key: 'U', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Note de terrain : touchez un objet (elle le suit) ou un point, saisissez le texte ; photos dans l’inspecteur' },
   { id: 'calibrate', label: 'Caler le fond', key: 'G', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Fond de plan : touchez deux points de l’image, puis donnez leur distance réelle' },
   { id: 'symbol', label: 'Symbole', key: 'Y', levels: ['contextuel', 'complet'], hint: 'Nord, repère de coupe (deux points) ou cote de niveau en plan' },
   { id: 'polyline', label: 'Polyligne', short: 'Poly.', key: 'P', levels: ['contextuel', 'complet'], hint: 'Points successifs — Entrée ou double-clic pour terminer' },
@@ -434,6 +435,41 @@ function Workbench() {
   }, [project, openingParams, flash]);
 
   // Outil Pièce : la pièce fermée qui contient le point, nommée par l'utilisateur.
+  // Note de terrain (lot 7.3) : texte saisi, jointe à l'objet touché ou au point.
+  const addNote = useCallback((x: number, y: number, targetId?: string) => {
+    const layer = project.layers.find(l => l.id === project.activeLayerId);
+    if (!targetId && (!layer || layer.locked)) { flash('Calque actif verrouillé : note non créée.'); return; }
+    const text = window.prompt(targetId ? `Note sur ${targetId}` : 'Note sur ce point', '');
+    if (text === null) return;
+    project.addNote(x, y, text.trim(), targetId);
+    flash(targetId ? `Note jointe à ${targetId} — photos dans l’inspecteur.` : 'Note posée — photos dans l’inspecteur.');
+  }, [project, flash]);
+
+  /** Photo jointe à une note : réduite à 1 600 px de côté, puis encodée dans la place restante du projet. */
+  const addNotePhoto = useCallback(async (noteId: string, file: File) => {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const k = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * k)); canvas.height = Math.max(1, Math.round(bitmap.height * k));
+      canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const encoded = fitEncoding({ w: canvas.width, h: canvas.height }, assetRoom(project.assets), (w, h, q) => {
+        let c = canvas;
+        if (w !== canvas.width || h !== canvas.height) {
+          c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d')!.drawImage(canvas, 0, 0, w, h);
+        }
+        return q === null ? c.toDataURL('image/jpeg', 0.92) : c.toDataURL('image/jpeg', q);
+      });
+      if (!encoded) { window.alert('Photo non jointe : le stockage local du projet est plein. Retirez une photo ou un fond de plan, puis réessayez.'); return; }
+      project.addNotePhoto(noteId, { name: file.name, dataUrl: encoded.dataUrl, px: { w: encoded.w, h: encoded.h }, source: 'image' });
+      flash(`Photo jointe à ${noteId}.`);
+    } catch (e) {
+      window.alert(`Photo illisible : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [project, flash]);
+
   const addRoom = useCallback((x: number, y: number) => {
     const walls = project.objects.filter((o): o is WallObj => o.kind === 'wall' && project.layers.find(l => l.id === o.layerId)?.visible !== false);
     const poly = detectRoom(walls, { x, y });
@@ -739,6 +775,7 @@ function Workbench() {
         arcCenter: ['arc', 'centre', 'rayon', 'courbe'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
         room: ['piece', 'surface', 'local', 'room', 'sia', 'carrez'],
+        note: ['note', 'photo', 'releve', 'terrain', 'chantier', 'commentaire', 'remarque'],
         opening: ['porte', 'fenetre', 'baie', 'ouverture', 'door', 'window'],
         wall: ['mur', 'cloison', 'paroi', 'wall', 'batiment'],
         pdim: ['cote', 'serie', 'chainee', 'cumulee', 'angulaire', 'angle', 'niveau', 'altitude', 'dimension'],
@@ -879,6 +916,9 @@ function Workbench() {
       onAddBalloon={project.addBalloon}
       onAddBom={project.addBom}
       onSelect={project.setSelectedId}
+      assets={project.assets}
+      onAddNotePhoto={(id, f) => { void addNotePhoto(id, f); }}
+      onRemoveNotePhoto={project.removeNotePhoto}
     />
   );
   const historyEl = (
@@ -1069,6 +1109,7 @@ function Workbench() {
                  tool === 'arcCenter' ? 'Arc : cliquez le centre, le début (rayon), puis la fin — sens antihoraire' :
                  tool === 'trim' ? 'Ajuster : cliquez la portion à retirer, entre deux arêtes' :
                  tool === 'extend' ? 'Prolonger : cliquez près de l’extrémité à prolonger' :
+                 tool === 'note' ? 'Note : touchez un objet (la note le suit) ou un point, saisissez le texte ; photos dans l’inspecteur' :
                  tool === 'room' ? 'Pièce : touchez l’intérieur d’une pièce fermée par des murs, puis nommez-la' :
                  tool === 'opening' ? 'Ouverture : touchez un mur à l’endroit du centre de la baie' :
                  tool === 'wall' ? 'Mur : cliquez les points successifs (un mur par segment), puis Entrée ou Terminer' :
@@ -1182,6 +1223,7 @@ function Workbench() {
                 onAddWall={addWall}
                 onAddOpening={addOpening}
                 onAddRoom={addRoom}
+                onAddNote={addNote}
                 onAddSymbol={addSymbol}
                 assets={project.assets}
                 onCalibrate={calibrateUnderlay}

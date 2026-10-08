@@ -1,6 +1,6 @@
 // Moteur géométrique 2D de l'atelier : accrochages objet, intersections,
 // contrainte orthogonale et limites de vue. Les fonctions sont pures pour être testables.
-import type { BlockDef, CadObject, DimensionObj, HatchParams, Layer, PrimitiveObject, WallObj } from '@/types/cad';
+import type { BlockDef, CadObject, DimensionObj, HatchParams, Layer, NoteObj, PrimitiveObject, WallObj } from '@/types/cad';
 import { dimensionValue, effectiveDimensionStyle, isClosedPolyline, polylineExtents } from '@/types/cad';
 import { normalizeAngle, textBounds } from '@/lib/text';
 import { linkedViews } from '@/lib/views';
@@ -497,6 +497,7 @@ export function objectBounds(object: CadObject, blocks: BlockDef[], objects: Cad
     }
     case 'rect':
     case 'underlay': return { minX: object.x, minY: object.y, maxX: object.x + object.w, maxY: object.y + object.h };
+    case 'note': { const p = notePosition(object, objects, blocks); return { minX: p.x, minY: p.y, maxX: p.x, maxY: p.y }; }
     case 'circle': return { minX: object.cx - object.r, minY: object.cy - object.r, maxX: object.cx + object.r, maxY: object.cy + object.r };
     case 'arc': return arcBounds(object);
     case 'polyline': {
@@ -673,6 +674,7 @@ export function moveObject(object: CadObject, dx: number, dy: number): Partial<C
     case 'section': return { x1: object.x1 + dx, y1: object.y1 + dy, x2: object.x2 + dx, y2: object.y2 + dy };
     case 'rect': return { x: object.x + dx, y: object.y + dy };
     case 'underlay': return object.locked ? {} : { x: object.x + dx, y: object.y + dy };
+    case 'note': return { x: object.x + dx, y: object.y + dy };
     case 'circle': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'arc': return { cx: object.cx + dx, cy: object.cy + dy };
     case 'polyline': return { points: object.points.map((v, i) => v + (i % 2 === 0 ? dx : dy)) };
@@ -768,6 +770,12 @@ function rotateObjectGeometry(object: CadObject, cx: number, cy: number, angleDe
       return null; // cote associative : elle suit sa cible
     case 'underlay':
       return null; // fond de plan : ni rotation ni symétrie (il se cale par deux points)
+    case 'note': {
+      // Note jointe : elle suit son objet (position relative) ; note sur un point : le point tourne.
+      if (object.targetId) return {};
+      const p = rotatePoint(object.x, object.y, cx, cy, rad);
+      return { x: p.x, y: p.y };
+    }
     case 'pdim':
       return transformPdim(object, q => rotatePoint(q.x, q.y, cx, cy, rad), { rotation: angleDeg });
     case 'opening':
@@ -830,6 +838,8 @@ function mirrorObjectGeometry(object: CadObject, axis: 'x' | 'y', value: number)
       return { points: object.points.map((v, i) => (i % 2 === 0) === (axis === 'x') ? mx(v) : v) };
     case 'underlay':
       return {};
+    case 'note':
+      return object.targetId ? {} : axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
     case 'blockRef':
       return axis === 'x' ? { x: mx(object.x) } : { y: mx(object.y) };
     case 'dimension':
@@ -874,6 +884,7 @@ function scaleObjectGeometry(object: CadObject, cx: number, cy: number, factor: 
     case 'wall': return { x1: s(object.x1, cx), y1: s(object.y1, cy), x2: s(object.x2, cx), y2: s(object.y2, cy), thickness: round(object.thickness * factor) };
     case 'rect': return { x: s(object.x, cx), y: s(object.y, cy), w: round(object.w * factor), h: round(object.h * factor) };
     case 'underlay': return object.locked ? null : { x: s(object.x, cx), y: s(object.y, cy), w: object.w * factor, h: object.h * factor };
+    case 'note': return object.targetId ? {} : { x: s(object.x, cx), y: s(object.y, cy) };
     case 'circle': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'arc': return { cx: s(object.cx, cx), cy: s(object.cy, cy), r: round(object.r * factor) };
     case 'polyline': return { points: object.points.map((v, i) => s(v, i % 2 === 0 ? cx : cy)) };
@@ -936,6 +947,7 @@ export function offsetObject(object: CadObject, d: number): Partial<CadObject> |
     case 'views':
     case 'cut':
     case 'underlay':
+    case 'note':
       return null;
   }
 }
@@ -960,4 +972,14 @@ export function selectionCenter(ids: string[], objects: CadObject[], blocks: Blo
 
 function round(n: number): number {
   return Math.round(n * 1000) / 1000;
+}
+
+/**
+ * Position d'une note (lot 7.3) : jointe à un objet, relative au coin de son emprise (elle le suit) ;
+ * sinon, le point noté.
+ */
+export function notePosition(note: NoteObj, objects: CadObject[], blocks: BlockDef[]): Point {
+  const target = note.targetId ? objects.find(o => o.id === note.targetId) : undefined;
+  const b = target && target.kind !== 'note' ? objectBounds(target, blocks, objects) : null;
+  return b ? { x: b.minX + note.x, y: b.minY + note.y } : { x: note.x, y: note.y };
 }

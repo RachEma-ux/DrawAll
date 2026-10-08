@@ -201,7 +201,7 @@ export function sheetToPdf(input: PdfInput): string {
       const layer = layers.find(l => l.id === o.layerId);
       if (o.kind === 'dimension') { drawDimension(o); continue; }
       if (o.kind === 'pdim') { drawPointDimension(o); continue; }
-      if (o.kind === 'underlay') continue; // fond de plan : référence à l'écran, non imprimée
+      if (o.kind === 'underlay' || o.kind === 'note') continue; // fond de plan, note de terrain : à l'écran seulement
       if (o.kind === 'cut') {
         const c = cutView(o, objects.find(s => s.id === o.sourceId), objects.find(s => s.id === o.markId), objects, 0, 5 / k);
         if (!c.ok) continue;

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { chooseTool, currentObjects, loadObjects, openAtelier, toScreen } from './helpers';
+import { join } from 'node:path';
+import { chooseTool, currentObjects, loadObjects, openAtelier, tapModel, toScreen } from './helpers';
 
 /** Décalage du réticule au-dessus du doigt (px), comme dans l'atelier. */
 const OFFSET = 80;
@@ -155,3 +156,55 @@ test('lot 7.2 — reprise : un enregistrement que le stockage local a manqué es
   await expect.poll(async () => (await currentObjects(page)).length).toBe(1);
 });
 
+
+test('lot 7.3 — note jointe à un objet avec photo : elle le suit, reste après rechargement, part avec lui', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'inspecteur en colonne : recette bureau');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 4000, h: 3000 }]);
+  await chooseTool(page, /^Note/);
+  page.once('dialog', d => d.accept('Fissure à reprendre'));
+  await tapModel(page, info, 2000, 0);
+  await expect.poll(async () => (await currentObjects(page)).find(o => o.kind === 'note')).toMatchObject({ targetId: 'OBJ-0001', text: 'Fissure à reprendre' });
+
+  // Photo jointe depuis l'inspecteur : ressource du projet, repère « photo » sur le plan.
+  await page.getByLabel('Photo de la note').setInputFiles(join(process.cwd(), 'e2e', 'fixtures', 'fond-de-plan.png'));
+  await expect.poll(async () => ((await currentObjects(page)).find(o => o.kind === 'note') as { photoIds?: string[] }).photoIds?.length ?? 0).toBe(1);
+  await expect(page.getByTestId('note-inspecteur').locator('img')).toHaveCount(1);
+  const marker = page.getByTestId('canvas').locator('g[data-note] circle');
+  await expect(page.getByTestId('canvas').locator('g[data-note] text')).toHaveText('◉');
+
+  // La note suit l'objet déplacé (Maj + flèche : 100 mm).
+  const cx0 = Number(await marker.getAttribute('cx'));
+  await chooseTool(page, /^Sélection/);
+  await tapModel(page, info, 4000, 1500);
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => Number(await marker.getAttribute('cx'))).toBeCloseTo(cx0 + 100, 6);
+
+  // Rechargement : note et photo conservées.
+  await page.reload();
+  await expect(page.getByTestId('canvas').locator('g[data-note]')).toHaveCount(1);
+  const assets = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('drawall-projet-v1')!).assets ?? {}));
+  expect(assets).toHaveLength(1);
+
+  // Supprimer l'objet supprime sa note.
+  await page.getByRole('button', { name: 'Cadrer', exact: true }).click();
+  await chooseTool(page, /^Sélection/);
+  await tapModel(page, info, 4100, 1500);
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('lot 7.3 — note sur un point, au doigt', async ({ page }, info) => {
+  await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 4000, h: 3000 }]);
+  await chooseTool(page, /^Note/);
+  page.once('dialog', d => d.accept('Regard à localiser'));
+  // Intérieur du rectangle, loin de ses bords : aucun objet touché, la note est sur le point.
+  await tapModel(page, info, 2000, 1500);
+  await expect.poll(async () => (await currentObjects(page)).find(o => o.kind === 'note')).toMatchObject({ text: 'Regard à localiser' });
+  const note = (await currentObjects(page)).find(o => o.kind === 'note')!;
+  expect(note.targetId).toBeUndefined();
+  expect(Math.abs(Number(note.x) - 2000)).toBeLessThan(60);
+  await expect(page.getByTestId('canvas').locator('g[data-note]')).toHaveCount(1);
+});

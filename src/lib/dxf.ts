@@ -113,7 +113,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -251,6 +251,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
       }
       continue;
     }
+    if (object.kind === 'note') { counts.note++; continue; } // note de terrain : ni dessinée ni exportée
     if (object.kind === 'underlay') {
       // Fond de plan : image de référence, non exportée (le DXF ne référencerait qu'un fichier externe).
       counts.underlay++;
@@ -420,6 +421,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   if (counts.dimension) report.transformed.push(`Cotes : ${counts.dimension} → traits + texte (LINE + TEXT) ; l'association à l'objet coté est perdue.`);
   report.lost.push('Identifiants OBJ-, classification métier, noms d\'objets et historique des versions (non représentables en DXF).');
   if (counts.underlay) report.lost.push(`Fonds de plan : ${counts.underlay} (images de référence, non exportées).`);
+  if (counts.note) report.lost.push(`Notes de terrain : ${counts.note} (textes et photos du relevé, non exportés ; conservés dans le paquet du projet).`);
   if (counts.dimensionSkipped) report.lost.push(`Cotes sans géométrie calculable : ${counts.dimensionSkipped} (non exportées).`);
   if (counts.blockSkipped) report.lost.push(`Occurrences de blocs orphelines : ${counts.blockSkipped} (non exportées).`);
 
