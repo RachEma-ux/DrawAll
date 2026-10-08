@@ -174,6 +174,9 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
     push(100, subclass);
   };
   const writeOne = (object: PrimitiveObject, layer: string, inBlock = false) => {
+    // Primitive engendrée par un objet (identifiant « OBJ-…#n » : solide, vue, poteau, toiture) : son
+    // propre type de trait (partie cachée en interrompu) est écrit sur l'entité, pas celui de l'objet.
+    if (object.id.includes('#')) style = { color: object.color, lineType: object.lineType, lineWeight: object.lineWeight };
     writePrimitive(entityHeader, push, object, layer);
     if (object.kind === 'rect') counts.rect++;
     else counts[object.kind]++;

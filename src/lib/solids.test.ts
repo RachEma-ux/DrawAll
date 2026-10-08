@@ -80,6 +80,10 @@ describe('solides : recettes (lot 15.2)', () => {
     const dxf = exportToDxf([s as CadObject], createDefaultLayers(), []);
     expect(dxf).toContain('LWPOLYLINE');
     expect(dxf).toContain('\nCIRCLE\n');
+    // Partie retirée : le CIRCLE porte lui-même le type interrompu ; le contour vu reste du calque.
+    const circle = dxf.split('\n0\nCIRCLE\n')[1].split('\n0\n')[0];
+    expect(circle).toContain('\n6\nACAD_ISO02W100\n');
+    expect(dxf.split('\n0\nLWPOLYLINE\n')[1].split('\n0\n')[0]).not.toContain('\n6\n');
     expect(exportDxf([s as CadObject], createDefaultLayers(), []).report.transformed.some(t => t.startsWith('Solides : 1 →'))).toBe(true);
     expect(defaultIfcClass(s)).toBe('IfcBuildingElementProxy');
     expect(dimensionOf(s)).toBe('Encombrement 100 × 50 × 20 mm');
