@@ -366,7 +366,20 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - DXF : traits (LINE), cercle (CIRCLE), surfaces pleines (SOLID) et textes (TEXT) à la taille papier de l'échelle de la première fenêtre (1:1 sans feuille) ; le rapport d'échange l'indique.
 - Bibliothèque bâtiment : lits, table, WC, lavabo, évier, douche, baignoire, en blocs ordinaires du projet. Leurs dimensions sont des gabarits courants indicatifs, non normatifs, à remplacer par celles du fabricant ; la définition le rappelle.
 
-## 9. Références
+## 9. Terrain et mobile
+
+### 9.1 Réticule décalé et loupe (règle, lot 7.1)
+
+- Sur petit écran, les outils fréquents (sélection, ligne, rectangle, cercle, polyligne, « Plus ») sont dans une barre en bas, à portée du pouce.
+- Le bouton ⌖ « Réticule décalé » (préférence du navigateur, désactivé par défaut) change le geste au doigt pour tous les outils de dessin et de désignation, sauf sélection et panoramique :
+  - le point visé est à 80 px au-dessus du doigt, marqué d'une croix ;
+  - une loupe (grossissement 3) le montre agrandi, au-dessus du point ou à côté près du bord ;
+  - l'accrochage habituel s'applique au point visé ;
+  - le point est posé au lever du doigt ; les outils à glisser (ligne, rectangle, cercle, mesure) prennent leurs deux points en deux appuis ;
+  - un second doigt annule l'appui en cours et zoome.
+- Recette : un sommet pointé au doigt est pris à ±1 px écran.
+
+## 10. Références
 
 | Sujet | Référence |
 | --- | --- |

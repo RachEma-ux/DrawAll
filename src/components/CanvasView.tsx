@@ -1,6 +1,6 @@
 // Zone de travail : canvas SVG 2D avec accrochage objet, intersections,
 // contrainte orthogonale, saisie de coordonnées, zoom ajusté, mesures et blocs.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   BlockDef,
   CadObject,
@@ -70,6 +70,11 @@ interface Props {
   projectKey?: number;
   /** Niveau affiché : en changer abandonne le tracé en cours et oublie le dernier point. */
   levelKey?: string;
+  /**
+   * Réticule décalé au doigt (lot 7.1) : le point visé est au-dessus du doigt, une loupe le montre
+   * agrandi, et il est posé quand le doigt se lève.
+   */
+  reticle?: boolean;
   /** Types d'accrochage objet actifs. */
   snapTypes: readonly ObjectSnapType[];
   colorMode: ColorMode;
@@ -186,6 +191,7 @@ export default function CanvasView({
   gridSize,
   projectKey,
   levelKey,
+  reticle = false,
   snapTypes,
   colorMode,
   displayUnit,
@@ -719,6 +725,23 @@ export default function CanvasView({
   const draftAtGestureStart = useRef<Draft | null>(null);
   const TAP_SLOP_PX = 6;
 
+  // ─── Réticule décalé et loupe (lot 7.1) ───────────────────────────────────────
+  // Au doigt, le point visé est au-dessus du doigt (le doigt ne le cache pas) ; la loupe le montre
+  // agrandi ; il est posé au lever du doigt, avec l'accrochage habituel.
+  const [aim, setAim] = useState<{ x: number; y: number } | null>(null);
+  const aiming = useRef(false);
+  const sceneId = `scene-${useId().replace(/:/g, '')}`;
+  const aimFor = (e: { clientX: number; clientY: number }) => {
+    const r = ref.current!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top - RETICLE_OFFSET_PX };
+  };
+  /** Événement de pointeur simulé au point visé (coordonnées écran du réticule). */
+  const aimEvent = (p: { x: number; y: number }) => {
+    const r = ref.current!.getBoundingClientRect();
+    return { clientX: r.left + p.x, clientY: r.top + p.y, button: 0, shiftKey: false, pointerType: 'touch' } as unknown as React.PointerEvent;
+  };
+  const reticleTool = reticle && tool !== 'select' && tool !== 'pan';
+
   const restoreGestureStart = () => {
     pendingDown.current = null;
     setDraft(draftAtGestureStart.current);
@@ -734,6 +757,8 @@ export default function CanvasView({
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 2) {
       // Deux doigts : le geste en cours est annulé (état d'avant le premier doigt) et la vue zoome.
+      aiming.current = false;
+      setAim(null);
       restoreGestureStart();
       const p = pinchState();
       pinch.current = { d0: p.d, mx: p.mx, my: p.my, tf0: tf };
@@ -746,6 +771,14 @@ export default function CanvasView({
       return;
     }
     draftAtGestureStart.current = draft;
+    if (reticleTool) {
+      // Réticule : le doigt déplace le point visé ; rien n'est posé avant le lever.
+      aiming.current = true;
+      const p = aimFor(e);
+      setAim(p);
+      handleMove(aimEvent(p));
+      return;
+    }
     e.persist?.();
     pendingDown.current = e;
   };
@@ -770,6 +803,12 @@ export default function CanvasView({
     if (suppressUntilRelease.current) return;
     // Au doigt, pas de survol : seuls les glissements comptent.
     if (e.pointerType !== 'mouse' && !pointers.current.has(e.pointerId)) return;
+    if (aiming.current) {
+      const p = aimFor(e);
+      setAim(p);
+      handleMove(aimEvent(p));
+      return;
+    }
     const pending = pendingDown.current;
     if (pending) {
       if (Math.hypot(e.clientX - pending.clientX, e.clientY - pending.clientY) < TAP_SLOP_PX) return;
@@ -784,6 +823,20 @@ export default function CanvasView({
     if (pointers.current.size < 2) pinch.current = null;
     if (suppressUntilRelease.current) {
       if (pointers.current.size === 0) suppressUntilRelease.current = false;
+      return;
+    }
+    if (aiming.current) {
+      aiming.current = false;
+      const p = aimFor(e);
+      setAim(null);
+      if (e.type === 'pointercancel') { restoreGestureStart(); return; }
+      // Lever du doigt : le point visé est posé comme un clic. Les outils à glisser (ligne,
+      // rectangle, cercle, mesure) prennent leurs deux points en deux gestes.
+      const at = aimEvent(p);
+      const dragTool = tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'measure';
+      if (dragTool && !activeDraft) { handleDown(at); return; }
+      handleDown(at);
+      handleUp(at);
       return;
     }
     if (e.type === 'pointercancel') {
@@ -906,7 +959,7 @@ export default function CanvasView({
         </defs>
 
         <rect width="100%" height="100%" fill="#070b16" />
-        <g transform={`translate(${tf.x},${tf.y}) scale(${tf.k})`}>
+        <g id={sceneId} transform={`translate(${tf.x},${tf.y}) scale(${tf.k})`}>
           <rect x={-tf.x / tf.k - 100} y={-tf.y / tf.k - 100} width={(viewSize.w || 4000) / tf.k + 200} height={(viewSize.h || 4000) / tf.k + 200} fill="url(#grid-maj)" />
           <line x1={-100000} y1={0} x2={100000} y2={0} stroke="#22304f" strokeWidth={1 / tf.k} />
           <line x1={0} y1={-100000} x2={0} y2={100000} stroke="#22304f" strokeWidth={1 / tf.k} />
@@ -1023,6 +1076,7 @@ export default function CanvasView({
           })()}
           {hoverSnap && <SnapMarker snap={hoverSnap} zoom={tf.k} />}
         </g>
+        {aim && <Loupe aim={aim} sceneId={sceneId} width={viewSize.w} />}
       </svg>
 
       <div className="pointer-events-none absolute left-3 top-3 hidden rounded-sm border sm:block border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] text-muted-foreground">
@@ -1692,6 +1746,42 @@ function TextShape({ obj, selected, zoom, layer, colorMode }: { obj: TextObj; se
         ))}
       </text>
       <polygon points={corners.map(p => `${p.x},${p.y}`).join(' ')} fill="transparent" stroke={selected ? '#22d3ee' : 'none'} strokeWidth={1 / zoom} strokeDasharray={`${4 / zoom} ${3 / zoom}`} />
+    </g>
+  );
+}
+
+/** Décalage du réticule au-dessus du doigt (px écran), rayon et grossissement de la loupe. */
+export const RETICLE_OFFSET_PX = 80;
+const LOUPE_RADIUS = 56;
+const LOUPE_ZOOM = 3;
+
+/**
+ * Loupe : copie agrandie de la scène autour du point visé, placée au-dessus (ou à côté près du haut
+ * de la zone), avec la croix du réticule au point visé.
+ */
+function Loupe({ aim, sceneId, width }: { aim: { x: number; y: number }; sceneId: string; width: number }) {
+  const R = LOUPE_RADIUS;
+  const above = aim.y - R - 30 >= R + 4;
+  const W = width || 400;
+  const raw = above ? { x: aim.x, y: aim.y - R - 30 } : { x: aim.x + (aim.x < W / 2 ? R + 40 : -(R + 40)), y: Math.max(R + 4, aim.y) };
+  // Toujours entière dans la zone de dessin.
+  const c = { x: Math.min(Math.max(raw.x, R + 4), Math.max(R + 4, W - R - 4)), y: raw.y };
+  const clip = `${sceneId}-loupe`;
+  return (
+    <g data-testid="loupe" pointerEvents="none">
+      <line x1={aim.x - 12} y1={aim.y} x2={aim.x + 12} y2={aim.y} stroke="#f472b6" strokeWidth={1} />
+      <line x1={aim.x} y1={aim.y - 12} x2={aim.x} y2={aim.y + 12} stroke="#f472b6" strokeWidth={1} />
+      <circle data-testid="reticule" cx={aim.x} cy={aim.y} r={5} fill="none" stroke="#f472b6" strokeWidth={1} />
+      <clipPath id={clip}><circle cx={c.x} cy={c.y} r={R} /></clipPath>
+      <g clipPath={`url(#${clip})`}>
+        <rect x={c.x - R} y={c.y - R} width={2 * R} height={2 * R} fill="#070b16" />
+        <g transform={`translate(${c.x} ${c.y}) scale(${LOUPE_ZOOM}) translate(${-aim.x} ${-aim.y})`}>
+          <use href={`#${sceneId}`} />
+        </g>
+      </g>
+      <circle cx={c.x} cy={c.y} r={R} fill="none" stroke="#f472b6" strokeWidth={1.5} />
+      <line x1={c.x - 8} y1={c.y} x2={c.x + 8} y2={c.y} stroke="#f472b6" strokeWidth={1} />
+      <line x1={c.x} y1={c.y - 8} x2={c.x} y2={c.y + 8} stroke="#f472b6" strokeWidth={1} />
     </g>
   );
 }
