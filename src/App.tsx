@@ -33,6 +33,7 @@ import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
 import MergePanel from '@/components/MergePanel';
 import type { Change } from '@/lib/merge';
+import { impactOf, impactSummary } from '@/lib/impact';
 import { zoneColors as zoneColorsOf } from '@/lib/zones';
 import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
@@ -769,6 +770,13 @@ function Workbench() {
   // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
   const [paramsOpen, setParamsOpen] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
+  // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
+  const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
+  const deleteWithImpact = useCallback((ids: string[]) => {
+    const summary = impactSummary(impactOf(ids, 'suppression', impactContext));
+    project.removeObjects(ids);
+    if (summary) flash(`Supprimé — ${summary}. Ctrl+Z pour annuler.`);
+  }, [project, impactContext, flash]);
   // Comparaison et fusion de variantes (lot 14.2).
   const [mergeOpen, setMergeOpen] = useState(false);
   const [overlay, setOverlay] = useState<{ changes: Change[]; otherId: string } | null>(null);
@@ -1120,7 +1128,7 @@ function Workbench() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { e.preventDefault(); if (e.shiftKey) ungroupSelection(); else groupSelection(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); return; }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && project.selectedIds.length > 0) { project.removeObjects(project.selectedIds); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && project.selectedIds.length > 0) { deleteWithImpact(project.selectedIds); return; }
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && project.selectedIds.length > 0) {
         e.preventDefault();
         const step = e.shiftKey ? 100 : 10;
@@ -1135,7 +1143,7 @@ function Workbench() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, copySelection, pasteClipboard, nudgeSelection, groupSelection, ungroupSelection]);
+  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, copySelection, pasteClipboard, nudgeSelection, groupSelection, ungroupSelection, deleteWithImpact]);
 
   const visibleTools = TOOLS.filter(t => t.levels.includes(level));
   const primaryTools = visibleTools.filter(t => PRIMARY_TOOLS.includes(t.id));
@@ -1171,6 +1179,7 @@ function Workbench() {
   );
   const inspectorEl = (
     <Inspector
+      impact={selected ? { modification: impactOf([selected.id], 'modification', impactContext), suppression: impactOf([selected.id], 'suppression', impactContext) } : undefined}
       zones={project.zones}
       onOpenZones={() => setZonesOpen(true)}
       obj={selected}
@@ -1476,7 +1485,7 @@ function Workbench() {
                 { label: 'Décaler −10', hint: 'Contraction de 10 mm', run: () => offsetSelection(-10) },
                 { label: '×2', hint: 'Échelle ×2 depuis le centre de la sélection', run: () => scaleSelection(2) },
                 { label: '÷2', hint: 'Échelle ÷2 depuis le centre de la sélection', run: () => scaleSelection(0.5) },
-                { label: 'Supprimer', hint: 'Suppr / Retour arrière', run: () => project.removeObjects(selection) },
+                { label: 'Supprimer', hint: 'Suppr / Retour arrière', run: () => deleteWithImpact(selection) },
               ]).map(a => (
                 <button
                   key={a.label}

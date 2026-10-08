@@ -619,6 +619,19 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - Des changements différents d'un même élément (modifié des deux côtés, supprimé d'un côté et modifié de l'autre) sont un **conflit**. Le panneau les liste, et chacun doit être tranché (« garder » l'une ou l'autre variante) avant de fusionner. Rien n'est tranché en silence.
 - **Résultat** : la fusion crée une microversion de la variante active, « Fusion de la variante « … » ». Elle s'annule comme toute modification ; l'autre variante reste intacte.
 
+### 10.7 Analyse d'impact (règle, lot 14.3)
+
+- L'inspecteur d'un objet présente son **analyse d'impact**, avant toute action.
+  - **Une suppression emporterait** : les objets associés, de proche en proche : cotes, ouvertures d'un mur, vues liées, coupes, notes, repères.
+  - **Une modification touche** :
+    - les objets associés, qui le suivent ;
+    - les pièces dont le contour s'appuie sur un mur touché (même niveau) ;
+    - les tableaux de quantités et la nomenclature recalculés ;
+    - les contraintes qui visent un élément touché.
+  - **Feuilles à recalculer** : une fenêtre du même niveau montre un élément touché (emprise dans la vue, calque non masqué dans la fenêtre). Elles sont à réimprimer ou à republier (lot 14.4).
+- **Après une suppression**, un message résume ce qui est parti avec l'objet, ce qui a été recalculé et les feuilles à recalculer ; Ctrl+Z annule le tout.
+- Le graphe est calculé sur le modèle à chaque sélection : il ne garde aucune donnée propre.
+
 ## 11. Références
 
 | Sujet | Référence |

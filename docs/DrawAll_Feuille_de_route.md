@@ -269,7 +269,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 13.5 Tableaux de quantités | Fait (conventions §8.10) | #66 |
 | 14.1 Branches | Fait (conventions §10.5) | #67 |
 | 14.2 Comparaison et fusion | Fait (conventions §10.6) | #68 |
-| 14.3 Analyse d'impact | À faire | — |
+| 14.3 Analyse d'impact | Fait (conventions §10.7) | #69 |
 | 14.4 Publication | À faire | — |
 | 15.1 Vue 3D | À faire | — |
 | 15.2 Extrusion, révolution, booléens, perçage | À faire | — |

@@ -6,6 +6,7 @@ import { roofGeometry, roofInput } from '@/lib/roof';
 import { slabQuantities } from '@/lib/slab';
 import PropertiesEditor from '@/components/PropertiesEditor';
 import type { Zone } from '@/types/cad';
+import type { Impact } from '@/lib/impact';
 import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj, Asset } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
@@ -45,6 +46,8 @@ interface Props {
   /** Zones du projet (lot 13.3), pour rattacher une pièce. */
   zones?: Zone[];
   onOpenZones?: () => void;
+  /** Analyse d'impact de l'objet (lot 14.3). */
+  impact?: { modification: Impact; suppression: Impact };
   onRemove: (id: string) => void;
   onCreateBlock: (id: string) => void;
   /** Diagnostics du projet concernant cet objet (contrôles légers, pas une validation métier). */
@@ -72,7 +75,7 @@ interface Props {
   comments?: ReactNode;
 }
 
-export default function Inspector({ zones, onOpenZones, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
+export default function Inspector({ impact, zones, onOpenZones, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -234,6 +237,24 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
             ))}
           </div>
         </div>
+
+        {impact && (() => {
+          const m = impact.modification, d = impact.suppression;
+          const empty = !m.affected.length && !m.constraints.length && !m.sheets.length && !d.removedWith.length;
+          return (
+            <details data-testid="impact" className="rounded-sm border border-border px-2 py-1.5 text-[11px] text-muted-foreground">
+              <summary className="ui-label cursor-pointer">Analyse d’impact{empty ? ' — aucun élément dépendant' : ''}</summary>
+              {!empty && (
+                <div className="mt-1 space-y-1 font-mono text-[10px]">
+                  {d.removedWith.length > 0 && <p data-testid="impact-supprimes">Une suppression emporterait : {d.removedWith.map(x => `${x.id} (${x.kind.toLowerCase()})`).join(', ')}.</p>}
+                  {m.affected.length > 0 && <p data-testid="impact-touches">Une modification touche : {m.affected.map(x => `${x.id} (${x.reason})`).join(', ')}.</p>}
+                  {m.constraints.length > 0 && <p>Contraintes : {m.constraints.join(', ')}.</p>}
+                  {m.sheets.length > 0 && <p data-testid="impact-feuilles" className="text-amber-300">Feuilles à recalculer : {m.sheets.map(s => `${s.name} (${s.viewports.join(', ')})`).join(', ')}.</p>}
+                </div>
+              )}
+            </details>
+          );
+        })()}
 
         <PropertiesEditor obj={obj} onUpdate={onUpdate} />
 
