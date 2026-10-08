@@ -796,6 +796,12 @@ export default function CanvasView({
       setDraft(null);
       return;
     }
+    if (activeDraft.kind === 'polyline' && activeDraft.origin === 'beam') {
+      // Poutre : la longueur saisie place la seconde extrémité de l'axe dans la direction du curseur.
+      if (activeLayer && !activeLayer.locked && L > MIN_LENGTH) onAddBeam?.(ox, oy, ex, ey);
+      setDraft(null);
+      return;
+    }
     if (activeDraft.kind === 'polyline' && activeDraft.origin === 'wall') {
       // Mur : la longueur saisie crée le mur depuis le point précédent, la chaîne continue de son extrémité.
       if (activeLayer && !activeLayer.locked && L > MIN_LENGTH) onAddWall?.(ox, oy, ex, ey);
@@ -817,7 +823,7 @@ export default function CanvasView({
       commitDraft({ ...activeDraft, cx: ex, cy: ey });
       setDraft(null);
     }
-  }, [lengthInput, activeDraft, activeLayer, onAdd, onAddWall, onAddRoof, commitDraft, displayUnit]);
+  }, [lengthInput, activeDraft, activeLayer, onAdd, onAddWall, onAddRoof, onAddBeam, commitDraft, displayUnit]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

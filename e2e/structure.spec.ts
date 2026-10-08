@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { chooseTool, currentObjects, loadObjects, openAtelier } from './helpers';
+import { chooseTool, currentObjects, loadObjects, openAtelier, toScreen } from './helpers';
 
 test('lot 13.4 — poteaux et poutres à sections saisies (aucun catalogue)', async ({ page }) => {
   const errors = await openAtelier(page);
@@ -34,5 +34,14 @@ test('lot 13.4 — poteaux et poutres à sections saisies (aucun catalogue)', as
   // Rendu : section pleine pour chaque poteau, quatre traits interrompus pour la poutre.
   await expect(page.locator('[data-structure]')).toHaveCount(3);
   expect(await page.locator('[data-structure] [stroke-dasharray]').count()).toBeGreaterThanOrEqual(4);
+
+  // Longueur saisie : seconde extrémité dans la direction du pointeur.
+  await place('0;2500');
+  const at = await toScreen(page, 3000, 2500);
+  await page.mouse.move(at.x, at.y);
+  const length = page.getByLabel('Longueur ou point relatif');
+  await length.fill('4500');
+  await length.press('Enter');
+  await expect.poll(async () => (await currentObjects(page)).filter(o => o.kind === 'beam')[1]).toMatchObject({ x1: 0, y1: 2500, x2: 4500, y2: 2500, b: 200, h: 500 });
   expect(errors).toEqual([]);
 });

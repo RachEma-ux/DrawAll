@@ -42,8 +42,8 @@ export function structurePrimitives(o: ColumnObj | BeamObj): PrimitiveObject[] {
     if (o.section === 'circle') return [{ ...base, id: `${o.id}#0`, kind: 'circle', cx: o.x, cy: o.y, r: o.d! / 2, hatch: 'solid' } as PrimitiveObject];
     return [{ ...base, id: `${o.id}#0`, kind: 'polyline', points: [...columnCorners(o), columnCorners(o)[0]].flatMap(p => [p.x, p.y]), hatch: 'solid' } as PrimitiveObject];
   }
-  // Poutre au-dessus du plan de coupe : nus en traits interrompus, extrémités comprises.
+  // Poutre au-dessus du plan de coupe : nus en traits interrompus (sauf type de trait propre), extrémités comprises.
   const [a, b] = beamEdges(o);
-  const line = (p: Pt, q: Pt, i: number) => ({ ...base, id: `${o.id}#${i}`, kind: 'line', x1: p.x, y1: p.y, x2: q.x, y2: q.y, hatch: 'none', lineType: 'interrompu' } as PrimitiveObject);
+  const line = (p: Pt, q: Pt, i: number) => ({ ...base, id: `${o.id}#${i}`, kind: 'line', x1: p.x, y1: p.y, x2: q.x, y2: q.y, hatch: 'none', lineType: o.lineType ?? 'interrompu' } as PrimitiveObject);
   return [line(a[0], a[1], 0), line(b[0], b[1], 1), line(a[0], b[0], 2), line(a[1], b[1], 3)];
 }

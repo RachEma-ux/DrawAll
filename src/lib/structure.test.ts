@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BeamObj, ColumnObj } from '@/types/cad';
 import { createDefaultLayers } from '@/types/cad';
 import { exportDxf, exportToDxf } from './dxf';
-import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
+import { findSnap, mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
 import { stretchPreview } from './stretch';
 import { defaultIfcClass } from './properties';
 import { beamEdges, beamError, beamLength, beamVolumeM3, columnError, columnSectionArea, columnVolumeM3, structurePrimitives } from './structure';
@@ -45,6 +45,13 @@ describe('poteaux et poutres (lot 13.4)', () => {
     expect(dxf).toContain('\nCIRCLE\n');
     expect(dxf.match(/\nLINE\n/g)?.length).toBe(4);
     expect(dxf).toContain('ACAD_ISO02W100');
+    // Chaque LINE de la poutre porte elle-même son type de trait (groupe 6), pas celui du calque.
+    const lines = dxf.split('\n0\nLINE\n').slice(1).map(e => e.split('\n0\n')[0]);
+    expect(lines).toHaveLength(4);
+    expect(lines.every(e => e.includes('\n6\nACAD_ISO02W100\n'))).toBe(true);
+    // Un type de trait propre à la poutre l'emporte.
+    const own = exportToDxf([beam({ lineType: 'mixte' })], createDefaultLayers(), []).split('\n0\nLINE\n').slice(1);
+    expect(own.every(e => e.includes('\n6\nACAD_ISO04W100\n'))).toBe(true);
     expect(defaultIfcClass(col())).toBe('IfcColumn');
     expect(defaultIfcClass(beam())).toBe('IfcBeam');
   });
@@ -64,6 +71,13 @@ describe('poteaux et poutres (lot 13.4)', () => {
     expect([doubled.b, doubled.h]).toEqual([400, 1000]);
     expect(beamVolumeM3(doubled)).toBeCloseTo(8 * beamVolumeM3(b), 12);
     expect(stretchPreview([b], { minX: 3900, minY: -100, maxX: 4100, maxY: 100 }, 1000, 0)).toEqual([{ x: 5000, y: 0 }]);
+  });
+
+  it('accrochage : coins d’un poteau rectangulaire de type « coin » (réglage des coins)', () => {
+    const layers = createDefaultLayers().map(l => ({ ...l, id: 'LAY-0001' }));
+    const c = col({ layerId: 'LAY-0001' });
+    expect(findSnap([c], layers, [], 1150, 2200, 5, 10, { types: ['corner'] })).toMatchObject({ type: 'corner', x: 1150, y: 2200 });
+    expect(findSnap([c], layers, [], 1150, 2200, 5, 10, { types: ['endpoint'] }).type).not.toBe('endpoint');
   });
 
   it('rapport d’échange DXF : poteaux et poutres signalés comme transformés', () => {

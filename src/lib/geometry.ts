@@ -192,7 +192,7 @@ function collectObjectSnaps(
     case 'column':
       // Poteau (lot 13.4) : centre, et coins d'une section rectangulaire.
       add('center', object.x, object.y);
-      if (object.section === 'rect') for (const c of columnCorners(object)) add('endpoint', c.x, c.y);
+      if (object.section === 'rect') for (const c of columnCorners(object)) add('corner', c.x, c.y);
       return;
     case 'beam':
       add('endpoint', object.x1, object.y1);
