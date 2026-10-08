@@ -136,7 +136,35 @@ describe('contraintes dans l’atelier (lot 12.1)', () => {
     expect(pruneConstraints([], rectConstraints())).toEqual([]);
     const k = rectConstraints();
     expect(pruneConstraints([r], k)).toBe(k);
-    expect(buildSketch([r], k).sketch.points).toHaveLength(4);
+    // Quatre sommets, plus l'ancre immobile de la contrainte « fixe ».
+    expect(buildSketch([r], k).sketch.points).toHaveLength(5);
+  });
+});
+
+describe('contraintes : cas limites (revue de la demande de fusion 12.1)', () => {
+  it('identifiants périmés jamais repris : l’ancienne contrainte reste à réparer après une nouvelle désignation', () => {
+    const r = withVertexIds(poly([0, 0, 1000, 0, 1000, 500, 0, 500, 0, 0]));
+    const old: GeoConstraint = { id: 'K1', type: 'horizontal', seg: { obj: 'OBJ-0001', from: 'v2' } };
+    // Un sommet ajouté au milieu du bas : les identifiants v1…v4 ne valent plus.
+    const edited = { ...r, points: [0, 0, 500, 0, 1000, 0, 1000, 500, 0, 500, 0, 0] };
+    const assigned = new Map<string, PolylineObj>();
+    pickElement([edited], { x: 1000, y: 250 }, 10, assigned);
+    const renamed = assigned.get('OBJ-0001')!;
+    expect(renamed.vids).toEqual(['v5', 'v6', 'v7', 'v8', 'v9', 'v5']);
+    expect(diagnose([renamed], [old]).states.K1).toBe('à réparer');
+  });
+
+  it('« fixe » nommé dans un conflit comme toute contrainte', () => {
+    const l = { ...base, id: 'L1', name: 'L1', kind: 'line', x1: 0, y1: 0, x2: 100, y2: 0 } as CadObject;
+    const k: GeoConstraint[] = [
+      { id: 'F1', type: 'fixed', p: { obj: 'L1', at: 'a' }, x: 0, y: 0 },
+      { id: 'F2', type: 'fixed', p: { obj: 'L1', at: 'b' }, x: 100, y: 0 },
+      { id: 'LEN', type: 'length', seg: { obj: 'L1' }, value: 50 },
+    ];
+    const d = diagnose([l], k);
+    expect(d.solved).toBe(false);
+    expect(d.conflicting).toEqual(['F1', 'F2', 'LEN']);
+    expect(d.states).toEqual({ F1: 'conflit', F2: 'conflit', LEN: 'conflit' });
   });
 });
 
@@ -147,6 +175,14 @@ describe('contraintes enregistrées (lot 12.1)', async () => {
     expect(normalizeConstraints(ok)).toEqual(ok);
     expect(normalizeConstraints([...ok, { id: 'X', type: 'inconnu', seg: { obj: 'A' } }, { id: 'Y', type: 'length', seg: { obj: 'A' }, value: -3 }, { id: 'Z', type: 'horizontal', seg: 'A' }, null])).toEqual(ok);
     expect(normalizeConstraints('rien')).toBeUndefined();
+    // Champs exigés par type.
+    expect(normalizeConstraints([{ id: 'X', type: 'fixed', a: { obj: 'OBJ-1' } }, { id: 'Y', type: 'length', seg: { obj: 'A' } }, { id: 'Z', type: 'coincident', a: { obj: 'A' }, b: { obj: 'B', at: 'a' } }])).toBeUndefined();
+  });
+  it('version relue : une valeur de contraintes invalide est retirée, pas gardée brute', async () => {
+    const { normalizeProjectState } = await import('@/store/project');
+    const layers = [{ id: 'LAY-0001', name: 'D', color: '#fff', visible: true, locked: false }];
+    const s = normalizeProjectState({ versions: [{ seq: 0, label: 'v', time: 0, objects: [], layers, blocks: [], constraints: 'abîmé' }], pointer: 0, counter: 0, layerCounter: 1, blockCounter: 0, activeLayerId: 'LAY-0001' });
+    expect('constraints' in s.versions[0]).toBe(false);
     expect(normalizeConstraints([])).toBeUndefined();
   });
 });

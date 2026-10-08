@@ -185,13 +185,26 @@ const CONSTRAINT_TYPES = new Set(['coincident', 'horizontal', 'vertical', 'paral
 /** Contraintes (lot 12.1) : entrées de forme reconnue seulement ; valeurs numériques finies. */
 export function normalizeConstraints(raw: unknown): GeoConstraint[] | undefined {
   if (!Array.isArray(raw)) return undefined;
-  const isRef = (r: unknown) => !!r && typeof r === 'object' && typeof (r as { obj?: unknown }).obj === 'string';
+  // Champs exigés par type : références (point, segment, courbe) et valeurs numériques.
+  const obj = (r: unknown): r is { obj: string } => !!r && typeof r === 'object' && typeof (r as { obj?: unknown }).obj === 'string';
+  const point = (r: unknown) => obj(r) && typeof (r as { at?: unknown }).at === 'string';
+  const seg = (r: unknown) => obj(r) && ((r as { from?: unknown }).from === undefined || typeof (r as { from?: unknown }).from === 'string');
+  const positive = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
   const out = raw.filter((k): k is GeoConstraint => {
     if (!k || typeof k !== 'object' || typeof k.id !== 'string' || !CONSTRAINT_TYPES.has(k.type)) return false;
-    const refs = ['a', 'b', 'seg', 's1', 's2', 'curve', 'p'].filter(f => f in k);
-    if (!refs.length || !refs.every(f => isRef(k[f]))) return false;
-    for (const f of ['value', 'x', 'y']) if (f in k && !Number.isFinite(k[f])) return false;
-    return !('value' in k) || k.value > 0;
+    if ('expr' in k && typeof k.expr !== 'string') return false;
+    switch (k.type) {
+      case 'coincident': return point(k.a) && point(k.b);
+      case 'distance': return point(k.a) && point(k.b) && positive(k.value);
+      case 'horizontal': case 'vertical': return seg(k.seg);
+      case 'length': return seg(k.seg) && positive(k.value);
+      case 'parallel': case 'perpendicular': case 'equal': return seg(k.s1) && seg(k.s2);
+      case 'radius': return obj(k.curve) && positive(k.value);
+      case 'tangent': return seg(k.seg) && obj(k.curve);
+      case 'fixed': return point(k.p) && finite(k.x) && finite(k.y);
+      default: return false;
+    }
   });
   return out.length ? out : undefined;
 }
@@ -229,6 +242,8 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         const context = `${layers.map(l => `${l.id}:${l.name}`).join(',')}|${known.map(l => l.id).join(',')}`;
         const vRest: MicroVersion = { ...v };
         delete vRest.levels;
+        // Collections relues par leur normalisation : la valeur brute ne passe jamais telle quelle.
+        for (const k of ['constraints', 'parameters', 'zones'] as const) delete (vRest as unknown as Record<string, unknown>)[k];
         return {
           ...vRest,
           ...(levels ? { levels } : {}),

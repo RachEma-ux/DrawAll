@@ -35,8 +35,11 @@ export function vertexIdsValid(o: PolylineObj): boolean {
 /** Polyligne munie d'identifiants de sommets (gardés s'ils sont à jour). Fermée : le dernier point reprend le premier. */
 export function withVertexIds(o: PolylineObj): PolylineObj {
   if (vertexIdsValid(o)) return o;
+  // Identifiants neufs, jamais repris : des identifiants périmés (sommets ajoutés ou retirés depuis)
+  // restent sans sommet, et les contraintes qui les citent restent « à réparer ».
+  const start = Math.max(0, ...(o.vids ?? []).map(v => Number(/^v(\d+)$/.exec(v)?.[1] ?? 0))) + 1;
   const n = o.points.length / 2, closed: boolean = isClosedPolyline(o);
-  const vids = Array.from({ length: n }, (_, i) => `v${i + 1}`);
+  const vids = Array.from({ length: n }, (_, i) => `v${start + i}`);
   if (closed) vids[n - 1] = vids[0];
   return { ...o, vids };
 }
@@ -141,9 +144,11 @@ export function buildSketch(objects: CadObject[], constraints: GeoConstraint[], 
       case 'radius': c = { id: k.id, type: 'radius', circle: C(k.curve), value: k.value }; break;
       case 'tangent': c = { id: k.id, type: 'tangent', line: S(k.seg), circle: C(k.curve) }; break;
       case 'fixed': {
-        // Fixe : le point est ramené à la position enregistrée et ne bouge plus.
-        const p = sketch.points.find(q => q.id === P(k.p))!;
-        Object.assign(p, { x: k.x, y: k.y, fixed: true });
+        // Fixe : coïncidence avec une ancre immobile à la position enregistrée ; la contrainte est
+        // ainsi visible du solveur (nommée dans un conflit ou une redondance comme les autres).
+        const anchor = `${k.id}|ancre`;
+        sketch.points.push({ id: anchor, x: k.x, y: k.y, fixed: true });
+        c = { id: k.id, type: 'coincident', a: P(k.p), b: anchor };
         break;
       }
     }
@@ -216,8 +221,6 @@ export function diagnose(objects: CadObject[], constraints: GeoConstraint[] | un
   for (const k of constraints) {
     states[k.id] = b.unresolved.includes(k.id) ? 'à réparer' : r.conflicting.includes(k.id) ? 'conflit' : r.redundant.includes(k.id) ? 'redondante' : 'satisfaite';
   }
-  // Contraintes « fixe » : sans contrainte d'esquisse propre, elles sont en conflit si la résolution échoue sans autre coupable.
-  if (!r.solved && !r.conflicting.length) for (const k of constraints) if (k.type === 'fixed' && states[k.id] === 'satisfaite') states[k.id] = 'conflit';
   return { states, dof: r.dof, solved: r.solved, conflicting: r.conflicting, redundant: r.redundant, unresolved: b.unresolved };
 }
 
