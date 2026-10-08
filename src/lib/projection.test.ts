@@ -99,6 +99,7 @@ describe('vues projetées : cadre, cache, placement (lot 16.1)', () => {
     const v = placedElevation(elev('sud'), objs)!;
     expect(v).toMatchObject({ state: 'prête', visible: [[-100, 8500, 5100, 8500]], hidden: [] });
     expect(viewPrimitives(elev('sud'), objs)).toMatchObject([{ kind: 'line', x1: -100, y1: 8500, x2: 5100, y2: 8500 }]);
+    expect(exportDxf([...objs, elev('sud')], createDefaultLayers(), []).report.transformed.some(t => t.startsWith('Façades et coupes : 1 →'))).toBe(true);
     // Placement sous le bâtiment, en ligne.
     const placed = elevationPlacement(objs, [{ view: 'sud' }, { view: 'est' }]);
     expect(placed.map(p => p.view)).toEqual(['sud', 'est']);
