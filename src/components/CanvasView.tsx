@@ -163,6 +163,8 @@ interface Props {
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
   onZoomChange: (k: number) => void;
+  /** Ouvre la vue 3D (lot 15.1). */
+  onOpen3d?: () => void;
 }
 
 
@@ -195,6 +197,7 @@ const DRAG_THRESHOLD_PX = 3;
 const FREEHAND_TOLERANCE_PX = 1.5;
 
 export default function CanvasView({
+  onOpen3d,
   objects,
   underlay,
   layers,
@@ -1368,6 +1371,11 @@ export default function CanvasView({
         <button onClick={() => { viewTouched.current = true; resetView(); }} className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
           100 %
         </button>
+        {onOpen3d && (
+          <button onClick={onOpen3d} title="Vue 3D du bâtiment" aria-label="Vue 3D" className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
+            3D
+          </button>
+        )}
       </div>
 
       {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'stretch' || tool === 'polyline' || tool === 'area' || (tool === 'slab' && slabMode !== 'piece') || tool === 'roof' || tool === 'column' || tool === 'beam' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (

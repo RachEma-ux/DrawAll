@@ -7,6 +7,7 @@
 | `@salusoft89/planegcs` 1.2.0 (solveur de FreeCAD) | Oracle de test du solveur de contraintes (lot 11.1) | LGPL-2.0-or-later | Dépendance de développement : absent de l'application livrée |
 | `yjs` 13.6.33 | Essai CRDT de la note de décision P0 (lot 11.5) ; bibliothèque retenue pour la collaboration sur annotations et métadonnées | MIT | Dépendance de développement tant qu'aucun lot ne l'utilise dans l'application |
 | `@automerge/automerge` 3.5.0 | Essai CRDT (lot 11.5), candidat non retenu | MIT | Dépendance de développement de l'essai seulement |
+| `three` 0.179.1 | Rendu WebGL2 de la vue 3D (lot 15.1) | MIT | Chargé à la demande à l'ouverture de la vue 3D (morceau séparé) |
 
 ## OCCT : conditions de la LGPL (décision du maître d'ouvrage, 8 octobre 2026)
 

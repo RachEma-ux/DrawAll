@@ -538,6 +538,20 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Échanges** : un tableau se pose sur une feuille par une fenêtre et s'exporte avec elle en PDF. À l'export DXF, il devient des traits et des textes figés : les valeurs ne sont plus recalculées, et le rapport d'export le dit.
 - Aucune grandeur n'est inventée : pas de surface de mur sans hauteur, pas d'aire de baie sans hauteur de baie.
 
+### 8.11 Vue 3D (règle, lot 15.1)
+
+- **Ouverture** : bouton « 3D » du canevas, ou commande « Vue 3D » de la palette. three.js (WebGL2) n'est chargé qu'à l'ouverture ; sans WebGL2, la vue le dit et ne montre rien.
+- **Solides dérivés du plan**, tous niveaux, calques visibles seulement, chacun posé à l'altitude de son niveau :
+  - mur : contour du mur (justification comprise) extrudé sur sa hauteur ;
+  - dalle : contour extrudé sur l'épaisseur, sous l'altitude du niveau ;
+  - poteau : section extrudée sur sa hauteur ;
+  - poutre : section b × h, dessus sous le niveau suivant ;
+  - toiture : pans plans de la géométrie §8.7, égout au-dessus des murs.
+- **Hauteurs** : celle du mur ou du poteau si elle est saisie (champ « Hauteur » de l'outil Mur ou de l'inspecteur ; vide = hauteur d'étage), sinon la hauteur d'étage, jusqu'au niveau suivant. L'égout d'une toiture est à la hauteur d'étage, sinon à la plus haute hauteur de mur saisie sur le niveau.
+- **Aucune hauteur inventée** : un élément dont la hauteur ne peut pas être déterminée n'est pas montré, et la vue le signale avec sa raison.
+- **Navigation** : orbite (glisser), zoom (molette ou pincement), déplacement (clic droit ou deux doigts) ; « Cadrer la maquette » remet tout le bâtiment dans le champ.
+- **Temps de trame** : à l'ouverture, et sur « Mesurer », 60 trames sont rendues autour du bâtiment, chacune attendue jusqu'à la fin du travail du processeur graphique. Le 95e centile est affiché.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

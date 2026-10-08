@@ -175,6 +175,8 @@ export interface WallObj extends Base {
   x1: number; y1: number; x2: number; y2: number;
   thickness: number;
   justification: 'axe' | 'gauche' | 'droite';
+  /** Hauteur du mur (mm, lot 15.1) ; absente = hauteur d'étage (jusqu'au niveau suivant). */
+  height?: number;
 }
 
 /**

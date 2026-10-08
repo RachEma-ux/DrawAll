@@ -1,7 +1,7 @@
 // DrawAll v4.1 — application unique : atelier de dessin + documentation du dossier.
 // Cinq repères permanents (UX1) : navigateur, zone de travail, commandes, inspecteur,
 // panneau des modifications/problèmes.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
 import CloudProjectsPanel from '@/components/CloudProjectsPanel';
 import Header from '@/components/Header';
@@ -57,6 +57,9 @@ import SheetEditor from '@/components/SheetEditor';
 import { formatElevation, levelBelow, onLevel } from '@/lib/levels';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
 import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint, mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
+
+// Vue 3D (lot 15.1) : three.js chargé à la demande.
+const View3D = lazy(() => import('@/components/View3D'));
 
 /** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
 const COMPACT_BREAKPOINT = 1024;
@@ -510,13 +513,16 @@ function Workbench() {
     const g = roofGeometry(roofInput(roof as RoofObj));
     flash(`Toiture créée : faîtage à ${fmt(g.ridgeHeight)} mm au-dessus de l’égout${g.hipLengths.length ? `, arêtiers de ${fmt(g.hipLengths[0])} mm` : ''}.`);
   }, [project, flash, roofParams]);
-  const [wallParams, setWallParams] = useState<{ thickness: string; justification: WallObj['justification'] }>({ thickness: '200', justification: 'axe' });
+  const [wallParams, setWallParams] = useState<{ thickness: string; justification: WallObj['justification']; height: string }>({ thickness: '200', justification: 'axe', height: '' });
   const addWall = useCallback((x1: number, y1: number, x2: number, y2: number) => {
     const layer = project.layers.find(l => l.id === project.activeLayerId);
     if (!layer || layer.locked) { flash('Calque actif verrouillé : mur non créé.'); return; }
     const t = Number(wallParams.thickness.replace(',', '.'));
     if (!(t > 0)) { flash('Épaisseur de mur invalide.'); return; }
-    project.addObject({ kind: 'wall', classification: 'architecture', layerId: layer.id, hatch: 'none', x1, y1, x2, y2, thickness: t, justification: wallParams.justification });
+    // Hauteur facultative (lot 15.1) : vide = hauteur d'étage.
+    const hRaw = wallParams.height.trim(), h = Number(hRaw.replace(',', '.'));
+    if (hRaw !== '' && !(h > 0 && Number.isFinite(h))) { flash('Hauteur de mur invalide.'); return; }
+    project.addObject({ kind: 'wall', classification: 'architecture', layerId: layer.id, hatch: 'none', x1, y1, x2, y2, thickness: t, justification: wallParams.justification, ...(hRaw !== '' ? { height: h } : {}) });
   }, [project, wallParams, flash]);
 
   // Outil Ouverture : type, largeur, charnière et côté d'ouverture.
@@ -771,6 +777,7 @@ function Workbench() {
   // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
   const [paramsOpen, setParamsOpen] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
+  const [view3dOpen, setView3dOpen] = useState(false);
   // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
   const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
   const deleteWithImpact = useCallback((ids: string[]) => {
@@ -1072,6 +1079,7 @@ function Workbench() {
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
     { id: 'publish', title: 'Publier le dossier / dossiers publiés', hint: 'Version nommée + PDF des feuilles, figés ; état publié ou modifié depuis', keywords: ['publier', 'publication', 'dossier', 'diffusion', 'emission', 'pdf', 'fige'], run: () => setPublishOpen(true) },
     { id: 'merge', title: 'Comparer et fusionner des variantes', hint: 'Changements d’une autre variante en surimpression, fusion à trois voies, conflits tranchés', keywords: ['fusion', 'fusionner', 'merge', 'comparer', 'variante', 'branche', 'differences', 'conflit'], run: () => setMergeOpen(true) },
+    { id: 'view3d', title: 'Vue 3D', hint: 'Maquette en volume dérivée du plan : murs, dalles, poteaux, poutres, toitures ; orbite et cadrage', keywords: ['3d', 'volume', 'maquette', 'perspective', 'orbite', 'webgl'], run: () => setView3dOpen(true) },
     { id: 'zones', title: 'Zones', hint: 'Regrouper des pièces : nom, couleur, surface cumulée', keywords: ['zone', 'zones', 'regrouper', 'pieces', 'surface cumulee', 'logement', 'lot', 'secteur'], run: () => setZonesOpen(true) },
     { id: 'parameters', title: 'Paramètres du projet', hint: 'Table des paramètres nommés (nom, expression, unité) ; les cotes de contrainte peuvent les citer', keywords: ['parametre', 'parametres', 'variable', 'expression', 'formule', 'cote pilotante'], run: () => setParamsOpen(true) },
     { id: 'kernel-trial', title: 'Essai du noyau 3D (P0)', hint: 'Charge OCCT (≈ 7 Mo compressés, une fois) et calcule un pavé percé', keywords: ['noyau', '3d', 'occt', 'essai', 'volume', 'p0'], run: () => { void kernelTrial(); } },
@@ -1508,6 +1516,7 @@ function Workbench() {
 
             <div className="relative min-h-0 flex-1">
               <CanvasView
+                onOpen3d={() => setView3dOpen(true)}
                 objects={shownObjects}
                 underlay={underlayObjects}
                 layers={project.layers}
@@ -1605,10 +1614,15 @@ function Workbench() {
                 </div>
               )}
               {tool === 'wall' && (
-                <div role="group" aria-label="Paramètres du mur" className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg sm:top-12">
+                <div role="group" aria-label="Paramètres du mur" className="absolute left-3 right-3 top-12 z-10 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg sm:right-auto">
                   <label className="flex items-center gap-1">Épaisseur
                     <input aria-label="Épaisseur du mur (mm)" inputMode="decimal" value={wallParams.thickness}
                       onChange={e => setWallParams(p => ({ ...p, thickness: e.target.value }))}
+                      className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                  </label>
+                  <label className="flex items-center gap-1">Hauteur
+                    <input aria-label="Hauteur du mur (mm)" inputMode="decimal" placeholder="d’étage" value={wallParams.height}
+                      onChange={e => setWallParams(p => ({ ...p, height: e.target.value }))}
                       className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
                   </label>
                   <select aria-label="Justification du mur" value={wallParams.justification} onChange={e => setWallParams(p => ({ ...p, justification: e.target.value as WallObj['justification'] }))}
@@ -2056,6 +2070,11 @@ function Workbench() {
       )}
       {mergeOpen && (
         <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />
+      )}
+      {view3dOpen && (
+        <Suspense fallback={null}>
+          <View3D objects={project.allObjects} layers={project.layers} levels={project.levels} onClose={() => setView3dOpen(false)} />
+        </Suspense>
       )}
       {zonesOpen && (
         <ZonesPanel zones={project.zones} objects={project.allObjects} selectedRoomIds={project.selectedIds.filter(id => project.objects.find(o => o.id === id)?.kind === 'room')}

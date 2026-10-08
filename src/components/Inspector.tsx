@@ -672,6 +672,20 @@ export default function Inspector({ impact, zones, onOpenZones, obj, objects, la
                   className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
               </span>
             </label>
+            <label className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              Hauteur
+              <span className="flex items-center gap-1">
+                <input key={`${obj.id}-h-${obj.height ?? ''}`} aria-label="Hauteur du mur" placeholder="d’étage" defaultValue={obj.height === undefined ? '' : String(obj.height).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => {
+                    // Vide : hauteur d'étage (jusqu'au niveau suivant), lot 15.1.
+                    const t = e.target.value.trim(), v = Number(t.replace(',', '.'));
+                    if (t === '') { if (obj.height !== undefined) onUpdate(obj.id, { height: undefined }, 'Hauteur du mur retirée'); return; }
+                    if (v > 0 && Number.isFinite(v) && v !== obj.height) onUpdate(obj.id, { height: v }, 'Hauteur du mur'); else e.target.value = obj.height === undefined ? '' : String(obj.height).replace('.', ',');
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+              </span>
+            </label>
             <div className="mt-1.5 grid grid-cols-3 gap-1" role="group" aria-label="Justification du mur">
               {([['axe', 'Axe'], ['gauche', 'Nu gauche'], ['droite', 'Nu droit']] as const).map(([k, label]) => (
                 <button key={k} onClick={() => onUpdate(obj.id, { justification: k }, `Mur : ${label.toLowerCase()}`)} aria-pressed={obj.justification === k}
