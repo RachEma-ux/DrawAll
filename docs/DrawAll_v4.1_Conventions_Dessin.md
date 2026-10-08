@@ -782,6 +782,24 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Journal** : il part de l'état de base du projet au début de la session de commandes, puis liste les commandes dans l'ordre. Il est enregistré avec le projet. Ouvrir un projet reprend le journal enregistré avec lui (un paquet restauré se réexporte à l'identique) ; repartir de zéro commence un nouveau journal.
 - **Rejeu** (palette « Journal des commandes ») : l'état de base est rechargé, puis les commandes sont rejouées une par une, chacune sur l'état laissé par la précédente. Le contenu obtenu est comparé à celui d'avant le rejeu (objets, calques, blocs, feuilles, niveaux, contraintes, paramètres, zones, géoréférencement ; ni numéros, ni libellés, ni heures).
 
+### 10.10 Scripts isolés (règle, lot 18.2)
+
+- **Console** (palette « Console de scripts ») : un script JavaScript s'exécute dans un Worker à part, jamais sur le fil de l'interface.
+- **API seule** : le script ne dispose que de l'objet `drawall` :
+  - `execute(commande, …arguments)` exécute une commande de l'API (§10.9). Une commande refusée lève une erreur avec sa raison.
+  - `objects()` renvoie une copie des objets de tous les niveaux.
+  - `context()` renvoie le calque et le niveau actifs, ainsi que les calques et les niveaux du projet.
+  - `log(…)` écrit dans la sortie de la console.
+
+  Les commandes passent une à une, dans l'ordre ; chacune voit l'état laissé par la précédente et est journalisée comme celles de l'interface.
+- **Création d'objet validée** : le type doit être connu et le calque doit exister. Sans cela, l'objet serait invisible ou illisible.
+- **Sans accès au stockage** : `indexedDB`, `localStorage`, `sessionStorage` et `caches` sont retirés de l'objet global et de toute sa chaîne de prototypes. Il en va de même pour `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `BroadcastChannel`, `importScripts`, `navigator`, les Workers et la messagerie brute.
+  - Limite déclarée : la syntaxe `import()` du langage ne peut pas être retirée d'un Worker.
+  - L'isolement garanti porte donc sur le stockage et sur les données du projet, que le script ne lit et n'écrit que par l'API. Le réseau n'est pas tenu pour scellé.
+- **Tout ou rien** : un script qui échoue est annulé en entier. Les cas d'échec sont une exception, une commande refusée, un délai dépassé ou un arrêt à la main. Le projet revient à son état d'avant le script, journal compris.
+  - Délai réglable de 1 à 120 s, 10 s par défaut. Au-delà, le Worker est arrêté.
+  - Un script réussi laisse ses commandes au journal et ses versions dans l'historique.
+
 ## 11. Références
 
 | Sujet | Référence |

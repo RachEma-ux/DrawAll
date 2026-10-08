@@ -1564,7 +1564,7 @@ export function useProject() {
     });
   }, []);
   const cmd = <A extends unknown[], R>(type: string, fn: (...a: A) => R) => (...args: A): R => {
-    const err = validateCommand(type, args, allObjects);
+    const err = validateCommand(type, args, allObjects, layers);
     if (err) {
       let safe: unknown[] = [];
       try { encodeArgs(args); safe = args; } catch { /* arguments non journalisables : non gardés */ }
@@ -1609,7 +1609,7 @@ export function useProject() {
   /** Exécution d'une commande par son nom (scripts, lot 18.2) : refus en clair, jamais d'exception. */
   const execute = (type: string, args: unknown[]): { ok: true; result: unknown } | { ok: false; error: string } => {
     if (!(type in commands)) return { ok: false, error: `commande inconnue « ${type} »` };
-    const err = validateCommand(type, args, allObjects);
+    const err = validateCommand(type, args, allObjects, layers);
     if (err) { record(type, [], err); return { ok: false, error: `${type} : ${err}` }; }
     return { ok: true, result: (commands[type as CommandName] as (...a: unknown[]) => unknown)(...args) };
   };
@@ -1643,8 +1643,14 @@ export function useProject() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
+  /**
+   * Retour à un état antérieur, journal compris (lot 18.2) : un script fautif est annulé en entier.
+   * Ce n'est pas une commande : rien n'est journalisé.
+   */
+  const restore = useCallback((snapshot: ProjectState) => setState(snapshot), []);
+
   return {
-    ...commands, execute, journal: state.journal, replayJournal, replay,
+    ...commands, execute, restore, journal: state.journal, replayJournal, replay,
     publications: state.publications ?? [], branches, zones, constraints, parameters, levels, activeLevelId, allObjects,
     profile, surfaceRule, state, objects, layers, blocks, activeLayerId, sheets,
     current, versions: state.versions, pointer: state.pointer,

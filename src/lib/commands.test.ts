@@ -32,6 +32,11 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('transform', [['OBJ-0001'], { kind: 'twist' }, 'x'], [line])).toBe('transformation inconnue « twist »');
     expect(validateCommand('addObject', [{ kind: 'line', x1: 0 }], [])).toBeNull();
     expect(validateCommand('addObject', [{}], [])).toBe('objet à créer : type attendu');
+    // Scripts (lot 18.2) : type connu, calque existant.
+    expect(validateCommand('addObject', [{ kind: 'licorne' }], [])).toBe('type d’objet inconnu « licorne »');
+    expect(validateCommand('addObject', [{ kind: 'toString' }], [])).toBe('type d’objet inconnu « toString »');
+    expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0009' }], [], [{ id: 'LAY-0001' }])).toBe('objet à créer : calque LAY-0009 absent');
+    expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0001' }], [], [{ id: 'LAY-0001' }])).toBeNull();
     expect(validateCommand('addLevel', ['R+1', 'haut'], [])).toBe('nom et altitude attendus');
     expect(validateCommand('transformObjects', [['OBJ-0001'], (o: CadObject) => o], [line])).toBe('fonction en argument : utiliser une commande déclarative');
   });

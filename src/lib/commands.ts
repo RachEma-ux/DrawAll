@@ -2,7 +2,7 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import type { CadObject, MicroVersion } from '@/types/cad';
+import { KIND_LABEL, type CadObject, type Layer, type MicroVersion } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
@@ -56,8 +56,14 @@ function transformError(op: unknown): string | null {
 }
 
 /** Validateurs propres à certaines commandes (les autres : arguments sérialisables). */
-const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string> }) => string | null> = {
-  addObject: ([o]) => (o && typeof o === 'object' && str((o as { kind?: unknown }).kind) ? null : 'objet à créer : type attendu'),
+const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; layerIds?: Set<string> }) => string | null> = {
+  addObject: ([o], { layerIds }) => {
+    const n = o as { kind?: unknown; layerId?: unknown } | null;
+    if (!n || typeof n !== 'object' || !str(n.kind)) return 'objet à créer : type attendu';
+    if (!Object.prototype.hasOwnProperty.call(KIND_LABEL, n.kind as string)) return `type d’objet inconnu « ${String(n.kind)} »`;
+    if (layerIds && !(str(n.layerId) && layerIds.has(n.layerId as string))) return `objet à créer : calque ${String(n.layerId)} absent`;
+    return null;
+  },
   updateObject: ([id, patch], { ids }) => (!str(id) ? 'identifiant attendu' : !ids.has(id as string) ? `objet ${String(id)} absent` : patch && typeof patch === 'object' ? null : 'modification attendue'),
   removeObject: ([id], { ids }) => (str(id) && ids.has(id as string) ? null : `objet ${String(id)} absent`),
   removeObjects: ([list], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : null),
@@ -99,10 +105,10 @@ export function decodeArgs(v: unknown): unknown {
 }
 
 /** Une commande est-elle valide (arguments journalisables et cohérents avec le projet) ? */
-export function validateCommand(type: string, args: unknown[], objects: CadObject[]): string | null {
+export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: Pick<Layer, 'id'>[]): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];
-  return v ? v(args, { ids: new Set(objects.map(o => o.id)) }) : null;
+  return v ? v(args, { ids: new Set(objects.map(o => o.id)), ...(layers ? { layerIds: new Set(layers.map(l => l.id)) } : {}) }) : null;
 }
 
 /** Empreinte comparable d'une version : contenu du projet, sans horodatage ni libellé. */
