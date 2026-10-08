@@ -178,7 +178,7 @@ export function sheetToPdf(input: PdfInput): string {
 
   function drawViewport(vp: Viewport) {
     const k = scaleRatio(vp.scale);
-    const objects = withProfile(input.objects, profile, vp.context ?? 'coupe');
+    const objects = withProfile(input.objects, profile, vp.context ?? 'coupe', blocks);
     const vpBlocks = withProfileBlocks(blocks, profile, vp.context ?? 'coupe');
     const toPdf = (q: P) => pt(modelToPaper(vp, q));
     out('q');

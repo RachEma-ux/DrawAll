@@ -63,9 +63,9 @@ export default function SheetEditor(p: Props) {
   const bounds = useMemo(() => projectBounds(p.objects.filter(o => p.layers.find(l => l.id === o.layerId)?.visible !== false), p.blocks), [p.objects, p.layers, p.blocks]);
   // Objets tels que dessinés en coupe et en vue (motifs du profil, pièces voisines alternées).
   const byContext = useMemo(() => ({
-    coupe: withProfile(p.objects, p.profile, 'coupe'),
-    vue: withProfile(p.objects, p.profile, 'vue'),
-  }), [p.objects, p.profile]);
+    coupe: withProfile(p.objects, p.profile, 'coupe', p.blocks),
+    vue: withProfile(p.objects, p.profile, 'vue', p.blocks),
+  }), [p.objects, p.profile, p.blocks]);
   const blocksByContext = useMemo(() => ({
     coupe: withProfileBlocks(p.blocks, p.profile, 'coupe'),
     vue: withProfileBlocks(p.blocks, p.profile, 'vue'),

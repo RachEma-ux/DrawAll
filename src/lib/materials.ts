@@ -94,36 +94,66 @@ export function effectiveHatch(o: Pick<CadObject, 'hatch' | 'materialId'>, profi
  * Objets tels qu'il faut les dessiner ou les exporter avec ce profil : seul le motif affiché change ;
  * les objets d'origine (et leur matériau) ne sont pas modifiés.
  */
-export function withProfile<T extends CadObject>(objects: T[], profile: DrawingProfile, context: ViewContext = 'coupe'): T[] {
+export function withProfile<T extends CadObject>(objects: T[], profile: DrawingProfile, context: ViewContext = 'coupe', blocks: BlockDef[] = []): T[] {
   const shown = objects.map(o => {
     if (!o.materialId) return o;
     const hatch = effectiveHatch(o, profile, context);
     return hatch === o.hatch ? o : { ...o, hatch };
   });
-  return context === 'coupe' ? alternateNeighbours(shown) : shown;
+  return context === 'coupe' ? alternateNeighbours(shown, blocks) : shown;
 }
 
 /**
- * Pièces voisines coupées (Conventions §4.2) : deux objets à matériau, hachés du même motif et qui
- * se touchent, reçoivent des hachures de sens différent (45° puis 135°), puis de pas différent si
- * les deux sens sont déjà pris. Un angle choisi à la main (hatchParams) n'est jamais modifié.
+ * Pièces voisines coupées (Conventions §4.2) : deux pièces à matériau, hachées du même motif et qui
+ * se touchent, reçoivent des hachures différentes :
+ * - traits simples : sens différent (45° puis 135°), puis pas différent si les deux sens sont pris ;
+ * - traits croisés : pas différent (une grille tournée de 90° est la même grille).
+ * Une pièce dont les hachures sont réglées à la main garde ses paramètres et compte comme voisine
+ * fixe. Les occurrences de blocs à matériau participent par les contours fermés de leur bloc.
  */
-export function alternateNeighbours<T extends CadObject>(objects: T[]): T[] {
-  const cut = objects.filter(o => o.materialId && (o.hatch === 'diagonal' || o.hatch === 'cross') && !o.hatchParams && loopOf(o));
-  if (cut.length < 2) return objects;
-  // Contours grossiers pour le voisinage (cercle à 96 côtés) : tolérance relative au rayon.
-  const loops = new Map(cut.map(o => [o.id, loopOf(o, 96)!]));
-  const tol = (o: CadObject) => (o.kind === 'circle' ? Math.max(TOUCH_TOLERANCE, o.r * (1 - Math.cos(Math.PI / 96))) : TOUCH_TOLERANCE);
-  const chosen = new Map<string, { angle: number; spacing: number }>();
-  const variants = [{ angle: 45, spacing: 3 }, { angle: 135, spacing: 3 }, { angle: 45, spacing: 4.5 }, { angle: 135, spacing: 4.5 }];
-  for (const o of cut) {
-    const taken = cut
-      .filter(n => n.id !== o.id && chosen.has(n.id) && n.hatch === o.hatch && loopsTouch(loops.get(o.id)!, loops.get(n.id)!, tol(o) + tol(n)))
-      .map(n => chosen.get(n.id)!);
-    const v = variants.find(c => !taken.some(t => t.angle === c.angle && t.spacing === c.spacing)) ?? variants[0];
-    chosen.set(o.id, v);
+export function alternateNeighbours<T extends CadObject>(objects: T[], blocks: BlockDef[] = []): T[] {
+  // Contours grossiers pour le voisinage (cercle à 96 côtés), dans le repère du modèle.
+  const contours = (o: CadObject): Loop[] | null => {
+    if (o.kind === 'blockRef') {
+      const block = blocks.find(b => b.id === o.blockId);
+      const loops = (block?.primitives ?? []).map(p => loopOf(p, 96)).filter((l): l is Loop => !!l).map(l => l.map(q => ({ x: o.x + q.x * o.scale, y: o.y + q.y * o.scale })));
+      return loops.length ? loops : null;
+    }
+    const l = loopOf(o, 96);
+    return l ? [l] : null;
+  };
+  // Écart du polygone de 96 côtés à un cercle : ajouté à la tolérance de contact.
+  const chord = (r: number) => r * (1 - Math.cos(Math.PI / 96));
+  const approx = (o: CadObject): number => {
+    if (o.kind === 'circle') return chord(o.r);
+    if (o.kind === 'blockRef') return Math.max(0, ...(blocks.find(b => b.id === o.blockId)?.primitives ?? []).map(p => (p.kind === 'circle' ? chord(p.r * o.scale) : 0)));
+    return 0;
+  };
+  const pieces = objects
+    .filter(o => o.materialId && (o.hatch === 'diagonal' || o.hatch === 'cross'))
+    .map(o => ({ o, loops: contours(o), err: approx(o) }))
+    .filter((p): p is { o: T; loops: Loop[]; err: number } => !!p.loops);
+  if (pieces.length < 2) return objects;
+  const touch = (a: (typeof pieces)[number], b: (typeof pieces)[number]) =>
+    a.loops.some(la => b.loops.some(lb => loopsTouch(la, lb, TOUCH_TOLERANCE + a.err + b.err)));
+  type Variant = { angle: number; spacing: number };
+  // Deux variantes équivalentes : mêmes traits (angle à 180° près ; grille croisée à 90° près) et même pas.
+  const key = (hatch: CadObject['hatch'], v: Variant) => (hatch === 'cross' ? `#${v.spacing}` : `${((v.angle % 180) + 180) % 180}:${v.spacing}`);
+  const variants = (hatch: CadObject['hatch']): Variant[] => (hatch === 'cross'
+    ? [3, 4.5, 6, 7.5].map(spacing => ({ angle: 45, spacing }))
+    : [{ angle: 45, spacing: 3 }, { angle: 135, spacing: 3 }, { angle: 45, spacing: 4.5 }, { angle: 135, spacing: 4.5 }]);
+  const chosen = new Map<string, Variant>();
+  for (const p of pieces) if (p.o.hatchParams) chosen.set(p.o.id, { angle: p.o.hatchParams.angle, spacing: p.o.hatchParams.spacing });
+  for (const p of pieces) {
+    if (p.o.hatchParams) continue;
+    const taken = pieces
+      .filter(n => n !== p && chosen.has(n.o.id) && n.o.hatch === p.o.hatch && touch(p, n))
+      .map(n => key(n.o.hatch, chosen.get(n.o.id)!));
+    const options = variants(p.o.hatch);
+    chosen.set(p.o.id, options.find(c => !taken.includes(key(p.o.hatch, c))) ?? options[0]);
   }
   return objects.map(o => {
+    if (o.hatchParams) return o;
     const v = chosen.get(o.id);
     return v && (v.angle !== 45 || v.spacing !== 3) ? { ...o, hatchParams: { angle: v.angle, spacing: v.spacing, unit: 'papier' as const } } : o;
   });

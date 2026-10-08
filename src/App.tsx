@@ -107,7 +107,7 @@ function Workbench() {
   // Objets tels qu'ils se dessinent avec le profil de dessin actif (motif tiré du matériau) ;
   // le modèle (project.objects) n'est pas modifié.
   const [viewContext, setViewContext] = useState<ViewContext>('coupe');
-  const shownObjects = useMemo(() => withProfile(project.objects, project.profile, viewContext), [project.objects, project.profile, viewContext]);
+  const shownObjects = useMemo(() => withProfile(project.objects, project.profile, viewContext, project.blocks), [project.objects, project.profile, viewContext, project.blocks]);
   // Blocs : leurs primitives à matériau suivent aussi le profil (le modèle n'est pas modifié).
   const shownBlocks = useMemo(() => withProfileBlocks(project.blocks, project.profile, viewContext), [project.blocks, project.profile, viewContext]);
   // Incrémenté quand le projet est remplacé : le canevas oublie alors son dernier point posé.
