@@ -177,18 +177,22 @@ function levenbergMarquardt(fs: Residual[], x0: number[]): { x: number[]; residu
   return { x, residual: maxAbs(r), iterations: it };
 }
 
-/** Lignes du jacobien indépendantes (Gram–Schmidt modifié, dans l'ordre des contraintes). */
+/**
+ * Lignes du jacobien indépendantes (Gram–Schmidt modifié, dans l'ordre des contraintes). Une
+ * contrainte n'est redondante que si **aucune** de ses lignes n'augmente le rang : une coïncidence
+ * dont une seule équation est déjà imposée reste utile.
+ */
 function dependentConstraints(J: number[][], owner: number[]): { rank: number; dependent: Set<number> } {
-  const basis: number[][] = [], dependent = new Set<number>();
+  const basis: number[][] = [], dependentRow = new Set<number>(), useful = new Set<number>();
   const scale = Math.max(1e-12, ...J.map(row => maxAbs(row)));
   J.forEach((row, i) => {
     const v = row.slice();
     for (const b of basis) { const p = v.reduce((s, x, k) => s + x * b[k], 0); for (let k = 0; k < v.length; k++) v[k] -= p * b[k]; }
     const nv = Math.hypot(...v);
-    if (nv > 1e-7 * scale) basis.push(v.map(x => x / nv));
-    else dependent.add(owner[i]);
+    if (nv > 1e-7 * scale) { basis.push(v.map(x => x / nv)); useful.add(owner[i]); }
+    else dependentRow.add(owner[i]);
   });
-  return { rank: basis.length, dependent };
+  return { rank: basis.length, dependent: new Set([...dependentRow].filter(o => !useful.has(o))) };
 }
 
 function apply(s: Sketch, v: Vars, x: number[]): Sketch {
@@ -196,6 +200,28 @@ function apply(s: Sketch, v: Vars, x: number[]): Sketch {
   for (const p of out.points) { const idx = v.px.get(p.id); if (idx) { p.x = x[idx[0]]; p.y = x[idx[1]]; } }
   for (const c of out.circles) c.r = x[v.cr.get(c.id)!];
   return out;
+}
+
+const solvable = (s: Sketch, constraints: Constraint[]) => {
+  const sub = { ...s, constraints };
+  const w = variables(sub);
+  return levenbergMarquardt(residualFunctions(sub, w), w.x0).residual <= 1e-6;
+};
+
+/**
+ * Contraintes en conflit, conflits multiples compris. Les contraintes sont reprises une à une : celle
+ * qui rend l'ensemble déjà retenu insoluble est en conflit, avec chaque contrainte retenue dont le
+ * retrait lève ce conflit ; elle est ensuite écartée, et la recherche continue (un second conflit,
+ * indépendant du premier, est trouvé de même).
+ */
+function conflictingConstraints(s: Sketch): string[] {
+  const kept: Constraint[] = [], culprits = new Set<string>();
+  for (const k of s.constraints) {
+    if (solvable(s, [...kept, k])) { kept.push(k); continue; }
+    culprits.add(k.id);
+    for (const c of kept) if (solvable(s, [...kept.filter(x => x !== c), k])) culprits.add(c.id);
+  }
+  return s.constraints.filter(c => culprits.has(c.id)).map(c => c.id);
 }
 
 export function solveSketch(input: Sketch): SolveReport {
@@ -210,12 +236,7 @@ export function solveSketch(input: Sketch): SolveReport {
   let conflicting: string[] = [];
   let redundant = ids(dependent);
   if (!solved) {
-    // Conflit : contraintes dont le retrait rend l'esquisse soluble.
-    conflicting = input.constraints.filter((_, i) => {
-      const without = { ...input, constraints: input.constraints.filter((__, k) => k !== i) };
-      const w = variables(without);
-      return levenbergMarquardt(residualFunctions(without, w), w.x0).residual <= 1e-6;
-    }).map(c => c.id);
+    conflicting = conflictingConstraints(input);
     redundant = redundant.filter(id => !conflicting.includes(id));
   }
   return { solved, residual, dof: x.length - rank, redundant, conflicting, iterations, sketch: apply(input, v, x) };
