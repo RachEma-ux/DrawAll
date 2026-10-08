@@ -1,6 +1,7 @@
 // Zones (lot 13.3) : regroupement de pièces (nom, couleur) et surface cumulée. L'appartenance est
 // portée par la pièce (`zoneId`) ; une pièce appartient à une zone au plus. Fonctions pures.
 import type { CadObject, Zone } from '@/types/cad';
+import { levelIdOf } from './levels';
 import { areaM2, roomPolygons } from './rooms';
 
 export interface ZoneSummary {
@@ -12,9 +13,16 @@ export interface ZoneSummary {
   unevaluated: number;
 }
 
+/**
+ * `objects` : objets de tous les niveaux (une zone peut couvrir plusieurs étages) ; le contour de
+ * chaque pièce est calculé avec les murs de son seul niveau.
+ */
 export function zoneSummaries(objects: CadObject[], zones: Zone[] | undefined): ZoneSummary[] {
   if (!zones?.length) return [];
-  const polys = roomPolygons(objects);
+  const byLevel = new Map<string, CadObject[]>();
+  for (const o of objects) { const k = levelIdOf(o); byLevel.set(k, [...(byLevel.get(k) ?? []), o]); }
+  const polys = new Map<string, { x: number; y: number }[] | null>();
+  for (const objs of byLevel.values()) for (const [id, p] of roomPolygons(objs)) polys.set(id, p);
   return zones.map(zone => {
     const rooms = objects
       .filter(o => o.kind === 'room' && o.zoneId === zone.id)

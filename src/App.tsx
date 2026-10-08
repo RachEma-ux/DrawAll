@@ -1184,6 +1184,7 @@ function Workbench() {
         <SheetEditor
           sheets={project.sheets}
           objects={project.allObjects}
+          zones={project.zones}
           levels={project.levels}
           activeLevelId={project.activeLevelId}
           assets={project.assets}
@@ -1949,7 +1950,7 @@ function Workbench() {
         <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
       )}
       {zonesOpen && (
-        <ZonesPanel zones={project.zones} objects={project.objects} selectedRoomIds={project.selectedIds.filter(id => project.objects.find(o => o.id === id)?.kind === 'room')}
+        <ZonesPanel zones={project.zones} objects={project.allObjects} selectedRoomIds={project.selectedIds.filter(id => project.objects.find(o => o.id === id)?.kind === 'room')}
           onAdd={project.addZone} onUpdate={project.updateZone} onRemove={project.removeZone} onRoomZone={project.setRoomZone} onClose={() => setZonesOpen(false)} />
       )}
       {paramsOpen && (

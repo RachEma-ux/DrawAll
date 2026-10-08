@@ -26,6 +26,18 @@ describe('zones (lot 13.3)', () => {
     expect(s.unevaluated).toBe(0);
   });
 
+  it('zone sur deux niveaux : pièces de tous les étages, contour calculé avec les murs de leur niveau', () => {
+    const up = (o: CadObject) => ({ ...o, id: `${o.id}-N2`, levelId: 'NIV-0002' }) as CadObject;
+    // Étage : mêmes murs sans refend ; une pièce hors des murs de l'étage reste non évaluée.
+    const objects = [...walls, room('R1', 'Séjour', 1500, 2000, 'Z'), ...walls.slice(0, 4).map(up), up(room('R2', 'Étage', 1500, 2000, 'Z')), up(room('R3', 'Hors murs', 9000, 9000, 'Z'))];
+    const [s] = zoneSummaries(objects, [{ id: 'Z', name: 'Z', color: '#000000' }]);
+    expect(s.rooms.map(r => r.id)).toEqual(['R1', 'R2-N2', 'R3-N2']);
+    // Étage : 4,80 × 3,80 m (sans le refend du rez-de-chaussée).
+    expect(s.rooms[1].areaM2).toBeCloseTo(18.24, 9);
+    expect(s.totalM2).toBeCloseTo(10.64 + 18.24, 9);
+    expect(s.unevaluated).toBe(1);
+  });
+
   it('pièce non fermée : non évaluée, hors de la somme, signalée', () => {
     const objects = [...walls, room('R1', 'Séjour', 1500, 2000, 'Z'), room('R3', 'Ouverte', 9000, 9000, 'Z')];
     const [s] = zoneSummaries(objects, [{ id: 'Z', name: 'Z', color: '#000000' }]);

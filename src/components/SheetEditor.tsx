@@ -2,7 +2,7 @@
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Asset, OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport } from '@/types/cad';
+import type { Asset, OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport, Zone } from '@/types/cad';
 import { fmt } from '@/types/cad';
 import { ObjectShape, type ColorMode } from '@/components/CanvasView';
 import { projectBounds } from '@/lib/geometry';
@@ -10,6 +10,7 @@ import { pdfBytes, sheetToPdf } from '@/lib/pdf';
 import { withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { wallsGeometry } from '@/lib/wall';
 import { roomPolygons } from '@/lib/rooms';
+import { zoneColors } from '@/lib/zones';
 import { formatElevation, onLevel, viewportLevelId } from '@/lib/levels';
 import { DEFAULT_TITLE_BLOCK, PROJECTION_LABEL, nextIndexLetter, titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import {
@@ -22,6 +23,7 @@ interface Props {
   /** Objets de tous les niveaux : chaque fenêtre montre celui qu'elle désigne. */
   objects: CadObject[];
   levels: Level[];
+  zones?: Zone[];
   /** Niveau affiché dans l'atelier : celui d'une nouvelle fenêtre. */
   activeLevelId: string;
   /** Images des fonds de plan (lot 6.2). */
@@ -132,7 +134,7 @@ export default function SheetEditor(p: Props) {
   const exportSvg = async () => {
     if (!sheet) return;
     const { sheetToSvg } = await import('@/components/SheetSvg');
-    const svg = sheetToSvg({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, profile: p.profile, view: p.view, versions: p.versions, pointer: p.pointer });
+    const svg = sheetToSvg({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, profile: p.profile, view: p.view, versions: p.versions, pointer: p.pointer, zones: p.zones });
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
     const a = document.createElement('a');
     a.href = url;
@@ -430,13 +432,14 @@ export default function SheetEditor(p: Props) {
                 lv.objs.filter((o): o is WallObj => o.kind === 'wall' && !!visibleLayer.get(o.layerId)),
                 lv.objs.filter((o): o is OpeningObj => o.kind === 'opening'),
               );
+              const colors = zoneColors(lv.objs, p.zones);
               const selected = v.id === vpId;
               return (
                 <g key={v.id} data-testid={`fenetre-${v.id}`}>
                   <svg x={r.x} y={r.y} width={r.w} height={r.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
                     {drawn.filter(o => visibleLayer.get(o.layerId) && o.kind !== 'note').map(o => (
                       <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocksByContext[v.context ?? 'coupe']} view={p.view} selected={false} assets={p.assets}
-                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} rooms={rooms} />
+                        zoom={zoom} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode={p.colorMode} paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} rooms={rooms} zoneColors={colors} />
                     ))}
                   </svg>
                   <rect

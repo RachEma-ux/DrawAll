@@ -3,11 +3,12 @@
 // tailles papier), cartouche ; monochrome sur fond blanc, comme le PDF. Les fonds de plan, références
 // de travail, ne sont pas exportés.
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { BlockDef, CadObject, Layer, Level, MicroVersion, OpeningObj, Sheet, ViewReading, WallObj } from '@/types/cad';
+import type { BlockDef, CadObject, Layer, Level, MicroVersion, OpeningObj, Sheet, ViewReading, WallObj, Zone } from '@/types/cad';
 import { ObjectShape } from '@/components/CanvasView';
 import { onLevel, viewportLevelId } from '@/lib/levels';
 import { withProfile, withProfileBlocks, type DrawingProfile } from '@/lib/materials';
 import { roomPolygons } from '@/lib/rooms';
+import { zoneColors } from '@/lib/zones';
 import { layerVisibleInViewport, printableArea, scaleRatio, sheetSize, viewportModelRect } from '@/lib/sheet';
 import { titleBlockFields, titleBlockRect } from '@/lib/titleblock';
 import { wallsGeometry } from '@/lib/wall';
@@ -22,6 +23,7 @@ export interface SvgInput {
   view: ViewReading;
   versions: MicroVersion[];
   pointer: number;
+  zones?: Zone[];
 }
 
 /** Pixels par mm papier supposés pour les épaisseurs minimales (0,05 mm) : sans effet visible à l'impression. */
@@ -47,13 +49,14 @@ export function SheetSvg(p: SvgInput) {
         // Jonctions et pièces calculées à partir des seuls objets que la fenêtre dessine.
         const walls = wallsGeometry(objs.filter((o): o is WallObj => o.kind === 'wall' && visible(o)), objs.filter((o): o is OpeningObj => o.kind === 'opening'));
         const rooms = roomPolygons(objs.filter(visible));
+        const colors = zoneColors(objs, p.zones);
         const m = viewportModelRect(v);
         return (
           <svg key={v.id} data-fenetre={v.id} x={v.x} y={v.y} width={v.w} height={v.h} viewBox={`${m.x} ${m.y} ${m.w} ${m.h}`} preserveAspectRatio="none" overflow="hidden">
             {drawn.filter(visible).map(o => (
               <ObjectShape key={o.id} obj={o} objects={drawn} blocks={blocks} view={p.view} selected={false}
                 zoom={PX_PER_MM * scaleRatio(v.scale)} unit="mm" layer={p.layers.find(l => l.id === o.layerId)} colorMode="calque"
-                paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} rooms={rooms} />
+                paperScale={v.scale} hatchPrefix={`${v.id}-`} walls={walls} rooms={rooms} zoneColors={colors} />
             ))}
           </svg>
         );
