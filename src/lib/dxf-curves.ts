@@ -1,6 +1,7 @@
 // Courbes DXF approchées par des polylignes (lot 6.1) : SPLINE (B-spline rationnelle, algorithme de
 // de Boor), ELLIPSE et arcs d'arêtes de HATCH. Échantillonnage adaptatif : chaque segment est
-// subdivisé tant que l'écart entre la courbe (au milieu du segment) et sa corde dépasse la tolérance.
+// subdivisé tant que l'écart entre la courbe (au milieu et aux quarts du segment) et sa corde dépasse
+// la tolérance.
 // Repère DXF (Y vers le haut), unités du fichier ; fonctions pures.
 
 export interface Pt { x: number; y: number }
@@ -20,7 +21,8 @@ export function sampleCurve(f: (t: number) => Pt, t0: number, t1: number, tol: n
   let error = 0;
   const refine = (ta: number, pa: Pt, tb: number, pb: Pt, depth: number) => {
     const tm = (ta + tb) / 2, pm = f(tm);
-    const e = chordDistance(pm, pa, pb);
+    // Écart mesuré au milieu et aux quarts : une portion en S peut passer par la corde en son milieu.
+    const e = Math.max(chordDistance(pm, pa, pb), chordDistance(f((ta + tm) / 2), pa, pb), chordDistance(f((tm + tb) / 2), pa, pb));
     if (e > tol && depth < MAX_DEPTH) {
       refine(ta, pa, tm, pm, depth + 1);
       refine(tm, pm, tb, pb, depth + 1);

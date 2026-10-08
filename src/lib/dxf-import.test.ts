@@ -53,6 +53,38 @@ describe('import DXF complet (lot 6.1) — jeu de référence', () => {
     expect(Math.max(...ansi.points.filter((_, i) => i % 2 === 0))).toBeCloseTo(330, 6);
   });
 
+  it('arêtes de hachure : arc et ellipse parcourus dans le sens horaire, spline rationnelle', () => {
+    const r = read('hachures-aretes.dxf');
+    const loops = r.objects.filter((o): o is Extract<CadObject, { kind: 'polyline' }> => o.kind === 'polyline');
+    expect(loops).toHaveLength(3);
+    const area = (pts: number[]) => { let a = 0; for (let i = 0; i + 3 < pts.length; i += 2) a += pts[i] * pts[i + 3] - pts[i + 2] * pts[i + 1]; return Math.abs(a) / 2; };
+    const near = (a: number, b: number) => expect(Math.abs(a - b) / b).toBeLessThan(0.01);
+    const gapMax = (pts: number[]) => { let g = 0; for (let i = 0; i + 3 < pts.length; i += 2) g = Math.max(g, Math.hypot(pts[i + 2] - pts[i], pts[i + 3] - pts[i + 1])); return g; };
+    // Quart de disque de rayon 10 : contour continu (angles complémentaires lus comme AutoCAD).
+    near(area(loops[0].points), (Math.PI * 100) / 4);
+    expect(gapMax(loops[0].points)).toBeLessThan(10.01);
+    // Quart d'ellipse 20 × 10.
+    near(area(loops[1].points), (Math.PI * 200) / 4);
+    // Spline rationnelle : quart de cercle exact de rayon 30 (sommets sur le cercle).
+    const arc = loops[2].points;
+    const onCircle = [];
+    for (let i = 0; i + 1 < arc.length; i += 2) if (arc[i] > 200 + 1e-9 && arc[i + 1] < -1e-9) onCircle.push(Math.hypot(arc[i] - 200, arc[i + 1]));
+    expect(onCircle.length).toBeGreaterThan(3);
+    for (const d of onCircle) expect(d).toBeCloseTo(30, 5);
+    near(area(arc), (Math.PI * 900) / 4);
+  });
+
+  it('blocs éclatés : le motif de hachure suit la rotation et l’échelle ; un bloc à trait propre est éclaté', () => {
+    const r = read('blocs-eclates.dxf');
+    // Bloc à style propre éclaté (aucun bloc conservé), couleur du trait gardée.
+    expect(r.blocks.map(b => b.name)).not.toContain('STYLE');
+    expect(r.objects.filter(o => o.kind === 'line').map(o => o.color ?? null)).toContainEqual(expect.stringMatching(/^#/));
+    const hatch = r.objects.find(o => o.hatch === 'diagonal')!;
+    // ANSI31 (45°) tourné de 90° : 135° ; pas 3,175 mm × échelle 2.
+    expect(hatch.hatchParams).toMatchObject({ angle: 135, unit: 'modele' });
+    expect(hatch.hatchParams!.spacing).toBeCloseTo(6.35, 6);
+  });
+
   it('courbes : spline et ellipses approchées dans la tolérance ; ellipse circulaire exacte', () => {
     const r = read('courbes.dxf');
     expect(kinds(r.objects)).toEqual({ polyline: 3, circle: 1 });

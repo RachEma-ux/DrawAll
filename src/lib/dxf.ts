@@ -764,9 +764,12 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
         stats.dimension++;
         return local.map(o => affineObject(o, { a: 1, b: 0, c: 0, d: 1 }, Pm, Bm, ARC_TOLERANCE_MM));
       }
-      // Occurrence simple (sans rotation, échelle uniforme positive) d'un bloc de primitives : bloc conservé.
+      // Occurrence simple (sans rotation, échelle uniforme positive) d'un bloc de primitives sans style
+      // propre, toutes sur le calque de l'occurrence : bloc conservé (une occurrence DrawAll dessine ses
+      // primitives avec son propre calque et son propre trait). Sinon, éclatée : rien n'est perdu.
       const simple = depth === 0 && Math.abs(rot % 360) < 1e-9 && scaleX > 0 && Math.abs(scaleX - scaleY) < 1e-9
-        && local.length > 0 && local.every(o => (o.kind === 'line' || o.kind === 'circle' || o.kind === 'arc' || o.kind === 'polyline') && !o.holes);
+        && local.length > 0 && local.every(o => (o.kind === 'line' || o.kind === 'circle' || o.kind === 'arc' || o.kind === 'polyline') && !o.holes
+          && o.layerId === layer.id && o.color === undefined && o.lineType === undefined && o.lineWeight === undefined);
       if (simple) {
         let blockId = keptBlocks.get(def.name);
         if (!blockId) {
@@ -1244,6 +1247,32 @@ function xyPairs(body: Pair[], cx: number, cy: number): { x: number; y: number }
  * deviennent des polylignes (écart de corde ≤ tolérance).
  */
 function affineObject(o: CadObject, M: { a: number; b: number; c: number; d: number }, T: { x: number; y: number }, B: { x: number; y: number }, tolMm: number): CadObject {
+  const out = affineShape(o, M, T, B, tolMm);
+  if (!o.hatchParams || out.kind !== 'polyline' || o.kind !== 'polyline') return out;
+  // Le motif suit la transformation : direction des traits transformée, pas modèle mesuré
+  // perpendiculairement aux traits transformés, origine (relative à l'emprise) déplacée avec la figure.
+  const hp = o.hatchParams;
+  const t = (hp.angle * Math.PI) / 180, v = { x: Math.cos(t), y: -Math.sin(t) }; // angle compté à l'écran (Y vers le bas)
+  const w = { x: M.a * v.x + M.b * v.y, y: M.c * v.x + M.d * v.y };
+  const wl = Math.hypot(w.x, w.y), det = Math.abs(M.a * M.d - M.b * M.c);
+  if (wl < 1e-12 || det < 1e-12) return out;
+  const minOf = (pts: number[], k: number) => Math.min(...pts.filter((_, i) => i % 2 === k));
+  const b0 = { x: minOf(o.points, 0), y: minOf(o.points, 1) }, b1 = { x: minOf(out.points, 0), y: minOf(out.points, 1) };
+  const O = { x: b0.x + (hp.originX ?? 0) - B.x, y: b0.y + (hp.originY ?? 0) - B.y };
+  const O2 = { x: T.x + M.a * O.x + M.b * O.y, y: T.y + M.c * O.x + M.d * O.y };
+  const angle = norm360((Math.atan2(-w.y, w.x) * 180) / Math.PI) % 180;
+  return {
+    ...out,
+    hatchParams: {
+      ...hp,
+      angle: round(angle),
+      spacing: hp.unit === 'modele' ? round((hp.spacing * det) / wl) : hp.spacing,
+      originX: round(O2.x - b1.x), originY: round(O2.y - b1.y),
+    },
+  };
+}
+
+function affineShape(o: CadObject, M: { a: number; b: number; c: number; d: number }, T: { x: number; y: number }, B: { x: number; y: number }, tolMm: number): CadObject {
   const map = (x: number, y: number) => ({ x: round(T.x + M.a * (x - B.x) + M.b * (y - B.y)), y: round(T.y + M.c * (x - B.x) + M.d * (y - B.y)) });
   const sxLen = Math.hypot(M.a, M.c), syLen = Math.hypot(M.b, M.d);
   const det = M.a * M.d - M.b * M.c;
@@ -1356,11 +1385,18 @@ function parseHatch(body: Pair[], tol: number): HatchData | null {
           seg = ccw ? s.points : s.points.reverse(); error = Math.max(error, s.error);
         } else if (type === 4) {
           const degree = num(94, 3);
-          num(73); num(74);
+          // 73 rationnelle : un poids (42) suit chaque point de contrôle ; 74 périodique.
+          const rational = num(73) !== 0;
+          num(74);
           const nk = num(95), nc = num(96);
           const knots = Array.from({ length: nk }, () => num(40));
-          const ctrl = Array.from({ length: nc }, () => ({ x: num(10), y: num(20) }));
-          const s = splinePoints(degree, knots, ctrl, null, [], tol);
+          const weights: number[] = [];
+          const ctrl = Array.from({ length: nc }, () => {
+            const p = { x: num(10), y: num(20) };
+            if (rational) weights.push(num(42, 1));
+            return p;
+          });
+          const s = splinePoints(degree, knots, ctrl, rational ? weights : null, [], tol);
           if (s) { seg = s.points; if (!Number.isNaN(s.error)) error = Math.max(error, s.error); }
         } else {
           return null;

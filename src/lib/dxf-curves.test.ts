@@ -38,4 +38,20 @@ describe('courbes DXF approchées (lot 6.1)', () => {
     expect(cw.points[cw.points.length - 1].y).toBeCloseTo(-10, 9);
     expect(sampleCurve(t => ({ x: t, y: 0 }), 0, 1, 0.01, 2).points).toHaveLength(3);
   });
+  it('portion en S passant par sa corde en son milieu : subdivisée jusqu’à la tolérance', () => {
+    const f = (t: number) => ({ x: t, y: Math.sin(2 * Math.PI * t) });
+    const s = sampleCurve(f, 0, 1, 0.01, 1);
+    expect(s.points.length).toBeGreaterThan(10);
+    const seg = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
+      const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+      const u = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)) : 0;
+      return Math.hypot(p.x - (a.x + u * dx), p.y - (a.y + u * dy));
+    };
+    for (let i = 0; i <= 200; i++) {
+      const p = f(i / 200);
+      let d = Infinity;
+      for (let k = 0; k + 1 < s.points.length; k++) d = Math.min(d, seg(p, s.points[k], s.points[k + 1]));
+      expect(d).toBeLessThan(0.015);
+    }
+  });
 });

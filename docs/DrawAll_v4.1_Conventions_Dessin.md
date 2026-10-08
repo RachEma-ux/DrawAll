@@ -292,9 +292,9 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | Segment courbe de polyligne | Approché en polyligne (≤ 0,05 mm) | — |
 | Largeur de polyligne | Perdue (signalée) | — |
 | Rectangle | — | Transformé en polyligne fermée |
-| Hachure | Conservée (HATCH : contour polyligne ou arêtes ligne / arc / ellipse / spline, îlots ; aplat SOLID ; traits parallèles ou croisés à l'angle et au pas de la première famille, motif prédéfini simplifié et signalé) | Conservée (HATCH _USER ou SOLID : angle, pas, origine, îlots) |
+| Hachure | Conservée (HATCH : contour polyligne ou arêtes ligne / arc / ellipse / spline, îlots ; arcs et arcs d'ellipse parcourus dans le sens horaire lus en angles complémentaires (360 − angle), comme AutoCAD ; splines rationnelles avec leurs poids ; aplat SOLID ; traits parallèles ou croisés à l'angle et au pas de la première famille, motif prédéfini simplifié et signalé ; dans un bloc éclaté, angle, pas et origine suivent la transformation) | Conservée (HATCH _USER ou SOLID : angle, pas, origine, îlots) |
 | Cote | Transformée (DIMENSION : géométrie de son bloc — traits, flèches, texte ; non associative) | Transformée en traits + texte ; association perdue |
-| Occurrence de bloc | Conservée si simple (INSERT sans rotation, échelle uniforme positive, bloc de traits, cercles, arcs, polylignes) ; sinon éclatée (rotation, échelle non uniforme, symétrie, imbrication, textes ou hachures dans le bloc) ; MINSERT : première occurrence seulement (signalé) | Éclatée en entités simples |
+| Occurrence de bloc | Conservée si simple (INSERT sans rotation, échelle uniforme positive, bloc de traits, cercles, arcs, polylignes sans style propre, tous sur le calque de l'occurrence) ; sinon éclatée (rotation, échelle non uniforme, symétrie, imbrication, textes ou hachures dans le bloc, couleur, type ou épaisseur de trait propres, autre calque que celui de l'occurrence) ; MINSERT : première occurrence seulement (signalé) | Éclatée en entités simples |
 | Spline | Approchée en polyligne (B-spline rationnelle, ≤ 0,05 mm ; points d'ajustement reliés si pas de points de contrôle) | — |
 | Ellipse | Exacte si circulaire (cercle ou arc) ; sinon approchée en polyligne (≤ 0,05 mm) | — |
 | Calques | Nom, couleur, type et épaisseur de trait conservés | Nom, couleur, type et épaisseur de trait, visibilité, verrouillage |
