@@ -50,3 +50,21 @@ test('lot 10.5 — au doigt : toucher un membre désigne le groupe', async ({ pa
   await expect(edition(page)).toHaveText('Édition — 1 objet');
   expect(errors).toEqual([]);
 });
+
+test('lot 10.5 — glisser un membre non désigné déplace tout le groupe', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'glisser à la souris');
+  const errors = await openAtelier(page);
+  await loadObjects(page, lines.map((l, i) => (i < 2 ? { ...l, groupId: 'GRP-0001' } : l)));
+  const { toScreen } = await import('./helpers');
+  const from = await toScreen(page, 1000, 0), to = await toScreen(page, 1000, 500);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await page.mouse.up();
+  // Les deux membres bougent du même déplacement (à l'accrochage près) ; l'objet isolé ne bouge pas.
+  await expect.poll(async () => (await currentObjects(page))[0].y1 as number).toBeGreaterThan(300);
+  const ys = (await currentObjects(page)).map(o => o.y1 as number);
+  expect(ys[1] - ys[0]).toBe(1000);
+  expect(ys[2]).toBe(2000);
+  expect(errors).toEqual([]);
+});

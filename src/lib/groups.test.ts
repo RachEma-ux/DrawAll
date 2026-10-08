@@ -56,3 +56,14 @@ describe('groupes et paquet natif', () => {
     expect(back.state.versions[0].objects.map(o => o.groupId ?? null)).toEqual(['GRP-0001', 'GRP-0001', null]);
   });
 });
+
+describe('groupes et niveaux', () => {
+  it('copier un niveau : les copies forment des groupes neufs, propres au niveau copié', async () => {
+    const { copyLevelObjects } = await import('./levels');
+    const objs = [line('A', 'GRP-0001'), line('B', 'GRP-0001'), line('C', 'GRP-0002'), line('D')];
+    const { objects } = copyLevelObjects(objs, 'NIV-0001', 'NIV-0002', 10, 1);
+    expect(objects.map(o => o.groupId ?? null)).toEqual(['GRP-0003', 'GRP-0003', 'GRP-0004', null]);
+    // Grouper ou dégrouper sur un niveau ne touche plus l'autre.
+    expect(ungroupIds([...objs, ...objects], [objects[0].id])).toEqual(objects.slice(0, 2).map(o => o.id));
+  });
+});

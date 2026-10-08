@@ -1,6 +1,7 @@
 // Niveaux (lot 4.4) : étages avec altitude, objets rattachés à un niveau, copie d'un niveau.
 // Fonctions pures.
 import { withParents, type CadObject, type Level } from '@/types/cad';
+import { nextGroupId } from '@/lib/groups';
 
 export const DEFAULT_LEVEL: Level = { id: 'NIV-0001', name: 'Rez-de-chaussée', elevation: 0 };
 
@@ -45,6 +46,9 @@ export function formatElevation(mm: number): string {
  */
 export function copyLevelObjects(objects: CadObject[], fromId: string, toId: string, counter: number, seq: number): { objects: CadObject[]; counter: number } {
   const source = onLevel(objects, fromId);
+  // Groupes (lot 10.5) : les copies forment des groupes neufs, propres au niveau copié.
+  const groups = new Map<string, string>();
+  const taken: string[] = [];
   const ids = new Map<string, string>();
   for (const o of source) { counter += 1; ids.set(o.id, `OBJ-${String(counter).padStart(4, '0')}`); }
   const copies: CadObject[] = [];
@@ -54,6 +58,11 @@ export function copyLevelObjects(objects: CadObject[], fromId: string, toId: str
     if (!c) continue;
     if (c.holes) c.holes = c.holes.map(h => ids.get(h)).filter((h): h is string => !!h);
     if (c.name === o.id) c.name = c.id;
+    if (c.groupId) {
+      let g = groups.get(c.groupId);
+      if (!g) { g = nextGroupId(objects, taken); taken.push(g); groups.set(c.groupId, g); }
+      c.groupId = g;
+    }
     copies.push(c);
   }
   return { objects: copies, counter };
