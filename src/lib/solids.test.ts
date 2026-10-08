@@ -5,7 +5,7 @@ import { exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
 import { defaultIfcClass } from './properties';
 import { contourOf, extrudeRecipe, holeRecipe, isRecipe, moveSolid, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace } from './solids';
-import { stretchObject } from './stretch';
+import { stretchObject, stretchPreview } from './stretch';
 import type { SolidRecipe } from './kernel/recipe';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
@@ -97,6 +97,8 @@ describe('solides : recettes (lot 15.2)', () => {
     expect(scaleObject(s, 0, 0, 2)).toEqual({ recipe: { op: 'scale', of: e, factor: 2, about: [0, 0, 0] } });
     expect(stretchObject(s, { minX: -1, minY: -1, maxX: 101, maxY: 51 }, 5, 0)).toEqual({ recipe: { op: 'translate', of: e, by: [5, 0, 0] } });
     expect(stretchObject(s, { minX: 90, minY: -1, maxX: 101, maxY: 51 }, 5, 0)).toBeNull();
+    // Aperçu : les coins capturés, déplacés avec le solide.
+    expect(stretchPreview([s], { minX: -1, minY: -1, maxX: 101, maxY: 51 }, 5, 0)).toEqual([{ x: 5, y: 0 }, { x: 105, y: 0 }, { x: 105, y: 50 }, { x: 5, y: 50 }]);
   });
 
   it('relecture : recette bien formée seulement', () => {

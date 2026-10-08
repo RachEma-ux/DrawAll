@@ -116,6 +116,8 @@ function vertices(o: CadObject): { x: number; y: number }[] {
     // Toiture : son contour s'étire comme un rectangle (ses quatre coins).
     case 'rect': case 'roof': return [{ x: o.x, y: o.y }, { x: o.x + o.w, y: o.y }, { x: o.x + o.w, y: o.y + o.h }, { x: o.x, y: o.y + o.h }];
     case 'circle': case 'arc': case 'ellipse': return [{ x: o.cx, y: o.cy }];
+    // Solide : les coins de son encombrement en plan (il se déplace entier).
+    case 'solid': { const b = recipeBounds(o.recipe); return [{ x: b.min[0], y: b.min[1] }, { x: b.max[0], y: b.min[1] }, { x: b.max[0], y: b.max[1] }, { x: b.min[0], y: b.max[1] }]; }
     default: return 'x' in o && 'y' in o && typeof o.x === 'number' && typeof o.y === 'number' ? [{ x: o.x, y: o.y }] : [];
   }
 }
