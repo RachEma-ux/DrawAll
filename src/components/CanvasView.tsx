@@ -195,6 +195,8 @@ function pathLength(p: number[]): number {
 const MIN_LENGTH = 1e-6;
 /** Déplacement minimal de la souris pour qu'un tracé soit pris en compte (pixels écran). */
 const DRAG_THRESHOLD_PX = 3;
+/** Zoom minimal (px écran par mm) : 1 000 px montrent 200 m, un bâtiment industriel entier (lot 19.2). */
+const MIN_ZOOM = 0.005;
 /** Main levée (lot 10.6) : écart maximal du tracé simplifié au geste, en pixels d'écran. */
 const FREEHAND_TOLERANCE_PX = 1.5;
 
@@ -777,7 +779,7 @@ export default function CanvasView({
     const r = ref.current!.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     setTf(t => {
-      const k = Math.min(12, Math.max(0.08, t.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+      const k = Math.min(12, Math.max(MIN_ZOOM, t.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
       const wx = (mx - t.x) / t.k, wy = (my - t.y) / t.k;
       return { k, x: mx - wx * k, y: my - wy * k };
     });
@@ -1003,7 +1005,7 @@ export default function CanvasView({
       const r = ref.current!.getBoundingClientRect();
       const p = pinchState();
       const { tf0, d0, mx, my } = pinch.current;
-      const k = Math.min(12, Math.max(0.08, tf0.k * (p.d / d0)));
+      const k = Math.min(12, Math.max(MIN_ZOOM, tf0.k * (p.d / d0)));
       const wx = (mx - r.left - tf0.x) / tf0.k, wy = (my - r.top - tf0.y) / tf0.k;
       setTf({ k, x: p.mx - r.left - wx * k, y: p.my - r.top - wy * k });
       return;
@@ -1077,7 +1079,7 @@ export default function CanvasView({
     if (!base || !rect) return;
     // Marge proportionnelle : une marge fixe écraserait les zones basses (téléphone en paysage).
     const pad = Math.min(70, rect.width * 0.08, rect.height * 0.08);
-    const scaleFor = (b: typeof base) => Math.min(4, Math.max(0.08, Math.min(
+    const scaleFor = (b: typeof base) => Math.min(4, Math.max(MIN_ZOOM, Math.min(
       (rect.width - pad * 2) / Math.max(1, b.maxX - b.minX), (rect.height - pad * 2) / Math.max(1, b.maxY - b.minY))));
     // Annotations (nomenclature, repères, symboles) à taille papier fixe : leur emprise dépend du
     // zoom ; quelques passes suffisent à faire tenir le tableau entier.
@@ -1148,14 +1150,14 @@ export default function CanvasView({
         }}
       >
         <defs>
-          {/* Grille : trait fin au pas choisi, trait marqué tous les dix pas ; le trait fin
-              disparaît quand il deviendrait illisible (moins de 4 px entre deux lignes). */}
+          {/* Grille : trait fin au pas choisi, trait marqué tous les dix pas ; chacun disparaît
+              quand il deviendrait illisible (moins de 4 px entre deux lignes). */}
           <pattern id="grid-min" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
             <path d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} fill="none" stroke="#131c31" strokeWidth={0.5 / tf.k} />
           </pattern>
           <pattern id="grid-maj" width={gridSize * 10} height={gridSize * 10} patternUnits="userSpaceOnUse">
             {gridSize * tf.k >= 4 && <rect width={gridSize * 10} height={gridSize * 10} fill="url(#grid-min)" />}
-            <path d={`M ${gridSize * 10} 0 L 0 0 0 ${gridSize * 10}`} fill="none" stroke="#1c2947" strokeWidth={1 / tf.k} />
+            {gridSize * 10 * tf.k >= 4 && <path d={`M ${gridSize * 10} 0 L 0 0 0 ${gridSize * 10}`} fill="none" stroke="#1c2947" strokeWidth={1 / tf.k} />}
           </pattern>
           <pattern id="hatch-diagonal" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="8" stroke="#22d3ee" strokeWidth="1" opacity="0.45" />

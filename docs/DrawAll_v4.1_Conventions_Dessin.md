@@ -833,6 +833,27 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 
   Un autre générateur se branche par l'interface `Generator` (`propose(demande, contexte, erreurs, essai)`). Les tests en utilisent un simulé.
 
+### 10.12 Banc de mesure (règle, lot 19.2 ; Concept §11)
+
+- **Projet de référence déclaré** (`src/lib/bench/reference.ts`) : déterministe. Il compte 2 niveaux, chacun étant une trame de 10 × 10 pièces de 4 m d'axe en axe, soit 1 082 objets au total :
+  - 440 murs, sur toutes les lignes de la trame ;
+  - 242 poteaux, un à chaque nœud ;
+  - 200 portes, une par pièce ;
+  - 200 pièces.
+- **Mesures** (`npm run bench`, `bench/banc.spec.ts`) :
+  - **temps de retour** : de l'horodatage de l'événement d'entrée à la tâche qui suit la première trame après la mise à jour du DOM. Il est mesuré pour le zoom à la molette, la sélection au clic, le déplacement au clavier (nouvelle version) et l'annulation, avec 60 mesures après 5 d'échauffement ;
+  - **temps de trame** : en plan, 120 trames consécutives, la vue zoomée à chaque trame ; dans la vue 3D, la mesure intégrée du lot 15.1.
+- **Rapport versionné** : `docs/mesures/DrawAll_Banc_de_mesure.md` et `docs/mesures/banc-19.2.json`. Ils déclarent :
+  - l'environnement : navigateur, processeur, mémoire, rendu graphique, fenêtre, réseau, état du cache ;
+  - les valeurs ;
+  - l'écart aux cibles du Concept (retour p95 < 100 ms, trame p95 ≤ 16,7 ms).
+
+  Une cible non atteinte est un résultat déclaré, jamais masqué.
+- **Corrections issues du banc** :
+  - **Zoom minimal** : 0,005 px/mm, de sorte que 1 000 px montrent 200 m ; il était de 0,08 px/mm, soit 12 m environ, et un bâtiment industriel ne tenait pas à l'écran. Le trait marqué de la grille disparaît lui aussi sous 4 px.
+  - **Index spatial** (grille uniforme) pour les jonctions de murs et le découpage des faces des pièces : seuls les éléments voisins sont comparés.
+  - **Mémoire des résultats** pour les mêmes murs : géométrie des murs et contours des pièces. Le test de clic recalculait toutes les pièces du niveau pour chaque pièce candidate.
+
 ## 11. Références
 
 | Sujet | Référence |

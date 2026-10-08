@@ -3,7 +3,7 @@
 // modification des murs (pièce associative). Les ouvertures ne coupent pas le contour d'une pièce.
 // Fonctions pures, repère du modèle (Y vers le bas), longueurs en mm.
 import type { WallObj } from '@/types/cad';
-import { wallsGeometry, wallQuad } from '@/lib/wall';
+import { gridIndex, sameRefsMemo, wallsGeometry, wallQuad, type Box } from '@/lib/wall';
 import { pointInLoop } from '@/lib/hatch';
 
 export interface Pt { x: number; y: number }
@@ -21,8 +21,12 @@ function signedArea(p: Pt[]): number {
 /** Découpe des segments à leurs intersections mutuelles. */
 function splitAll(segs: Seg[]): Seg[] {
   const cuts: number[][] = segs.map(() => [0, 1]);
+  // Index spatial (lot 19.2) : seuls les segments dont les emprises se touchent sont comparés.
+  const box = ([a, b]: Seg): Box => ({ minX: Math.min(a.x, b.x) - KEY, minY: Math.min(a.y, b.y) - KEY, maxX: Math.max(a.x, b.x) + KEY, maxY: Math.max(a.y, b.y) + KEY });
+  const index = gridIndex(segs.map((s, i) => ({ id: String(i), box: box(s) })));
   for (let i = 0; i < segs.length; i++) {
-    for (let j = i + 1; j < segs.length; j++) {
+    const near = [...index.overlapping(box(segs[i]))].map(Number).filter(j => j > i).sort((m, n) => m - n);
+    for (const j of near) {
       const [a, b] = segs[i], [c, d] = segs[j];
       const r = { x: b.x - a.x, y: b.y - a.y }, s = { x: d.x - c.x, y: d.y - c.y };
       const den = r.x * s.y - r.y * s.x;
@@ -126,16 +130,29 @@ function interiorPoint(face: Pt[], holes: Pt[][]): Pt | null {
   return best?.p ?? null;
 }
 
-/** Contours de toutes les pièces fermées par des murs (faces qui ne sont pas l'intérieur d'un mur). */
-export function roomFaces(walls: WallObj[]): Pt[][] {
-  const geom = wallsGeometry(walls);
+/**
+ * Contours de toutes les pièces fermées par des murs (faces qui ne sont pas l'intérieur d'un mur),
+ * mémorisés pour les mêmes murs : la désignation d'une pièce, le test de clic et l'inspecteur
+ * n'en refont pas le calcul pour chaque pièce (lot 19.2).
+ */
+export const roomFaces: (walls: WallObj[]) => Pt[][] = (() => {
+  const memo = sameRefsMemo((walls: WallObj[]) => computeRoomFaces(walls));
+  return (walls: WallObj[]) => memo(walls);
+})();
+
+function computeRoomFaces(walls: WallObj[]): Pt[][] {
+  const geom = wallsGeometry(walls, []);
   const segs: Seg[] = [...geom.values()].flatMap(g => g.edges);
   const quads = walls.map(w => wallQuad(w)).filter((q): q is NonNullable<typeof q> => !!q);
   const faces = boundedFaces(segs);
-  return faces.filter(face => {
-    // Trous : autres faces contenues dans celle-ci (par exemple l'intérieur d'un anneau de murs).
-    const a = Math.abs(signedArea(face));
-    const holes = faces.filter(f => f !== face && Math.abs(signedArea(f)) < a && f.every(p => pointInLoop(p, face) || onLoop(p, face)));
+  const areas = faces.map(f => Math.abs(signedArea(f)));
+  const boxes = faces.map(f => ({ minX: Math.min(...f.map(p => p.x)), minY: Math.min(...f.map(p => p.y)), maxX: Math.max(...f.map(p => p.x)), maxY: Math.max(...f.map(p => p.y)) }));
+  const inside = (b: Box, o: Box) => b.minX >= o.minX - KEY && b.maxX <= o.maxX + KEY && b.minY >= o.minY - KEY && b.maxY <= o.maxY + KEY;
+  return faces.filter((face, i) => {
+    // Trous : autres faces contenues dans celle-ci (par exemple l'intérieur d'un anneau de murs) ;
+    // une face dont l'emprise déborde n'en est pas un (test rapide avant le test exact).
+    const a = areas[i];
+    const holes = faces.filter((f, j) => j !== i && areas[j] < a && inside(boxes[j], boxes[i]) && f.every(p => pointInLoop(p, face) || onLoop(p, face)));
     const p = interiorPoint(face, holes);
     return !!p && !quads.some(q => pointInLoop(p, q));
   });

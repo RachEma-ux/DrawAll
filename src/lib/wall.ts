@@ -64,16 +64,44 @@ function lineLine(p: Pt, d: Pt, q: Pt, e: Pt): Pt | null {
  * Géométrie de tous les murs, jonctions nettoyées. Les murs dégénérés (longueur ou épaisseur nulle)
  * sont ignorés.
  */
+/**
+ * Mémoire des derniers résultats d'un calcul pur sur des listes d'objets (lot 19.2) : les objets du
+ * projet sont immuables, des listes aux mêmes références donnent donc le même résultat. Le résultat
+ * rendu est partagé : il ne doit pas être modifié par l'appelant.
+ */
+export function sameRefsMemo<A extends readonly (readonly unknown[])[], R>(f: (...args: A) => R, size = 8): (...args: A) => R {
+  const entries: { args: A; result: R }[] = [];
+  const same = (a: A, b: A) => a.length === b.length && a.every((list, i) => list.length === b[i].length && list.every((x, k) => x === b[i][k]));
+  return (...args: A) => {
+    const hit = entries.find(e => same(e.args, args));
+    if (hit) return hit.result;
+    const result = f(...args);
+    entries.unshift({ args: args.map(l => [...l]) as unknown as A, result });
+    if (entries.length > size) entries.pop();
+    return result;
+  };
+}
+
+/** Géométrie des murs (jonctions nettoyées, baies), mémorisée pour les mêmes murs et ouvertures. */
+const wallsGeometryMemo = sameRefsMemo((walls: WallObj[], openings: OpeningObj[]) => computeWallsGeometry(walls, openings));
 export function wallsGeometry(walls: WallObj[], openings: OpeningObj[] = []): Map<string, WallGeometry> {
+  return wallsGeometryMemo(walls, openings);
+}
+
+function computeWallsGeometry(walls: WallObj[], openings: OpeningObj[]): Map<string, WallGeometry> {
   const frames = new Map<string, Frame>();
   for (const w of walls) { const f = frameOf(w); if (f) frames.set(w.id, f); }
   const ids = [...frames.keys()];
+  const order = new Map(ids.map((id, i) => [id, i]));
+  // Index spatial (lot 19.2) : seuls les murs voisins sont comparés deux à deux, dans l'ordre d'origine.
+  const near = gridIndex(ids.map(id => ({ id, box: frameBox(frames.get(id)!, JOIN_TOLERANCE) })));
+  const byOrder = (xs: Iterable<string>) => [...xs].sort((m, n) => order.get(m)! - order.get(n)!);
   // Extension des faces, en abscisse le long du mur depuis son début : [début gauche, début droite, fin gauche, fin droite].
   const ext = new Map<string, { s: [number, number]; e: [number, number]; capS: boolean; capE: boolean }>();
   for (const id of ids) ext.set(id, { s: [0, 0], e: [frames.get(id)!.len, frames.get(id)!.len], capS: true, capE: true });
 
   /** Nombre de murs dont une extrémité est au point (à la tolérance de jonction près). */
-  const nodeDegree = (p: Pt) => ids.filter(i => dist(frames.get(i)!.a, p) <= JOIN_TOLERANCE || dist(frames.get(i)!.b, p) <= JOIN_TOLERANCE).length;
+  const nodeDegree = (p: Pt) => [...near.at(p)].filter(i => dist(frames.get(i)!.a, p) <= JOIN_TOLERANCE || dist(frames.get(i)!.b, p) <= JOIN_TOLERANCE).length;
   const faceLine = (f: Frame, side: 'left' | 'right'): { p: Pt; d: Pt } => ({ p: add(f.a, mul(f.l, side === 'left' ? f.left : -f.right)), d: f.u });
   const along = (f: Frame, p: Pt) => dot(sub(p, f.a), f.u);
 
@@ -82,7 +110,8 @@ export function wallsGeometry(walls: WallObj[], openings: OpeningObj[] = []): Ma
     const x = ext.get(id)!;
     for (const end of ['s', 'e'] as const) {
       const pt = end === 's' ? f.a : f.b;
-      for (const oid of ids) {
+      // Un mur qui n'est pas au voisinage du point ne peut y faire ni jonction en L ni jonction en T.
+      for (const oid of byOrder(near.at(pt))) {
         if (oid === id) continue;
         const g = frames.get(oid)!;
         const shared = dist(pt, g.a) <= JOIN_TOLERANCE ? 'a' : dist(pt, g.b) <= JOIN_TOLERANCE ? 'b' : null;
@@ -141,22 +170,27 @@ export function wallsGeometry(walls: WallObj[], openings: OpeningObj[] = []): Ma
 
   // Traits visibles : faces et abouts, sans les portions strictement intérieures à un autre mur.
   const out = new Map<string, WallGeometry>();
+  const quadIndex = gridIndex(ids.map(id => ({ id, box: pointsBox(quads.get(id)!, EPS) })));
+  const wallById = new Map(walls.map(w => [w.id, w]));
+  const openingsOf = new Map<string, OpeningObj[]>();
+  for (const o of openings) openingsOf.set(o.hostId, [...(openingsOf.get(o.hostId) ?? []), o]);
   for (const id of ids) {
     const q = quads.get(id)!, x = ext.get(id)!;
     const raw: Seg[] = [[q[0], q[1]], [q[3], q[2]]];
     if (x.capE) raw.push([q[1], q[2]]);
     if (x.capS) raw.push([q[3], q[0]]);
     let edges = raw;
-    for (const oid of ids) {
+    // Seuls les murs dont l'emprise touche celle-ci peuvent en masquer une partie.
+    for (const oid of byOrder(quadIndex.overlapping(pointsBox(q, EPS)))) {
       if (oid === id) continue;
       const other = quads.get(oid)!;
       edges = edges.flatMap(s => clipOutside(s, other));
     }
     // Ouvertures : faces coupées sur la largeur de la baie, tableaux ajoutés.
-    const w = walls.find(v => v.id === id)!;
+    const w = wallById.get(id)!;
     const f = frames.get(id)!;
     const bays: Pt[][] = [];
-    for (const op of openings.filter(o => o.hostId === id)) {
+    for (const op of openingsOf.get(id) ?? []) {
       const g = openingGeometry(op, w);
       if (!g) continue;
       edges = edges.flatMap(s => cutAlong(s, f, g.from, g.to));
@@ -166,6 +200,46 @@ export function wallsGeometry(walls: WallObj[], openings: OpeningObj[] = []): Ma
     out.set(id, { quad: q, edges: edges.filter(([a, b]) => dist(a, b) > EPS), bays });
   }
   return out;
+}
+
+export type Box = { minX: number; minY: number; maxX: number; maxY: number };
+
+const pointsBox = (pts: Pt[], pad: number): Box => ({
+  minX: Math.min(...pts.map(p => p.x)) - pad, minY: Math.min(...pts.map(p => p.y)) - pad,
+  maxX: Math.max(...pts.map(p => p.x)) + pad, maxY: Math.max(...pts.map(p => p.y)) + pad,
+});
+
+/** Emprise du mur tracé (corps et extrémités), élargie de `pad`. */
+function frameBox(f: Frame, pad: number): Box {
+  const pts = [f.a, f.b].flatMap(p => [add(p, mul(f.l, f.left)), add(p, mul(f.l, -f.right))]);
+  return pointsBox(pts, pad);
+}
+
+/**
+ * Index spatial par grille uniforme (lot 19.2) : chaque emprise est rangée dans les cases qu'elle
+ * couvre ; une requête rend les identifiants des cases touchées (sur-ensemble des voisins exacts).
+ */
+export function gridIndex(items: { id: string; box: Box }[]) {
+  const spans = items.map(i => Math.max(i.box.maxX - i.box.minX, i.box.maxY - i.box.minY)).sort((a, b) => a - b);
+  const cell = Math.max(spans[Math.floor(spans.length / 2)] ?? 1, 1);
+  const cells = new Map<string, string[]>();
+  const range = (b: Box, f: (k: string) => void) => {
+    const x0 = Math.floor(b.minX / cell), x1 = Math.floor(b.maxX / cell), y0 = Math.floor(b.minY / cell), y1 = Math.floor(b.maxY / cell);
+    // Emprise démesurée (au-delà de 10 000 cases) : rangée à part, toujours candidate.
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 10_000) { f('*'); return; }
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) f(`${x}:${y}`);
+  };
+  for (const it of items) range(it.box, k => { const c = cells.get(k); if (c) c.push(it.id); else cells.set(k, [it.id]); });
+  const boxes = new Map(items.map(i => [i.id, i.box]));
+  const hit = (a: Box, b: Box) => a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+  const overlapping = (b: Box): Set<string> => {
+    const out = new Set<string>();
+    const take = (k: string) => { for (const id of cells.get(k) ?? []) if (hit(boxes.get(id)!, b)) out.add(id); };
+    range(b, take);
+    take('*');
+    return out;
+  };
+  return { overlapping, at: (p: Pt) => overlapping({ minX: p.x, minY: p.y, maxX: p.x, maxY: p.y }) };
 }
 
 /** Retire d'un trait parallèle au mur la portion comprise entre les abscisses t0 et t1 (le long du mur). */

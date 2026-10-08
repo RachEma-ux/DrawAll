@@ -15,7 +15,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "bench": "playwright test -c playwright.bench.config.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "2.0.78",
