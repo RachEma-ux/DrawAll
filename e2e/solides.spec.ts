@@ -218,3 +218,38 @@ test('lot 16.1 — vues projetées associées : percer le solide fait apparaîtr
   expect(types).toEqual(['dessus', 'face', 'cote']);
   expect(errors).toEqual([]);
 });
+
+test('lot 16.3 — pièce numérotée et occurrences : modifier la pièce type met à jour toutes les occurrences', async ({ page }, info) => {
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  const panel = await extrudeAt(page, info, 500, 0, '300');
+  await panel.getByRole('button', { name: 'Définir comme pièce' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText(/devient la pièce n° 1\.$/);
+  for (const [x, y] of [['2000', '0'], ['4000', '0']]) {
+    await panel.getByLabel('X de l’occurrence (mm)').fill(x);
+    await panel.getByLabel('Y de l’occurrence (mm)').fill(y);
+    await panel.getByRole('button', { name: 'Poser une occurrence' }).click();
+    await expect(panel.getByTestId('solides-message')).toContainText('de la pièce n° 1 posée');
+  }
+  const occs = page.locator('[data-occurrence]');
+  await expect(occs).toHaveCount(2);
+  await expect(page.locator('[data-occurrence] [data-repere="1"]')).toHaveCount(2);
+  await expect(panel).toContainText('repère 1, 3 exemplaires (pièce type comprise)');
+  // La pièce type est tirée d'un côté de 200 mm : la tranche ajoutée apparaît dans chaque occurrence.
+  // Emprise de la trace de chaque occurrence (repère du modèle), sans le texte du repère.
+  const traces = () => occs.evaluateAll(gs => gs.map(g => {
+    const ys = [...g.querySelectorAll('polyline, path, line')].map(e => (e as SVGGraphicsElement).getBBox()).flatMap(b => [b.y, b.y + b.height]);
+    return Math.round(Math.max(...ys) - Math.min(...ys));
+  }));
+  const before = await traces();
+  const faceSelect = panel.getByLabel('Face à pousser ou tirer');
+  const side = await faceSelect.locator('option').evaluateAll(os => os.find(o => o.textContent?.startsWith('OBJ-0001 — côté 1 (0 ; 0)'))?.getAttribute('value'));
+  await faceSelect.selectOption(side!);
+  await panel.getByLabel('Distance (mm)').fill('200');
+  await panel.getByRole('button', { name: 'Appliquer' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Face tirée', { timeout: 90_000 });
+  expect(before).toEqual([500, 500]);
+  await expect.poll(traces).toEqual([700, 700]);
+  expect(errors).toEqual([]);
+});

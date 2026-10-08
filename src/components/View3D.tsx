@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CadObject, Layer, Level } from '@/types/cad';
 import { building3d, p95, type Building3D, type Mesh3D } from '@/lib/building3d';
 import { kernelMesh } from '@/lib/kernel/client';
+import { effectiveSolid } from '@/lib/solids';
 import { levelIdOf, levelsOf } from '@/lib/levels';
 
 interface Props {
@@ -31,7 +32,8 @@ export default function View3D({ objects, layers, levels, onClose }: Props) {
   }, [objects, layers]);
   const plan = useMemo(() => building3d(visible, levels), [visible, levels]);
   // Solides du noyau (lot 15.2) : maillés par OCCT dans le Worker, posés à l'altitude de leur niveau.
-  const solids = useMemo(() => visible.filter(o => o.kind === 'solid'), [visible]);
+  // Solides et occurrences de pièces (lot 16.3), maillés par le noyau.
+  const solids = useMemo(() => visible.flatMap(o => { const s = effectiveSolid(o, objects); return s ? [s] : []; }), [visible, objects]);
   const [kernelPart, setKernelPart] = useState<{ for: CadObject[]; part: Building3D } | null>(null);
   useEffect(() => {
     if (!solids.length) return;

@@ -52,7 +52,7 @@ import { pickElement, type Pick } from '@/lib/constraints/model';
 import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
 import { structurePrimitives } from '@/lib/structure';
-import { solidPrimitives } from '@/lib/solids';
+import { effectiveSolid, solidPrimitives } from '@/lib/solids';
 import { VIEW_LABEL, elevationLabel, placedAny, viewPrimitives } from '@/lib/projection';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
@@ -1507,9 +1507,20 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
       </g>
     );
   }
+  if (obj.kind === 'occurrence') {
+    // Occurrence (lot 16.3) : trace de la pièce posée, et son repère.
+    const s = effectiveSolid(obj, objects), def = objects.find(o => o.id === obj.sourceId);
+    if (!s) return null;
+    return (
+      <g data-occurrence={obj.id} data-piece={obj.sourceId}>
+        {solidPrimitives(s).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}
+        {def?.kind === 'solid' && def.partDef && <text x={obj.x} y={obj.y} dy={-6 / zoom} fontSize={11 / zoom} fill="#fbbf24" data-repere={def.partDef.no}>{def.partDef.no}</text>}
+      </g>
+    );
+  }
   if (obj.kind === 'solid') {
     // Solide (lot 15.2) : trace des fonctions, parties retirées en traits interrompus.
-    return <g data-solide={obj.id}>{solidPrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
+    return <g data-solide={obj.id}>{obj.partDef && <text x={obj.partDef.origin[0]} y={obj.partDef.origin[1]} dy={-6 / zoom} fontSize={11 / zoom} fill="#fbbf24" data-repere={obj.partDef.no}>{obj.partDef.no}</text>}{solidPrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
   }
   if (obj.kind === 'roof') {
     // Toiture (lot 13.2) : rive, faîtage, arêtiers et flèches de pente.
@@ -2030,8 +2041,9 @@ function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[
       const v = placedAny(o, allObjects);
       if (v && v.visible.concat(v.hidden).some(s => distanceSegment(x, y, s[0], s[1], s[2], s[3]) <= tol)) return o;
     }
-    if (o.kind === 'solid') {
-      for (const p of solidPrimitives(o)) {
+    if (o.kind === 'solid' || o.kind === 'occurrence') {
+      const s = effectiveSolid(o, allObjects);
+      for (const p of s ? solidPrimitives(s) : []) {
         if (p.kind === 'circle' && Math.abs(Math.hypot(x - p.cx, y - p.cy) - p.r) <= tol) return o;
         const pts = p.kind === 'polyline' ? p.points : [];
         for (let j = 0; j + 3 < pts.length; j += 2) if (distanceSegment(x, y, pts[j], pts[j + 1], pts[j + 2], pts[j + 3]) <= tol) return o;

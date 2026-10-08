@@ -2099,7 +2099,7 @@ function Workbench() {
         <SolidsPanel objects={project.allObjects} selectedIds={project.selectedIds}
           onCreate={(from, recipe, label) => project.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe }, undefined, label)}
           onUpdate={(id, recipe, label) => project.updateObject(id, { recipe }, label)}
-          onCombine={project.combineSolids} onProject={project.addProjections} onClose={() => setSolidsOpen(false)} />
+          onCombine={project.combineSolids} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onClose={() => setSolidsOpen(false)} />
       )}
       {view3dOpen && (
         <Suspense fallback={null}>

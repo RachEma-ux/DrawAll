@@ -612,6 +612,14 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Pose** : panneau « Façades et coupes » (palette, ou inspecteur d'un mur, d'une dalle, d'une toiture, d'un poteau, d'une poutre, d'un repère de coupe). Les vues générées sont posées en ligne sous le bâtiment ; « Poser » crée sur la feuille choisie une fenêtre centrée sur la vue, à l'échelle choisie.
 - **Associativité** : modifier le modèle (hauteur d'un mur, ajout d'une dalle…) recalcule les façades et les coupes. Supprimer le repère de coupe supprime sa coupe. DXF et PDF attendent le calcul.
 
+### 8.19 Pièces et occurrences (règle, lot 16.3)
+
+- **Pièce** : un solide devient une pièce par « Définir comme pièce » (panneau Solides). Il reçoit le repère suivant (1, 2, 3…), affiché près de son point de base, et un repère local : point de base au coin bas de son encombrement, orientation nulle.
+- **Occurrence** : la forme de la pièce posée en (X, Y, Z) et tournée d'un angle. X et Y sont saisis ; Z vide vaut la cote de base de la pièce. Elle porte le même repère que sa pièce ; le panneau compte les exemplaires, pièce type comprise.
+- **Associativité** : modifier la pièce type (perçage, pousser / tirer, coque, booléen…) met à jour toutes ses occurrences. Déplacer ou tourner la pièce type déplace son repère local avec elle : ses occurrences ne bougent pas. Supprimer la pièce type supprime ses occurrences, après l'analyse d'impact.
+- **Occurrence seule** : elle se déplace et tourne. Elle ne se modifie pas : sa forme est celle de la pièce, donc pas de mise à l'échelle et pas de symétrie propre.
+- **Partout** : plan, accrochage, DXF, PDF, vue 3D, façades et coupes reprennent la forme posée de chaque occurrence.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

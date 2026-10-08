@@ -512,3 +512,38 @@ export function pushPullRecipe(of: SolidRecipe, face: FaceRef, distance: number)
   if (s.support.kind === 'cylinder') return { error: 'Pousser / tirer : face plane attendue.' };
   return { recipe: { op: 'pushpull', of, face, distance } };
 }
+
+// ——— Pièces et occurrences (lot 16.3) ———
+
+/** Forme de la pièce dans son repère local (point de base à l'origine, orientation nulle). */
+export function partLocalRecipe(def: SolidObj): SolidRecipe | null {
+  if (!def.partDef) return null;
+  const [ox, oy, oz] = def.partDef.origin;
+  const moved: SolidRecipe = { op: 'translate', of: def.recipe, by: [-ox, -oy, -oz] };
+  return def.partDef.angle ? { op: 'rotate', of: moved, angle: -def.partDef.angle, about: [0, 0] } : moved;
+}
+
+/** Recette posée d'une occurrence : la pièce, placée en (x, y, z) et tournée de son angle. */
+export function occurrenceRecipe(o: { x: number; y: number; z: number; angle: number }, def: CadObject | undefined): SolidRecipe | null {
+  if (def?.kind !== 'solid') return null;
+  const local = partLocalRecipe(def);
+  if (!local) return null;
+  const placed: SolidRecipe = { op: 'translate', of: local, by: [o.x, o.y, o.z] };
+  return o.angle ? { op: 'rotate', of: placed, angle: o.angle, about: [o.x, o.y] } : placed;
+}
+
+/** Solide effectif d'un objet : le solide lui-même, ou la forme posée d'une occurrence. */
+export function effectiveSolid(o: CadObject, objects: CadObject[]): SolidObj | null {
+  if (o.kind === 'solid') return o;
+  if (o.kind !== 'occurrence') return null;
+  const recipe = occurrenceRecipe(o, objects.find(x => x.id === o.sourceId));
+  return recipe ? { ...(o as unknown as SolidObj), kind: 'solid', recipe, partDef: undefined } : null;
+}
+
+/** Prochain repère de pièce (1, 2, 3…). */
+export const nextPartNo = (objects: CadObject[]) => Math.max(0, ...objects.map(o => (o.kind === 'solid' && o.partDef ? o.partDef.no : 0))) + 1;
+
+/** Occurrences d'une pièce, numérotées dans l'ordre du projet ; la pièce type compte pour la première. */
+export function partInstances(defId: string, objects: CadObject[]): string[] {
+  return [defId, ...objects.filter(o => o.kind === 'occurrence' && o.sourceId === defId).map(o => o.id)];
+}

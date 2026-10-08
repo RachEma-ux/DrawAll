@@ -5,7 +5,7 @@ import type { CadObject, SolidObj } from '@/types/cad';
 import type { FaceRef, ProjView, SolidRecipe } from '@/lib/kernel/recipe';
 import { VIEW_LABEL } from '@/lib/projection';
 import { kernelDeviation, kernelVolume } from '@/lib/kernel/client';
-import { BOOLEAN_LABEL, contourOf, extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
+import { BOOLEAN_LABEL, partInstances, contourOf, extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
 
 interface Props {
   objects: CadObject[];
@@ -17,6 +17,9 @@ interface Props {
   onCombine: (aId: string, bId: string, op: BooleanOp) => void;
   /** Pose des vues projetées du solide (lot 16.1). */
   onProject?: (sourceId: string, views: ProjView[]) => void;
+  /** Pièces et occurrences (lot 16.3). */
+  onMakePart?: (id: string) => number | null;
+  onAddOccurrence?: (defId: string, x: number, y: number, z: number, angle: number) => string | null;
   onClose: () => void;
 }
 
@@ -25,7 +28,7 @@ const button = 'rounded-sm border border-border px-2 py-1 text-foreground hover:
 const parse = (s: string) => Number(s.trim().replace(',', '.'));
 const m3 = (mm3: number) => `${(mm3 / 1e9).toLocaleString('fr-FR', { maximumFractionDigits: 6 })} m³`;
 
-export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, onCombine, onProject, onClose }: Props) {
+export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, onCombine, onProject, onMakePart, onAddOccurrence, onClose }: Props) {
   const selected = selectedIds.map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
   const solids = selected.filter((o): o is SolidObj => o.kind === 'solid');
   const contours = selected.filter(o => o.kind !== 'solid' && !('error' in contourOf(o)));
@@ -39,6 +42,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const [shell, setShell] = useState<{ thickness: string; open: string[] }>({ thickness: '', open: [] });
   const [push, setPush] = useState({ face: '', distance: '' });
   const [views, setViews] = useState<ProjView[]>(['dessus', 'face', 'cote']);
+  const [occ, setOcc] = useState({ x: '', y: '', z: '', angle: '0' });
   const [hole, setHole] = useState({ x: '', y: '', d: '', depth: '' });
 
   // Volume du solide sélectionné, calculé par le noyau.
@@ -208,6 +212,31 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
         <label className="flex items-center gap-1">Distance <input aria-label="Distance (mm)" inputMode="decimal" value={push.distance} onChange={e => setPush(p => ({ ...p, distance: e.target.value }))} className={field} /> mm</label>
         <button type="button" className={button} disabled={!one || busy} onClick={doPush}>Appliquer</button>
       </section>
+
+      {onMakePart && onAddOccurrence && (
+        <section aria-label="Pièce" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">
+          <span className="w-full text-foreground">
+            Pièce et occurrences{one?.partDef ? ` — repère ${one.partDef.no}, ${partInstances(one.id, objects).length} exemplaire${partInstances(one.id, objects).length > 1 ? 's' : ''} (pièce type comprise)` : ''}
+          </span>
+          {one && !one.partDef && (
+            <button type="button" className={button} onClick={() => { const no = onMakePart(one.id); if (no) setMessage({ error: false, text: `${one.name} devient la pièce n° ${no}.` }); }}>Définir comme pièce</button>
+          )}
+          {one?.partDef && (
+            <>
+              <label className="flex items-center gap-1">X <input aria-label="X de l’occurrence (mm)" inputMode="decimal" value={occ.x} onChange={e => setOcc(o => ({ ...o, x: e.target.value }))} className={field} /></label>
+              <label className="flex items-center gap-1">Y <input aria-label="Y de l’occurrence (mm)" inputMode="decimal" value={occ.y} onChange={e => setOcc(o => ({ ...o, y: e.target.value }))} className={field} /></label>
+              <label className="flex items-center gap-1">Z <input aria-label="Z de l’occurrence (mm)" inputMode="decimal" placeholder={String(one.partDef.origin[2]).replace('.', ',')} value={occ.z} onChange={e => setOcc(o => ({ ...o, z: e.target.value }))} className={field} /></label>
+              <label className="flex items-center gap-1">Angle <input aria-label="Angle de l’occurrence (°)" inputMode="decimal" value={occ.angle} onChange={e => setOcc(o => ({ ...o, angle: e.target.value }))} className={field} /> °</label>
+              <button type="button" className={button} onClick={() => {
+                const [x, y] = [parse(occ.x), parse(occ.y)], z = occ.z.trim() === '' ? one.partDef!.origin[2] : parse(occ.z), a = parse(occ.angle || '0');
+                if (occ.x.trim() === '' || occ.y.trim() === '') { setMessage({ error: true, text: 'Occurrence : X et Y du point de base attendus.' }); return; }
+                const id = onAddOccurrence(one.id, x, y, z, a);
+                setMessage(id ? { error: false, text: `Occurrence ${id} de la pièce n° ${one.partDef!.no} posée.` } : { error: true, text: 'Occurrence : nombres finis attendus.' });
+              }}>Poser une occurrence</button>
+            </>
+          )}
+        </section>
+      )}
 
       {onProject && (
         <section aria-label="Vues projetées" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">

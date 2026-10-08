@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { loadKernel } from './occt';
 import { cameraLooking, meshVolume, type PathSeg, type SolidRecipe, type SweepProfile } from './recipe';
 import { buildingRecipe } from '../building3d';
-import { extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
+import { extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, occurrenceRecipe, pushPullRecipe, shellRecipe, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
 
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.abs(b);
 const take = (r: { recipe: SolidRecipe } | { error: string }) => { if ('error' in r) throw new Error(r.error); return r.recipe; };
@@ -273,5 +273,24 @@ describe('façades et coupes de bâtiment (lot 16.2)', async () => {
     expect([Math.min(...xs(p)), Math.max(...xs(p))]).toEqual([-100, 5100]);
     // Plan de coupe hors du bâtiment : refusé en clair.
     expect(() => k.projectCamera(recipe!, cameraLooking([0, -1]), { point: [0, 9000], look: [0, 1] })).toThrow('Coupe : le plan ne traverse pas le bâtiment.');
+  });
+});
+
+describe('pièces et occurrences (lot 16.3) : la forme suit la pièce type', async () => {
+  const k = await loadKernel();
+  const base = { classification: 'non-classifie' as const, layerId: 'L', hatch: 'none' as const, createdSeq: 0 };
+  const recipe = take(extrudeRecipe(sq(1000, 2000, 300, 100), 50, 0, 'OBJ-0001'));
+  const def = { ...base, id: 'OBJ-0001', name: 'P', kind: 'solid' as const, recipe, partDef: { no: 1, origin: [1000, 2000, 0] as [number, number, number], angle: 0 } };
+  const occ = { ...base, id: 'OBJ-0002', name: 'O', kind: 'occurrence' as const, sourceId: 'OBJ-0001', x: -500, y: 300, z: 1000, angle: 30 };
+
+  it('même volume, posée et tournée ; modifier la pièce type modifie l’occurrence', () => {
+    const r = occurrenceRecipe(occ, def)!;
+    expect(rel(k.volume(r), 300 * 100 * 50)).toBeLessThan(1e-6);
+    const m = k.mesh(r, 0.1), zs = m.vertices.filter((_, i) => i % 3 === 2);
+    expect(Math.min(...zs)).toBeCloseTo(1000, 6);
+    // Point de base de l'occurrence = coin de la pièce : un sommet du maillage y est.
+    expect(m.vertices.some((_, i) => i % 3 === 0 && Math.abs(m.vertices[i] + 500) < 1e-6 && Math.abs(m.vertices[i + 1] - 300) < 1e-6)).toBe(true);
+    const drilled = { ...def, recipe: take(holeRecipe(recipe, 1150, 2050, 40)) };
+    expect(rel(k.volume(occurrenceRecipe(occ, drilled)!), 300 * 100 * 50 - Math.PI * 400 * 50)).toBeLessThan(1e-6);
   });
 });

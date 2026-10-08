@@ -52,7 +52,7 @@ import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications } from '@/lib/publication';
-import { BOOLEAN_LABEL, isRecipe, type BooleanOp } from '@/lib/solids';
+import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
 import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
 import type { ProjView } from '@/lib/kernel/recipe';
 import type { ElevationView } from '@/types/cad';
@@ -179,6 +179,13 @@ function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
   if ('ifcClass' in base && !isIfcClass(base.ifcClass)) delete base.ifcClass;
   // Solide (lot 15.2) : recette mal formée = objet écarté (le noyau ne l'évaluerait pas).
   if (base.kind === 'solid' && !isRecipe(base.recipe)) return null;
+  // Pièce (lot 16.3) : repère entier positif, repère local fini ; sinon le solide n'est plus une pièce.
+  if (base.kind === 'solid' && base.partDef !== undefined) {
+    const p = base.partDef as { no?: unknown; origin?: unknown; angle?: unknown };
+    const ok = Number.isInteger(p.no) && (p.no as number) > 0 && Array.isArray(p.origin) && p.origin.length === 3 && p.origin.every(Number.isFinite) && Number.isFinite(p.angle);
+    if (!ok) delete base.partDef;
+  }
+  if (base.kind === 'occurrence' && (typeof base.sourceId !== 'string' || ![base.x, base.y, base.z, base.angle].every(Number.isFinite))) return null;
   // Vue projetée (lot 16.1) : vue connue, position finie.
   if (base.kind === 'elevation' && (!['nord', 'sud', 'est', 'ouest', 'coupe'].includes(base.view) || (base.view === 'coupe' && typeof base.markId !== 'string') || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
   if (base.kind === 'projection' && (!['dessus', 'face', 'cote'].includes(base.view) || typeof base.sourceId !== 'string' || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
@@ -831,6 +838,25 @@ export function useProject() {
     return made.map(o => o.id);
   }, [allObjects, state.counter, current.seq, commit]);
 
+  /** Pièce (lot 16.3) : le solide reçoit le repère suivant et son repère local (base de son encombrement). */
+  const makePart = useCallback((id: string) => {
+    const o = allObjects.find(x => x.id === id);
+    if (o?.kind !== 'solid' || o.partDef) return null;
+    const no = nextPartNo(allObjects), b = recipeBounds(o.recipe);
+    commit(`Pièce n° ${no} ${id}`, { objects: allObjects.map(x => (x.id === id ? ({ ...x, partDef: { no, origin: [b.min[0], b.min[1], b.min[2]], angle: 0 } } as CadObject) : x)) });
+    return no;
+  }, [allObjects, commit]);
+
+  /** Occurrence d'une pièce posée en (x, y, z), tournée de `angle` degrés. */
+  const addOccurrence = useCallback((defId: string, x: number, y: number, z: number, angle: number) => {
+    const def = allObjects.find(o => o.id === defId);
+    if (def?.kind !== 'solid' || !def.partDef || ![x, y, z, angle].every(Number.isFinite)) return null;
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const occ = { id, name: `${def.name} (rep. ${def.partDef.no})`, kind: 'occurrence', classification: def.classification, layerId: def.layerId, hatch: 'none', createdSeq: current.seq, ...(def.levelId ? { levelId: def.levelId } : {}), sourceId: defId, x, y, z, angle } as CadObject;
+    commit(`Occurrence ${id} de la pièce n° ${def.partDef.no}`, { objects: [...allObjects, occ], counter: state.counter + 1 });
+    return id;
+  }, [allObjects, state.counter, current.seq, commit]);
+
   /** Façades et coupes du bâtiment (lot 16.2), posées sous lui, en une seule version. */
   const addElevations = useCallback((views: { view: ElevationView; markId?: string }[]) => {
     const placed = elevationPlacement(allObjects, views);
@@ -1476,7 +1502,7 @@ export function useProject() {
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations,
+    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations, makePart, addOccurrence,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,

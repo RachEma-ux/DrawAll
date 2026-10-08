@@ -8,7 +8,7 @@ import { dimensionGeometry, primitiveBounds } from '@/lib/geometry';
 import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
 import { structurePrimitives } from '@/lib/structure';
-import { solidPrimitives } from '@/lib/solids';
+import { effectiveSolid, solidPrimitives } from '@/lib/solids';
 import { viewPrimitives } from '@/lib/projection';
 import { arcSweep } from '@/lib/arc';
 import { ellipseBeziers, isFullEllipse } from '@/lib/ellipse';
@@ -297,7 +297,7 @@ export function sheetToPdf(input: PdfInput): string {
       }
       if (o.kind === 'roof') { for (const p of roofPrimitives(o, roofInput(o))) drawPrimitive(p, effectiveStyle(o, layer)); continue; }
       if (o.kind === 'column' || o.kind === 'beam') { for (const p of structurePrimitives(o)) drawPrimitive(p, effectiveStyle(p, layer)); continue; }
-      if (o.kind === 'solid') { for (const p of solidPrimitives(o)) drawPrimitive(p, effectiveStyle(p, layer)); continue; }
+      if (o.kind === 'solid' || o.kind === 'occurrence') { const s = effectiveSolid(o, objects); for (const p of s ? solidPrimitives(s) : []) drawPrimitive(p, effectiveStyle(p, layer)); continue; }
       if (o.kind === 'projection' || o.kind === 'elevation') { for (const p of viewPrimitives(o, objects)) drawPrimitive(p, effectiveStyle(p, layer)); continue; }
       drawPrimitive(o.kind === 'slab' ? slabAsPolyline(o) as PrimitiveObject : o, effectiveStyle(o, layer), (o.holes ?? []).map(id => objects.find(x => x.id === id)).filter((x): x is CadObject => !!x));
     }

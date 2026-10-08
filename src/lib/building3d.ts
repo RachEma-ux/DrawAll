@@ -5,6 +5,7 @@
 // Repère : X du plan → X, Y du plan (vers le bas) → Z, altitude → Y (haut). Millimètres.
 import type { CadObject, Level, RoofObj } from '@/types/cad';
 import type { SolidRecipe } from './kernel/recipe';
+import { effectiveSolid } from './solids';
 import { levelIdOf, levelsOf } from './levels';
 import { roofGeometry, roofInput } from './roof';
 import { beamEdges, columnCorners } from './structure';
@@ -206,9 +207,11 @@ export function buildingRecipe(objects: CadObject[], levelList: Level[] | undefi
     parts.push({ op: 'extrude', profile: ring, height: z1 - z0, ...(z0 ? { z: z0 } : {}) });
   }
   for (const o of objects) {
-    if (o.kind !== 'solid') continue;
+    // Solides et occurrences de pièces (lot 16.3).
+    const s = effectiveSolid(o, objects);
+    if (!s) continue;
     const z = elevation(o);
-    parts.push(z ? { op: 'translate', of: o.recipe, by: [0, 0, z] } : o.recipe);
+    parts.push(z ? { op: 'translate', of: s.recipe, by: [0, 0, z] } : s.recipe);
   }
   return { recipe: parts.length ? { op: 'compound', parts } : null, skipped };
 }

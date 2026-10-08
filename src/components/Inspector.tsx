@@ -702,9 +702,17 @@ export default function Inspector({ impact, zones, onOpenZones, onOpenSolids, on
           </div>
         )}
 
+        {obj.kind === 'occurrence' && (
+          <div data-testid="inspecteur-occurrence">
+            <p className="ui-label mb-1.5">Occurrence</p>
+            <p className="text-[11px] text-muted-foreground">
+              {(() => { const d = objects.find(o => o.id === obj.sourceId); return d?.kind === 'solid' && d.partDef ? `Pièce n° ${d.partDef.no} (${d.name}) : sa forme suit la pièce type.` : 'Pièce type absente.'; })()}
+            </p>
+          </div>
+        )}
         {obj.kind === 'solid' && (
           <div data-testid="inspecteur-solide">
-            <p className="ui-label mb-1.5">Solide</p>
+            <p className="ui-label mb-1.5">{obj.partDef ? `Pièce n° ${obj.partDef.no}` : 'Solide'}</p>
             <p className="text-[11px] text-muted-foreground">{recipeSteps(obj.recipe).join(' → ')}</p>
           </div>
         )}
