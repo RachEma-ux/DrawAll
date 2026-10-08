@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { ObjectShape } from '@/components/CanvasView';
 import ExclusiveRun from '@/components/ExclusiveRun';
 import { useCommandRunner, type Project } from '@/hooks/useCommandRunner';
-import { controlledLoop, previewDiff, type Generator, type LoopResult, type Proposal } from '@/lib/assistant/loop';
+import { controlledLoop, previewDiff, provisionalId, remapIds, type Generator, type LoopResult, type Proposal } from '@/lib/assistant/loop';
 import { localGenerator } from '@/lib/assistant/local-generator';
 import { objectBounds, unionBounds } from '@/lib/geometry';
 import type { CadObject } from '@/types/cad';
@@ -70,7 +70,13 @@ export default function AssistantPanel({ project, onClose, generator = localGene
     const before = projectRef.current.state;
     setBusy('executer');
     try {
-      for (const s of result.proposal.steps) await exec(s.type, s.args);
+      // Identifiants provisoires (PROP-…) de la validation à blanc → identifiants réels des objets créés.
+      const real = new Map<string, string>();
+      let created = 0;
+      for (const s of result.proposal.steps) {
+        const out = await exec(s.type, remapIds(s.args, real) as unknown[]);
+        if (s.type === 'addObject' && typeof out === 'string') real.set(provisionalId(++created), out);
+      }
       log('executee', result, result.request);
       setOutcome({ ok: true, text: `${result.proposal.steps.length} opération${result.proposal.steps.length > 1 ? 's' : ''} exécutée${result.proposal.steps.length > 1 ? 's' : ''}.` });
     } catch (e) {
@@ -96,7 +102,8 @@ export default function AssistantPanel({ project, onClose, generator = localGene
     <div ref={panelRef} role="dialog" aria-label="Assistant" className="fixed inset-x-3 top-16 z-[70] mx-auto flex max-h-[80vh] max-w-xl flex-col gap-2 overflow-y-auto rounded-md border border-border bg-[#0c1220] p-3 font-mono text-[12px] text-muted-foreground shadow-2xl">
       <div className="flex items-center justify-between">
         <h2 className="text-sm text-foreground">Assistant</h2>
-        <button type="button" onClick={onClose} aria-label="Fermer l’assistant" className="rounded-sm px-2 py-0.5 hover:text-foreground">×</button>
+        {/* Fermer pendant l'exécution laisserait une séquence à moitié appliquée, sans journal ni retour arrière. */}
+        <button type="button" onClick={onClose} disabled={busy === 'executer'} aria-label="Fermer l’assistant" className="rounded-sm px-2 py-0.5 hover:text-foreground disabled:opacity-40">×</button>
       </div>
       <p className="text-[11px]">
         {generator.name} : aucun envoi externe. La séquence proposée est validée par les moteurs (trois corrections au plus), aperçue, puis exécutée seulement après votre accord.

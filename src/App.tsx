@@ -411,11 +411,16 @@ function Workbench() {
   }, [project]);
 
   // Publication (lot 14.4) : les vues projetées, façades et coupes sont calculées avant que les PDF
-  // ne soient figés ; la publication porte ensuite sur l'état du projet à ce moment-là.
+  // ne soient figés. L'atelier est gelé pendant ce calcul (panneau des publications) ; si les objets
+  // ont tout de même changé entre-temps, le calcul est repris sur les nouveaux avant de publier.
   const latestProject = useRef(project);
   useEffect(() => { latestProject.current = project; }, [project]);
   const publishDossier = useCallback(async (name: string) => {
-    await ensureProjections(latestProject.current.allObjects, kernelProject, kernelProjectCamera);
+    let prepared: CadObject[];
+    do {
+      prepared = latestProject.current.allObjects;
+      await ensureProjections(prepared, kernelProject, kernelProjectCamera);
+    } while (prepared !== latestProject.current.allObjects);
     return latestProject.current.publish(name);
   }, []);
 

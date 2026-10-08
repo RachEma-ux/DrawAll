@@ -190,12 +190,34 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
   redo: args => (args.length === 0 ? null : 'rétablir : sans argument'),
 };
 
-/** Commandes ouvertes aux scripts et à l'assistant : celles dont les arguments sont entièrement validés. */
-export const SCRIPT_COMMANDS = Object.keys(VALIDATORS);
+/**
+ * Arguments facultatifs des commandes ouvertes aux scripts, au-delà de ceux que leur validateur
+ * contrôle : nombre d'arguments admis et rang des arguments facultatifs de type texte (nom, libellé).
+ */
+const SCRIPT_ARGS: Record<string, { max: number; texts?: number[] }> = {
+  addObject: { max: 3, texts: [1, 2] },
+  updateObject: { max: 3, texts: [2] },
+  removeObject: { max: 1 }, removeObjects: { max: 1 },
+  transform: { max: 3, texts: [2] },
+  duplicateObjects: { max: 3 },
+  addLayer: { max: 1 }, addLevel: { max: 2 }, setActiveLayerId: { max: 1 }, setActiveLevelId: { max: 1 },
+  nameVersion: { max: 1 }, goTo: { max: 1 }, undo: { max: 0 }, redo: { max: 0 },
+};
 
-/** Refus d'une commande non ouverte aux scripts (sans validation complète de ses arguments). */
-export const scriptCommandError = (type: string): string | null =>
-  Object.prototype.hasOwnProperty.call(VALIDATORS, type) ? null : `commande non ouverte aux scripts « ${type} »`;
+/**
+ * Refus d'une commande non ouverte aux scripts (sans validation complète de ses arguments), ou
+ * appelée avec des arguments en trop ou mal typés.
+ */
+export function scriptCommandError(type: string, args: unknown[] = []): string | null {
+  if (!Object.prototype.hasOwnProperty.call(VALIDATORS, type) || !SCRIPT_ARGS[type]) return `commande non ouverte aux scripts « ${type} »`;
+  const { max, texts = [] } = SCRIPT_ARGS[type];
+  if (args.length > max) return `${type} : ${max} argument${max > 1 ? 's' : ''} au plus`;
+  const bad = texts.find(i => args[i] !== undefined && !str(args[i]));
+  return bad === undefined ? null : `${type} : argument ${bad + 1} texte attendu`;
+}
+
+/** Commandes ouvertes aux scripts et à l'assistant : celles dont les arguments sont entièrement validés. */
+export const SCRIPT_COMMANDS = Object.keys(VALIDATORS).filter(t => Object.prototype.hasOwnProperty.call(SCRIPT_ARGS, t));
 
 /**
  * Encodage JSON des arguments : `undefined` (champ retiré, argument facultatif) et `Map` gardés

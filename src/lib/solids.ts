@@ -9,6 +9,8 @@ import { featureSupports, supportOf } from './kernel/references';
 import { splineLength, splineSamples } from './spline';
 
 type P2 = [number, number];
+/** Direction rendue unitaire (axe de révolution : une direction de longueur quelconque le désigne). */
+const unit2 = (d: P2): P2 => { const l = Math.hypot(d[0], d[1]); return [d[0] / l, d[1] / l]; };
 export type Contour = { kind: 'polygon'; points: P2[] } | { kind: 'circle'; cx: number; cy: number; r: number };
 export type SolidResult = { recipe: SolidRecipe } | { error: string };
 
@@ -95,7 +97,7 @@ export function recipeBounds(r: SolidRecipe): { min: Vec3; max: Vec3 } {
         const rmax = Math.max(...r.profile.map(p => Math.abs(p[0])));
         return box([[-rmax, -rmax, Math.min(...r.profile.map(p => p[1]))], [rmax, rmax, Math.max(...r.profile.map(p => p[1]))]]);
       }
-      const { origin: o, dir: u } = r.axis;
+      const o = r.axis.origin, u = unit2(r.axis.dir);
       const t = r.profile.map(p => (p[0] - o[0]) * u[0] + (p[1] - o[1]) * u[1]);
       const dmax = Math.max(...r.profile.map(p => Math.abs((p[1] - o[1]) * u[0] - (p[0] - o[0]) * u[1])));
       const n: P2 = [-u[1], u[0]];
@@ -174,7 +176,7 @@ export function solidTrace(r: SolidRecipe, hidden = false): Trace[] {
       const b = recipeBounds(r);
       if (!r.axis) return [{ circle: { cx: 0, cy: 0, r: b.max[0] }, hidden }];
       // Emprise de la révolution : bande le long de l'axe, de demi-largeur la plus grande distance à l'axe.
-      const { origin: o, dir: u } = r.axis, n: P2 = [-u[1], u[0]];
+      const o = r.axis.origin, u = unit2(r.axis.dir), n: P2 = [-u[1], u[0]];
       const t = r.profile.map(p => (p[0] - o[0]) * u[0] + (p[1] - o[1]) * u[1]);
       const dm = Math.max(...r.profile.map(p => Math.abs((p[1] - o[1]) * u[0] - (p[0] - o[0]) * u[1])));
       const at = (tt: number, s: number): P2 => [o[0] + u[0] * tt + n[0] * s, o[1] + u[1] * tt + n[1] * s];

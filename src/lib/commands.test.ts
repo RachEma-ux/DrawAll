@@ -79,6 +79,13 @@ describe('API de commandes (lot 18.1)', () => {
     expect(scriptCommandError('toString')).toBe('commande non ouverte aux scripts « toString »');
     expect(SCRIPT_COMMANDS).toEqual(expect.arrayContaining(['addObject', 'updateObject', 'removeObjects', 'transform', 'addLevel', 'setActiveLevelId']));
     expect(validateCommand('undo', [{ type: 'click' }], [])).toBe('annuler : sans argument');
+    // Arguments en trop ou mal typés : refusés (un nom d'objet non textuel casserait l'affichage).
+    const col = { kind: 'column', x: 0, y: 0, section: 'circle', d: 400 };
+    expect(scriptCommandError('addObject', [col, {}])).toBe('addObject : argument 2 texte attendu');
+    expect(scriptCommandError('addObject', [col, 'P1', 'Poser', 'trop'])).toBe('addObject : 3 arguments au plus');
+    expect(scriptCommandError('addObject', [col, 'P1', 'Poser'])).toBeNull();
+    expect(scriptCommandError('updateObject', ['OBJ-0001', {}, 42])).toBe('updateObject : argument 3 texte attendu');
+    expect(scriptCommandError('undo', [1])).toBe('undo : 0 argument au plus');
   });
 
   it('chaque type d’objet a sa fiche de validation ; mise à jour validée sur l’objet résultant', () => {

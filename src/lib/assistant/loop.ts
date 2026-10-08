@@ -6,7 +6,7 @@
 import type { CadObject, Layer } from '@/types/cad';
 import { KIND_LABEL } from '@/types/cad';
 import { onLevel } from '@/lib/levels';
-import { applyTransform, validateCommand, type TransformOp } from '@/lib/commands';
+import { applyTransform, scriptCommandError, validateCommand, type TransformOp } from '@/lib/commands';
 import { beamError, columnError } from '@/lib/structure';
 
 export interface ProposedStep {
@@ -91,13 +91,15 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
     const at = `opération ${i + 1} (${s.type})`;
     if (!(ASSISTANT_COMMANDS as readonly string[]).includes(s.type)) { errors.push(`${at} : commande non permise à l’assistant`); return; }
     if (!Array.isArray(s.args)) { errors.push(`${at} : arguments attendus`); return; }
+    const closed = scriptCommandError(s.type, s.args);
+    if (closed) { errors.push(`${at} : ${closed}`); return; }
     const err = validateCommand(s.type, s.args, objects, ctx.layers, { levels: ctx.levels, blocks: ctx.blocks });
     if (err) { errors.push(`${at} : ${err}`); return; }
     if (s.type === 'addObject') {
       const o = s.args[0] as Record<string, unknown>;
       const e = objectError(o, ctx.layers);
       if (e) { errors.push(`${at} : ${e}`); return; }
-      const obj = { ...o, id: `PROP-${String(added.length + 1).padStart(4, '0')}`, name: `proposé ${added.length + 1}`, createdSeq: 0, ...(ctx.activeLevelId && !o.levelId ? { levelId: ctx.activeLevelId } : {}) } as CadObject;
+      const obj = { ...o, id: provisionalId(added.length + 1), name: `proposé ${added.length + 1}`, createdSeq: 0, ...(ctx.activeLevelId && !o.levelId ? { levelId: ctx.activeLevelId } : {}) } as CadObject;
       added.push(obj);
       objects = [...objects, obj];
     } else if (s.type === 'removeObjects') {
@@ -117,6 +119,20 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
     }
   });
   return { errors, objects, added };
+}
+
+/** Identifiant provisoire du n-ième objet créé par une proposition (validation à blanc). */
+export const provisionalId = (n: number) => `PROP-${String(n).padStart(4, '0')}`;
+
+/**
+ * Exécution d'une proposition : chaque objet créé reçoit son identifiant réel ; les opérations
+ * suivantes qui désignaient son identifiant provisoire sont réécrites avec l'identifiant réel.
+ */
+export function remapIds(v: unknown, real: Map<string, string>): unknown {
+  if (typeof v === 'string') return real.get(v) ?? v;
+  if (Array.isArray(v)) return v.map(x => remapIds(x, real));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, remapIds(x, real)]));
+  return v;
 }
 
 /**

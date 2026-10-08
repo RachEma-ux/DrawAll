@@ -1588,7 +1588,7 @@ export function useProject() {
     return fn(...args);
   };
   /** Transformation déclarative de la sélection (remplace les fonctions, non journalisables). */
-  const transform = useCallback((ids: string[], op: TransformOp, label: string) => transformObjects(ids, applyTransform(op), label), [transformObjects]);
+  const transform = useCallback((ids: string[], op: TransformOp, label = 'Transformer') => transformObjects(ids, applyTransform(op), label), [transformObjects]);
   // Repartir de zéro commence un nouveau journal ; ouvrir un projet reprend le journal enregistré
   // avec lui (un paquet restauré se réexporte à l'identique, lot 8.2).
   const resetWithJournal = useCallback(() => { reset(); setState(s => { const { journal: _j, ...rest } = s; void _j; return rest as ProjectState; }); }, [reset]);
@@ -1620,13 +1620,13 @@ export function useProject() {
   type CommandName = keyof typeof commands;
 
   /** Exécution d'une commande par son nom (scripts, lot 18.2) : refus en clair, jamais d'exception. */
-  const execute = (type: string, args: unknown[]): { ok: true; result: unknown } | { ok: false; error: string } => {
-    if (!(type in commands)) return { ok: false, error: `commande inconnue « ${type} »` };
+  const execute = (type: string, args: unknown[]): { ok: true; result: unknown } | { ok: false; error: string; /** Refus journalisé (un rendu suit). */ journaled: boolean } => {
+    if (!(type in commands)) return { ok: false, error: `commande inconnue « ${type} »`, journaled: false };
     // Une commande dont les arguments ne sont pas entièrement validés reste réservée à l'interface.
-    const closed = scriptCommandError(type);
-    if (closed) return { ok: false, error: closed };
+    const closed = scriptCommandError(type, args);
+    if (closed) return { ok: false, error: closed, journaled: false };
     const err = validateCommand(type, args, allObjects, layers, { levels, blocks });
-    if (err) { record(type, [], err); return { ok: false, error: `${type} : ${err}` }; }
+    if (err) { record(type, [], err); return { ok: false, error: `${type} : ${err}`, journaled: true }; }
     return { ok: true, result: (commands[type as CommandName] as (...a: unknown[]) => unknown)(...args) };
   };
 

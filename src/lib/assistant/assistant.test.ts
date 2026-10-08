@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject } from '@/types/cad';
-import { MAX_CORRECTIONS, controlledLoop, dryRun, previewDiff, requestKey, scriptedGenerator, type AssistantContext, type Proposal } from './loop';
+import { MAX_CORRECTIONS, controlledLoop, dryRun, previewDiff, provisionalId, remapIds, requestKey, scriptedGenerator, type AssistantContext, type Proposal } from './loop';
 import { localGenerator } from './local-generator';
 
 const ctx: AssistantContext = {
@@ -161,5 +161,17 @@ describe('aperçu du résultat simulé complet', () => {
     const del = previewDiff([line, other], dryRun([{ type: 'removeObjects', args: [['OBJ-0002']] }], { ...ctx, objects: [line, other] }).objects, 'NIV-0001');
     expect(del.removed.map(o => o.id)).toEqual(['OBJ-0002']);
     expect(del.same.map(o => o.id)).toEqual(['OBJ-0001']);
+  });
+});
+
+describe('identifiants provisoires', () => {
+  it('une opération peut désigner un objet créé plus tôt dans la proposition ; réécrite à l’exécution', () => {
+    const wall = { type: 'addObject', args: [{ kind: 'wall', classification: 'architecture', layerId: 'LAY-0001', hatch: 'none', x1: 0, y1: 0, x2: 4000, y2: 0, thickness: 200, justification: 'axe' }] };
+    const door = { type: 'addObject', args: [{ kind: 'opening', classification: 'architecture', layerId: 'LAY-0001', hatch: 'none', hostId: provisionalId(1), type: 'porte', position: 2000, width: 900, hinge: 'debut', side: 'gauche' }] };
+    expect(dryRun([wall, door], ctx).errors).toEqual([]);
+    // À l'exécution, l'hôte provisoire est remplacé par l'identifiant réel du mur créé.
+    const real = new Map([[provisionalId(1), 'OBJ-0042']]);
+    expect((remapIds(door.args, real) as { hostId: string }[])[0].hostId).toBe('OBJ-0042');
+    expect(remapIds([['PROP-0009', 'OBJ-0001'], { kind: 'move', dx: 1, dy: 0 }], real)).toEqual([['PROP-0009', 'OBJ-0001'], { kind: 'move', dx: 1, dy: 0 }]);
   });
 });

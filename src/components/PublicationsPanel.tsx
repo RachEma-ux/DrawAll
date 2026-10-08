@@ -1,6 +1,8 @@
 // Publications (lot 14.4) : publier la version courante (version nommée + PDF des feuilles, figés),
-// consulter les dossiers publiés et leur état (« publié », « modifié depuis »).
-import { useState } from 'react';
+// consulter les dossiers publiés et leur état (« publié », « modifié depuis »). Pendant que les vues
+// sont calculées avant de figer les PDF, l'atelier est gelé : le dossier porte sur l'état préparé.
+import { useRef, useState } from 'react';
+import ExclusiveRun from '@/components/ExclusiveRun';
 import type { ProjectState } from '@/types/cad';
 import { pdfBytes } from '@/lib/pdf';
 import { publicationStatus, type Publication } from '@/lib/publication';
@@ -27,6 +29,7 @@ export default function PublicationsPanel({ state, publications, onPublish, onCl
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
   const submit = async () => {
     setBusy(true);
     try {
@@ -38,10 +41,12 @@ export default function PublicationsPanel({ state, publications, onPublish, onCl
   };
   const color = { 'publié': 'text-emerald-300', 'modifié depuis': 'text-amber-300', 'autre variante': 'text-muted-foreground' } as const;
   return (
-    <div role="dialog" aria-label="Publications" className="fixed inset-x-3 top-16 z-50 mx-auto flex max-h-[75vh] max-w-lg flex-col gap-2 overflow-y-auto rounded-md border border-border bg-[#0c1220] p-3 font-mono text-[12px] text-muted-foreground shadow-2xl">
+    <>
+    <ExclusiveRun active={busy} within={panelRef} />
+    <div ref={panelRef} role="dialog" aria-label="Publications" className="fixed inset-x-3 top-16 z-[70] mx-auto flex max-h-[75vh] max-w-lg flex-col gap-2 overflow-y-auto rounded-md border border-border bg-[#0c1220] p-3 font-mono text-[12px] text-muted-foreground shadow-2xl">
       <div className="flex items-center justify-between">
         <h2 className="text-sm text-foreground">Publications</h2>
-        <button type="button" onClick={onClose} aria-label="Fermer les publications" className="rounded-sm px-2 py-0.5 hover:text-foreground">×</button>
+        <button type="button" onClick={onClose} disabled={busy} aria-label="Fermer les publications" className="rounded-sm px-2 py-0.5 hover:text-foreground">×</button>
       </div>
       <form className="flex items-center gap-1.5" onSubmit={e => { e.preventDefault(); if (!busy) void submit(); }} data-busy={busy || undefined}>
         <input aria-label="Nom du dossier à publier" placeholder="Nom du dossier (ex. Permis de construire)" value={name} onChange={e => setName(e.target.value)}
@@ -69,5 +74,6 @@ export default function PublicationsPanel({ state, publications, onPublish, onCl
         );
       })}
     </div>
+    </>
   );
 }

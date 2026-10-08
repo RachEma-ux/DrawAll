@@ -122,6 +122,10 @@ describe('solides : recettes (lot 15.2)', () => {
     const tri: [number, number][] = [[1, 0], [2, 0], [2, 1]];
     expect(isRecipe({ op: 'revolve', profile: tri, angle: 90, axis: { origin: [0, 0], dir: [0, 0] } })).toBe(false);
     expect(isRecipe({ op: 'revolve', profile: tri, angle: 90, axis: { origin: [0, 0], dir: [0, 1] } })).toBe(true);
+    // Direction de longueur quelconque : même axe, même emprise et même tracé qu'avec la direction unitaire.
+    const rev = (dir: [number, number]) => ({ op: 'revolve' as const, profile: tri, angle: 90, axis: { origin: [0, 0] as [number, number], dir } });
+    expect(recipeBounds(rev([2, 0]))).toEqual(recipeBounds(rev([1, 0])));
+    expect(solidTrace(rev([0, 3]))).toEqual(solidTrace(rev([0, 1])));
     let deep: unknown = e;
     for (let i = 0; i < 300; i++) deep = { op: 'translate', of: deep, by: [0, 0, 0] };
     expect(isRecipe(deep)).toBe(false);
