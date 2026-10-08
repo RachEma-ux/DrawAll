@@ -28,3 +28,15 @@ test('lot 6.3 — un fichier DWG est reconnu et refusé avec la marche à suivre
   const after = await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return s.versions[s.pointer].objects.length; });
   expect(after).toBe(before);
 });
+
+test('lot 6.3 — l’import DWG se trouve dans la palette de commandes et sur le bouton d’import', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'raccourci clavier : recette bureau');
+  await openAtelier(page);
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('dwg');
+  await expect(page.getByText('Importer un fichier DXF ou DWG')).toBeVisible();
+  await page.keyboard.press('Escape');
+  const menu = page.getByRole('button', { name: 'Menu' });
+  if (await menu.isVisible().catch(() => false)) await menu.click();
+  await expect(page.getByRole('button', { name: 'Importer DXF / DWG' })).toBeVisible();
+});
