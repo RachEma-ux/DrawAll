@@ -449,7 +449,8 @@ export function withDependents(objects: CadObject[], ids: Iterable<string>): Set
   const out = new Set(ids);
   for (let changed = true; changed;) {
     changed = false;
-    for (const o of objects) { const p = parentOf(o); if (p && out.has(p) && !out.has(o.id)) { out.add(o.id); changed = true; } }
+    // Tous les parents (une coupe dépend de sa source et de son repère de coupe).
+    for (const o of objects) if (!out.has(o.id) && parentsOf(o).some(p => out.has(p))) { out.add(o.id); changed = true; }
   }
   return out;
 }

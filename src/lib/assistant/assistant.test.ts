@@ -188,3 +188,13 @@ describe('suppression simulée comme la commande', () => {
       .toEqual(['opération 2 (transform) : objet OBJ-0011 absent']);
   });
 });
+
+describe('transformation simulée comme la commande', () => {
+  it('objet d’un calque verrouillé : proposition refusée (la commande ne le bougerait pas)', () => {
+    const locked = { ...ctx.objects[0], id: 'OBJ-0020', layerId: 'LAY-0002' } as CadObject;
+    const c = { ...ctx, objects: [...ctx.objects, locked] };
+    expect(dryRun([{ type: 'transform', args: [['OBJ-0020'], { kind: 'move', dx: 1, dy: 0 }, 'x'] }], c).errors)
+      .toEqual(['opération 1 (transform) : OBJ-0020 non transformable (calque verrouillé)']);
+    expect(dryRun([{ type: 'transform', args: [['OBJ-0001'], { kind: 'move', dx: 1, dy: 0 }, 'x'] }], c).errors).toEqual([]);
+  });
+});

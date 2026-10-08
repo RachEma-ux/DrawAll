@@ -72,7 +72,11 @@ const SPECS: Record<string, Spec> = {
   spline: { nums: ['degree'], points: 2 },
   polyline: { points: 2 },
   dimension: { nums: ['offset'], strs: ['targetId'], enums: { style: ['horizontal', 'vertical', 'aligned', 'radial'] } },
-  pdim: { nums: ['offset'], points: 1, enums: { mode: ['chain', 'baseline', 'angular', 'level'], axis: ['horizontal', 'vertical', 'aligned'] } },
+  pdim: {
+    nums: ['offset'], points: 1, enums: { mode: ['chain', 'baseline', 'angular', 'level'], axis: ['horizontal', 'vertical', 'aligned'] },
+    // Points requis selon le mode : 1 pour un niveau, 2 pour une chaîne ou une ligne de base, 3 pour un angle.
+    extra: o => { const need = { level: 1, chain: 2, baseline: 2, angular: 3 }[o.mode as string] ?? 1; return (o.points as unknown[]).length >= 2 * need ? null : `pdim : ${need} points au moins pour le mode ${String(o.mode)}`; },
+  },
   blockRef: { nums: ['x', 'y', 'scale'], strs: ['blockId'] },
   text: { nums: ['x', 'y', 'rotation'], pos: ['height'], strs: ['content'] },
   wall: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['thickness'], enums: { justification: ['axe', 'gauche', 'droite'] } },

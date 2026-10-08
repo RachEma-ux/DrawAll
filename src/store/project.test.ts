@@ -95,5 +95,8 @@ describe('suppression en cascade (lot 5.2)', () => {
     ];
     expect([...withDependents(objs, ['OBJ-0001'])].sort()).toEqual(['OBJ-0001', 'OBJ-0002', 'OBJ-0003']);
     expect([...withDependents(objs, ['OBJ-0004'])].sort()).toEqual(['OBJ-0004', 'OBJ-0005']);
+    // Une coupe dépend aussi de son repère : le supprimer l'emporte.
+    const cut = { ...objs[0], id: 'OBJ-0090', kind: 'cut', sourceId: 'OBJ-0091', markId: 'OBJ-0092', depth: 10, gap: 5 } as unknown as CadObject;
+    expect([...withDependents([...objs, cut], ['OBJ-0092'])].sort()).toEqual(['OBJ-0090', 'OBJ-0092']);
   });
 });

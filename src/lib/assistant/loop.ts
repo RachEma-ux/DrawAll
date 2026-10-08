@@ -107,9 +107,16 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
       const ids = withDependents(objects, s.args[0] as string[]);
       objects = objects.filter(o => !ids.has(o.id));
     } else if (s.type === 'transform') {
-      const ids = new Set(s.args[0] as string[]);
+      const list = s.args[0] as string[];
+      // Comme la commande : un objet non modifiable (calque verrouillé, cote associative, fond de plan
+      // verrouillé) ne bougerait pas ; la proposition est refusée plutôt que de montrer un faux aperçu.
+      const why = (o: CadObject) => (ctx.layers.find(l => l.id === o.layerId)?.locked ? 'calque verrouillé' : o.kind === 'dimension' ? 'cote associative, elle suit sa cible' : o.kind === 'underlay' && o.locked ? 'fond de plan verrouillé' : null);
+      const blocked = list.map(id => objects.find(o => o.id === id)).find(o => o && why(o));
+      if (blocked) { errors.push(`${at} : ${blocked.id} non transformable (${why(blocked)})`); return; }
+      const ids = new Set(list);
       const f = applyTransform(s.args[1] as TransformOp);
-      objects = objects.map(o => { if (!ids.has(o.id)) return o; const p = f(o); return p ? ({ ...o, ...p } as CadObject) : o; });
+      // Une note jointe suit son objet : la commande ne la transforme pas deux fois.
+      objects = objects.map(o => { if (!ids.has(o.id) || (o.kind === 'note' && o.targetId && ids.has(o.targetId))) return o; const p = f(o); return p ? ({ ...o, ...p } as CadObject) : o; });
     } else if (s.type === 'updateObject') {
       const [id, patch] = s.args as [string, Record<string, unknown>];
       const next = { ...objects.find(o => o.id === id)!, ...patch } as CadObject;

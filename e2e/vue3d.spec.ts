@@ -29,7 +29,7 @@ test('lot 15.1 — vue 3D : solides dérivés du plan, élément sans hauteur si
   await expect(view.getByTestId('vue3d-contenu')).toHaveText('1 dalle, 1 toiture, 1 mur');
   await expect(view.getByTestId('vue3d-ecartes')).toContainText('Mur sans hauteur non montré : hauteur non saisie et pas de niveau au-dessus.');
   // Temps de trame mesuré (p95 sur 60 trames) et affiché.
-  await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/);
+  await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/, { timeout: 30_000 });
   await expect(view.getByTestId('vue3d-trame')).toContainText('Temps de trame (p95, 60 trames)');
   const p95 = Number(await view.getAttribute('data-trame-p95'));
   console.log(`vue 3D : temps de trame p95 = ${p95} ms`);

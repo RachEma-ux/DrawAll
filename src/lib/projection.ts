@@ -88,7 +88,9 @@ export async function ensureProjections(objects: CadObject[], compute: (r: Solid
   await Promise.all(objects.flatMap(o => {
     if (o.kind === 'elevation' && computeCamera) {
       const set = elevationSetup(o, objects);
-      return 'error' in set ? [] : [requestKey(set.key, () => computeCamera(set.recipe, set.camera, set.clip), retry).then(check(set.key, `${o.id} (${o.view})`))];
+      // Réglage impossible (plus aucun élément de bâtiment, repère de longueur nulle…) : vue en erreur.
+      if ('error' in set) { failures.push(`${o.id} (${o.view}) : ${set.error}`); return []; }
+      return [requestKey(set.key, () => computeCamera(set.recipe, set.camera, set.clip), retry).then(check(set.key, `${o.id} (${o.view})`))];
     }
     if (o.kind !== 'projection') return [];
     const s = objects.find(x => x.id === o.sourceId);

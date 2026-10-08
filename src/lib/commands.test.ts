@@ -97,6 +97,13 @@ describe('API de commandes (lot 18.1)', () => {
   it('chaque type d’objet a sa fiche de validation ; mise à jour validée sur l’objet résultant', () => {
     expect([...OBJECT_SPEC_KINDS].sort()).toEqual(Object.keys(KIND_LABEL).sort());
     expect(validateCommand('addObject', [{ kind: 'pdim', mode: 'chain', axis: 'horizontal', offset: 1 }], [])).toBe('pdim : liste de points (x, y) finie attendue');
+    // Points selon le mode : niveau 1, chaîne et ligne de base 2, angle 3.
+    const pd = (mode: string, points: number[]) => validateCommand('addObject', [{ kind: 'pdim', mode, axis: 'horizontal', offset: 1, points }], []);
+    expect(pd('level', [0, 0])).toBeNull();
+    expect(pd('chain', [0, 0])).toBe('pdim : 2 points au moins pour le mode chain');
+    expect(pd('baseline', [0, 0, 10, 0])).toBeNull();
+    expect(pd('angular', [0, 0, 10, 0])).toBe('pdim : 3 points au moins pour le mode angular');
+    expect(pd('angular', [0, 0, 10, 0, 0, 10])).toBeNull();
     const solid = { ...line, id: 'S', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } } as unknown as CadObject;
     expect(validateCommand('updateObject', ['S', { recipe: undefined }], [solid])).toBe('solide : recette attendue');
     expect(validateCommand('updateObject', ['S', { kind: 'line' }], [solid])).toBe('modification : le type d’un objet ne change pas');

@@ -118,6 +118,9 @@ describe('vues projetées : cadre, cache, placement (lot 16.1)', () => {
     expect('error' in flipped ? flipped.error : flipped.clip?.look).toEqual([-0, 1]);
     expect(elevationSetup(elev('coupe', { markId: 'OBJ-9999' }), objs)).toEqual({ error: 'repère de coupe OBJ-9999 absent' });
     expect(elevationSetup(elev('nord'), [mark])).toEqual({ error: 'aucun élément en volume (murs, dalles, toitures… ou solides)' });
+    // Réglage impossible : la façade est en erreur, la préparation d'un export la refuse.
+    await expect(prepareProjections([mark, elev('nord')], async () => ({ visible: [], hidden: [] }), async () => ({ visible: [], hidden: [] })))
+      .rejects.toThrow('OBJ-0060 (nord) : aucun élément en volume');
     expect(elevationLabel(elev('coupe', { markId: 'OBJ-0050' }), objs)).toBe('Coupe A–A');
     expect(ELEVATION_LABEL.est).toBe('Façade est');
     expect(parentOf(elev('coupe', { markId: 'OBJ-0050' }))).toBe('OBJ-0050');

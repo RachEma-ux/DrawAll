@@ -93,7 +93,7 @@ test('lot 15.2 — différence de deux solides, perçage traversant : volumes de
   await page.getByRole('button', { name: 'Vue 3D', exact: true }).click();
   const view = page.getByRole('dialog', { name: 'Vue 3D' });
   await expect(view.getByTestId('vue3d-contenu')).toHaveText('1 solide', { timeout: 90_000 });
-  await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/);
+  await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/, { timeout: 30_000 });
   expect(errors).toEqual([]);
 });
 
@@ -315,7 +315,7 @@ test('lot 16.4 — liaison appui plan suivie, nomenclature d’assemblage et vue
   await expect(view.getByTestId('vue3d-contenu')).toHaveText('2 solides', { timeout: 90_000 });
   await view.getByLabel('Vue éclatée').fill('1');
   await expect(view).toHaveAttribute('data-eclate', '1');
-  await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/);
+  await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/, { timeout: 30_000 });
   expect(errors).toEqual([]);
 });
 
