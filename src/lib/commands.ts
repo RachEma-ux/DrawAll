@@ -7,6 +7,7 @@ import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } fro
 import { isMate } from './assembly';
 import { normalizePsets } from './properties';
 import { isRecipe } from './solids';
+import { isValidSpline, type SplineGeom } from './spline';
 import { faceOf } from './views';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
@@ -72,7 +73,15 @@ const SPECS: Record<string, Spec> = {
   circle: { nums: ['cx', 'cy'], pos: ['r'] },
   arc: { nums: ['cx', 'cy', 'start', 'end'], pos: ['r'] },
   ellipse: { nums: ['cx', 'cy', 'rotation'], pos: ['rx', 'ry'] },
-  spline: { nums: ['degree'], points: 2 },
+  spline: {
+    nums: ['degree'], points: 2,
+    // Nœuds et poids facultatifs : listes de nombres finis ; la spline doit être évaluable (degré, nœuds croissants, poids positifs).
+    extra: o => {
+      if (o.knots !== undefined && !(Array.isArray(o.knots) && o.knots.every(finite))) return 'spline : nœuds (liste de nombres) attendus';
+      if (o.weights !== undefined && !(Array.isArray(o.weights) && o.weights.every(finite))) return 'spline : poids (liste de nombres) attendus';
+      return isValidSpline(o as unknown as SplineGeom) ? null : 'spline : degré, nœuds ou poids incohérents';
+    },
+  },
   polyline: { points: 2 },
   dimension: { nums: ['offset'], strs: ['targetId'], enums: { style: ['horizontal', 'vertical', 'aligned', 'radial'] } },
   pdim: {

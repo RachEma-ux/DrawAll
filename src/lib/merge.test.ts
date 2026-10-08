@@ -155,6 +155,21 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect(out.objects!.every(o => o.kind !== 'opening' || present.has(o.hostId))).toBe(true);
   });
 
+  it('objet en conflit : chacune de ses deux valeurs doit trouver son calque (calque supprimé par l’une)', () => {
+    const L1 = { ...layers[0], id: 'LAY-0101', name: 'L1' }, L2 = { ...layers[0], id: 'LAY-0102', name: 'L2' };
+    const obj = line('X', 10, { layerId: 'LAY-0101' });
+    const base = v(0, [obj], { layers: [...layers, L1, L2] });
+    const ours = v(1, [{ ...obj, layerId: 'LAY-0102' } as CadObject], { layers: [...layers, L1, L2] });
+    const theirs = v(1, [{ ...obj, x2: 20 } as CadObject], { layers: [...layers, L2] });
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts.map(c => `${c.where}:${c.id}`).sort()).toEqual(['layers:LAY-0101', 'objects:X']);
+    // Leur objet retenu, la suppression du calque refusée : l'objet garde son calque.
+    const out = resolve(r, { 'objects:X': 'leur', 'layers:LAY-0101': 'nôtre' });
+    if ('error' in out) throw new Error(out.error);
+    const ids = new Set(out.layers!.map(l => l.id));
+    expect(out.objects!.every(o => ids.has(o.layerId))).toBe(true);
+  });
+
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {
     const base = v(0, [line('A', 1)]);
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);

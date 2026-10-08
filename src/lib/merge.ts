@@ -111,12 +111,15 @@ const REFS: { where: 'layers' | 'blocks' | 'levels' | 'zones'; of: (o: CadObject
  * silence. Il est gardé provisoirement et la suppression devient un conflit à trancher.
  */
 function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: MicroVersion, merged: Record<string, unknown>, conflicts: Conflict[]) {
-  const objects = (merged.objects as CadObject[] | undefined) ?? [];
+  // Objets du résultat, et pour un objet en conflit ses deux valeurs possibles : le choix fait plus tard
+  // peut retenir l'une ou l'autre, et chacune doit trouver son calque, son bloc, son niveau, sa zone.
+  const candidates = conflicts.filter(c => c.where === 'objects').flatMap(c => [c.oursValue, c.theirsValue].filter((v): v is CadObject => !!v));
+  const objects = [...((merged.objects as CadObject[] | undefined) ?? []), ...candidates];
   for (const { where, of } of REFS) {
     const list = (merged[where] as WithId[] | undefined) ?? [];
     const present = new Set(list.map(x => x.id));
     const users = new Map<string, string[]>();
-    for (const o of objects) { const r = of(o); if (r && !present.has(r)) users.set(r, [...(users.get(r) ?? []), o.id]); }
+    for (const o of objects) { const r = of(o); if (r && !present.has(r) && !users.get(r)?.includes(o.id)) users.set(r, [...(users.get(r) ?? []), o.id]); }
     for (const [id, dependents] of users) {
       const find = (v: MicroVersion) => listOf(v, where).find(x => x.id === id) ?? null;
       const o = find(ours), t = find(theirs), b = find(base);

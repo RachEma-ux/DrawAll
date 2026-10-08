@@ -608,7 +608,9 @@ export function useProject() {
 
   const addObject = useCallback((partial: NewCadObject, name?: string, label?: string) => {
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
-    const obj = stampLevel({ ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject);
+    // Niveau demandé explicitement (script, assistant) : gardé ; sinon le niveau actif.
+    const raw = { ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject;
+    const obj = raw.levelId ? (raw.levelId === DEFAULT_LEVEL.id ? (({ levelId: _l, ...rest }) => { void _l; return rest as CadObject; })(raw) : raw) : stampLevel(raw);
     commit(label ? `${label} ${id}` : `Créer ${KIND_LABEL[obj.kind].toLowerCase()} ${id}`, {
       objects: [...allObjects, obj],
       counter: state.counter + 1,

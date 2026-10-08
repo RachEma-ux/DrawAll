@@ -131,3 +131,20 @@ test('lot 18.2 — aucun accès réseau : import() dynamique bloqué avant toute
   expect(blocked.every(t => /BLOCKED_BY_CSP|csp/i.test(t))).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('lot 18.2 — un script pose un objet sur un niveau désigné, autre que le niveau actif', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await page.waitForFunction(() => localStorage.getItem('drawall-projet-v1') !== null);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    s.versions[s.pointer].levels = [{ id: 'NIV-0001', name: 'Rez-de-chaussée', elevation: 0 }, { id: 'NIV-0002', name: 'Étage', elevation: 3000 }];
+    localStorage.setItem('drawall-projet-v1', JSON.stringify(s));
+  });
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 4000, y2: 0 }]);
+  await openConsole(page);
+  await runCode(page, "await drawall.execute('addObject', { kind: 'line', classification: 'non-classifie', layerId: (await drawall.context()).activeLayerId, x1: 0, y1: 0, x2: 10, y2: 0, levelId: 'NIV-0002' });", 'reussi');
+  const added = (await currentObjects(page)).find(o => o.id !== 'OBJ-0001');
+  expect(added?.levelId).toBe('NIV-0002');
+  expect(errors).toEqual([]);
+});

@@ -103,6 +103,12 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('addObject', [{ classification: 'architecture', layerId: 'LAY-0001', kind: 'room', x: 0, y: 0, zoneId: 'ZON-0001' }], [line], L, PZ)).toBeNull();
     // Jeux de propriétés : forme relue telle quelle seulement.
     const ln = { kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 };
+    // Spline : nœuds et poids bien formés et cohérents.
+    const sp = { kind: 'spline', degree: 2, points: [0, 0, 10, 10, 20, 0] };
+    expect(add(sp)).toBeNull();
+    expect(add({ ...sp, knots: {} })).toBe('spline : nœuds (liste de nombres) attendus');
+    expect(add({ ...sp, knots: [0, 0, 0, 1] })).toBe('spline : degré, nœuds ou poids incohérents');
+    expect(add({ ...sp, weights: [1, -1, 1] })).toBe('spline : degré, nœuds ou poids incohérents');
     // Trous : liste d'identifiants d'objets existants.
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: {} })).toBe('rect : trous (liste d’identifiants) attendus');
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0404'] })).toBe('rect : trou OBJ-0404 absent');
