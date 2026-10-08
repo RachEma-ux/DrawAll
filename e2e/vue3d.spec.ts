@@ -21,8 +21,9 @@ test('lot 15.1 — vue 3D : solides dérivés du plan, élément sans hauteur si
 
   await page.getByRole('button', { name: 'Vue 3D', exact: true }).click();
   const view = page.getByRole('dialog', { name: 'Vue 3D' });
+  // Retour immédiat (chargement du moteur 3D), puis la maquette une fois le module chargé.
   await expect(view).toBeVisible();
-  await expect(view.getByLabel('Maquette 3D')).toBeVisible();
+  await expect(view.getByLabel('Maquette 3D')).toBeVisible({ timeout: 30_000 });
   // Dalle, toiture et mur haut de 2,5 m ; le mur sans hauteur (aucun niveau au-dessus) est signalé.
   await expect(view).toHaveAttribute('data-solides', '3');
   await expect(view.getByTestId('vue3d-contenu')).toHaveText('1 dalle, 1 toiture, 1 mur');

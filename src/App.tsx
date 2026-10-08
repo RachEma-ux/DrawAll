@@ -2190,7 +2190,16 @@ function Workbench() {
           onCombine={project.combineSolids} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onSetMate={project.setMate} onClose={() => setSolidsOpen(false)} />
       )}
       {view3dOpen && (
-        <Suspense fallback={null}>
+        <Suspense fallback={(
+          // Retour immédiat pendant le chargement du moteur 3D (module chargé à la demande).
+          <div role="dialog" aria-label="Vue 3D" data-chargement="" className="fixed inset-0 z-50 flex flex-col bg-[#0b1120] font-mono text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+              <h2 className="text-sm text-foreground">Vue 3D</h2>
+              <span role="status">Chargement du moteur 3D…</span>
+              <button type="button" onClick={() => setView3dOpen(false)} aria-label="Fermer la vue 3D" className="ml-auto rounded-sm px-2 py-0.5 hover:text-foreground">×</button>
+            </div>
+          </div>
+        )}>
           <View3D objects={project.allObjects} layers={project.layers} levels={project.levels} onClose={() => setView3dOpen(false)} />
         </Suspense>
       )}
