@@ -1,6 +1,7 @@
 import * as jose from "jose";
 import { env } from "../lib/env";
 import type { SessionPayload } from "./types";
+import { Session } from "@contracts/constants";
 
 const JWT_ALG = "HS256";
 
@@ -11,7 +12,7 @@ export async function signSessionToken(
   return new jose.SignJWT(payload)
     .setProtectedHeader({ alg: JWT_ALG })
     .setIssuedAt()
-    .setExpirationTime("1 year")
+    .setExpirationTime(`${Math.round(Session.maxAgeMs / 1000)}s`)
     .sign(secret);
 }
 
