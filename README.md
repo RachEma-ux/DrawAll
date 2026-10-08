@@ -12,6 +12,7 @@ Cette branche contient une application full-stack :
 - **Comptes et persistance cloud** : connexion Kimi, projets en base MySQL, révisions optimistes et résolution explicite des conflits.
 - **Terrain** : sur téléphone, outils fréquents en barre basse ; réticule décalé au-dessus du doigt avec loupe, point posé au lever du doigt (accrochage compris) ; hors ligne : service worker, projet enregistré aussi dans IndexedDB et repris au démarrage, alertes réseau et quota ; notes de terrain datées avec photos, jointes à un objet ou à un point.
 - **Feuilles** : mise en page A4–A0, cadre, fenêtres à l’échelle (ISO 5455) déplaçables au geste, calques par fenêtre ; cartouche (projet, titre, échelle, date, indice émis et figé sur la version, auteur, méthode de projection) ; export PDF et SVG vectoriels aux dimensions exactes de la feuille et impression.
+- **Paquet natif** : export du projet entier (historique, niveaux, feuilles, styles, ressources) et restauration, aller-retour octet pour octet.
 - **Historique** : microversions enregistrées par différences (1 000 modifications < 2 Mo), annulation/rétablissement, versions nommées et diagnostics de cohérence.
 - **Documentation intégrée** : Concept, Architecture de référence et explorateur des 324 exigences.
 

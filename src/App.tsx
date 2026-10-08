@@ -25,6 +25,7 @@ import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
+import { fromPackage, toPackage } from '@/lib/package';
 import { encodeHistory } from '@/lib/history';
 import { assetRoom, calibrate, fitEncoding, fitPixels, imageSizeMm, pdfPageSizeMm } from '@/lib/underlay';
 import { detectDwg, dwgRefusal } from '@/lib/dwg';
@@ -283,26 +284,26 @@ function Workbench() {
     project.setSelectedIds(ids);
   }, [project]);
 
+  // Paquet natif (lot 8.2) : projet entier (historique, tous les niveaux, feuilles, styles, ressources).
   const exportPackage = useCallback(() => {
-    const pkg = {
-      manifest: { format: 'drawall-package', version: '0.1.0-prototype', exportedAt: new Date().toISOString() },
-      projet: { revision: project.current.seq, versions: project.versions.length },
-      unites: 'millimetre',
-      calques: project.layers,
-      blocs: project.blocks,
-      // Tous les niveaux : le paquet contient le projet entier, pas seulement le niveau affiché.
-      objets: project.allObjects,
-      niveaux: project.levels,
-      feuilles: project.sheets,
-      ressources: project.assets,
-    };
-    const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
+    const blob = new Blob([toPackage(project.state)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'drawall-projet.json';
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }, [project]);
+  const packageInputRef = useRef<HTMLInputElement>(null);
+  const importPackage = useCallback(async (file: File) => {
+    let text: string;
+    try { text = await file.text(); } catch { window.alert('Paquet non restauré : fichier illisible.'); return; }
+    const result = fromPackage(text);
+    if (!result.ok) { window.alert(`Paquet non restauré : ${result.error}`); return; }
+    if (!window.confirm(`Restaurer « ${file.name} » (${result.summary}) ? Le projet courant sera remplacé.`)) return;
+    project.loadState(result.state);
+    setProjectKey(k => k + 1);
+    flash(`Projet restauré depuis ${file.name} : ${result.summary}.`);
+  }, [project, flash]);
 
   const exportDxf = useCallback(() => {
     // Pas de hachure papier : convertis à l'échelle de la première fenêtre de feuille, sinon 1:1.
@@ -820,7 +821,8 @@ function Workbench() {
     { id: 'import-dxf', title: 'Importer un fichier DXF ou DWG', hint: 'DXF : traits, cercles, arcs, polylignes, textes, blocs (INSERT), cotes, hachures, splines et ellipses — rapport d’échange. DWG : reconnu, la marche à suivre (enregistrer en DXF) est indiquée', keywords: ['dxf', 'dwg', 'import', 'autocad', 'interoperabilite'], run: () => dxfInputRef.current?.click() },
     { id: 'bom', title: 'Insérer la nomenclature', hint: 'Tableau repère / désignation / matériau / quantité, calculé depuis les pièces', keywords: ['nomenclature', 'bom', 'pieces', 'repere', 'quantite', 'tableau'], run: () => { setMode('atelier'); project.addBom(); } },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
-    { id: 'export', title: 'Exporter le paquet du projet', hint: 'Manifeste versionné + objets + unités (JSON)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json'], run: exportPackage },
+    { id: 'export', title: 'Exporter le paquet du projet', hint: 'Projet entier : historique, niveaux, feuilles, styles, ressources (JSON, relu à l’identique)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json', 'sauvegarde'], run: exportPackage },
+    { id: 'import-package', title: 'Restaurer un projet depuis son paquet', hint: 'Remplace le projet courant par celui du paquet DrawAll (historique compris)', keywords: ['restaurer', 'importer', 'paquet', 'json', 'sauvegarde', 'ouvrir'], run: () => packageInputRef.current?.click() },
     { id: 'docs-concept', title: 'Documentation — Concept produit', hint: 'Vision, engagements, parcours de preuve', keywords: ['concept', 'vision', 'documentation', 'aide'], run: () => { setDocsSub('concept'); setMode('docs'); } },
     { id: 'docs-arch', title: "Documentation — Architecture de référence", hint: 'Contrats, transactions, décisions D1–D6', keywords: ['architecture', 'contrats', 'transactions'], run: () => { setDocsSub('architecture'); setMode('docs'); } },
     { id: 'docs-req', title: 'Documentation — 324 exigences', hint: 'Annexe B : traçabilité intégrale DA-01-01 → DA-22-10', keywords: ['exigences', 'requirements', 'annexe', 'tracabilite'], run: () => { setDocsSub('exigences'); setMode('docs'); } },
@@ -947,6 +949,7 @@ function Workbench() {
         onUndo={project.undo} onRedo={project.redo}
         onPalette={() => setPaletteOpen(true)}
         onExport={exportPackage}
+        onImportPackage={() => packageInputRef.current?.click()}
         onExportDxf={exportDxf}
         onImportDxf={() => dxfInputRef.current?.click()}
         onImportUnderlay={() => underlayInputRef.current?.click()}
@@ -1533,6 +1536,14 @@ function Workbench() {
         </Drawer>
       )}
 
+      <input
+        ref={packageInputRef}
+        type="file"
+        accept=".json,application/json"
+        aria-label="Fichier du paquet DrawAll"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importPackage(f); }}
+      />
       <input
         ref={underlayInputRef}
         type="file"
