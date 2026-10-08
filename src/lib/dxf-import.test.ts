@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { CadObject, Layer } from '@/types/cad';
+import type { CadObject, EllipseObj, Layer } from '@/types/cad';
+import { distanceToEllipse, ellipsePointAt } from './ellipse';
 import { ARC_TOLERANCE_MM, parseDxf } from './dxf';
 
 // Jeu de fichiers de référence (scripts/make-dxf-fixtures.py, écrits par ezdxf).
@@ -97,6 +98,29 @@ describe('import DXF complet (lot 6.1) — jeu de référence', () => {
     const curves = r.report.transformed.find(t => t.startsWith('Courbes : 1 spline'))!;
     const err = Number(curves.match(/écart maximal ([\d,]+) mm/)![1].replace(',', '.'));
     expect(err).toBeLessThanOrEqual(ARC_TOLERANCE_MM);
+  });
+
+  it('ellipses dans des blocs : point de base, rotation, échelle, symétrie, échelle non uniforme (référence ezdxf)', () => {
+    const r = read('blocs-ellipses.dxf');
+    // Ellipses du monde : celles des blocs conservés replacées à l'insertion, puis les éclatées.
+    const world: EllipseObj[] = [];
+    for (const o of r.objects) {
+      if (o.kind === 'ellipse') world.push(o);
+      if (o.kind === 'blockRef') {
+        for (const p of r.blocks.find(b => b.id === o.blockId)!.primitives) {
+          if (p.kind === 'ellipse') world.push({ ...p, cx: o.x + p.cx * o.scale, cy: o.y + p.cy * o.scale, rx: p.rx * o.scale, ry: p.ry * o.scale } as EllipseObj);
+        }
+      }
+    }
+    expect(world).toHaveLength(8);
+    // Référence indépendante : points des ellipses transformées par ezdxf (virtual_entities), repère DXF.
+    const ref: number[][][] = JSON.parse(fixture('blocs-ellipses.points.json'));
+    for (const pts of ref) {
+      const model = pts.map(([x, y]) => ({ x, y: -y }));
+      const match = world.find(e => model.every(p => distanceToEllipse(e, p) < 1e-5)
+        && (e.start === undefined || [ellipsePointAt(e, e.start), ellipsePointAt(e, e.end!)].every(q => model.slice(3).some(p => Math.hypot(p.x - q.x, p.y - q.y) < 1e-5))));
+      expect(match, JSON.stringify(pts)).toBeDefined();
+    }
   });
 
   it('textes : TEXT et MTEXT', () => {

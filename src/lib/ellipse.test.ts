@@ -1,7 +1,7 @@
 // Ellipse native (lot 10.1) : point paramétrique, boîte, longueur, aire, construction, Bézier.
 import { describe, expect, it } from 'vitest';
 import type { EllipseObj } from '@/types/cad';
-import { closestEllipseParam, ellipseBeziers, ellipseBounds, ellipseFrom3Points, ellipseLength, ellipsePointAt, ellipseSamples, ellipseArea } from './ellipse';
+import { affineEllipse, closestEllipseParam, ellipseBeziers, ellipseMidpoint, ellipseBounds, ellipseFrom3Points, ellipseLength, ellipsePointAt, ellipseSamples, ellipseArea } from './ellipse';
 import { findSnap, mirrorObject, rotateObject, scaleObject } from './geometry';
 
 const base = { id: 'OBJ-0001', name: 'E', classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
@@ -90,5 +90,35 @@ describe('ellipse native (lot 10.1)', () => {
     // Arc d'ellipse de 0 à 90° : extrémités (120 ; 50) et (100 ; 40) ; le quadrant 180° n'en fait pas partie.
     expect(snap(e({ start: 0, end: 90 }), 100.4, 40.4)).toMatchObject({ x: 100, y: 40 });
     expect(snap(e({ start: 0, end: 90 }), 80.5, 50.5).type).not.toBe('quadrant');
+  });
+});
+
+describe('ellipse transformée par une application affine (blocs DXF)', () => {
+  it('rotation, échelle non uniforme, symétrie, cisaillement : chaque point suit, extrémités comprises', () => {
+    const o = e({ rotation: 20, start: 30, end: 250 });
+    const T = { x: 7, y: -3 }, B = { x: 100, y: 50 };
+    for (const M of [
+      { a: 0, b: -1, c: 1, d: 0 },            // quart de tour
+      { a: 2, b: 0, c: 0, d: 0.5 },           // échelle non uniforme
+      { a: -1, b: 0, c: 0, d: 1 },            // symétrie
+      { a: 1.5, b: 0.7, c: -0.2, d: -0.9 },   // quelconque, déterminant négatif
+    ]) {
+      const g = affineEllipse(o, M, T, B)!;
+      const map = (p: { x: number; y: number }) => ({ x: T.x + M.a * (p.x - B.x) + M.b * (p.y - B.y), y: T.y + M.c * (p.x - B.x) + M.d * (p.y - B.y) });
+      const target = { ...o, ...g } as EllipseObj;
+      for (const t of [30, 77, 140, 250]) {
+        const p = map(ellipsePointAt(o, t));
+        expect(onEllipse(target, p)).toBeCloseTo(1, 9);
+      }
+      // Les extrémités de l'arc transformé sont les images des extrémités (dans un ordre ou l'autre).
+      const ends = [ellipsePointAt(target, target.start!), ellipsePointAt(target, target.end!)];
+      for (const q of [map(ellipsePointAt(o, 30)), map(ellipsePointAt(o, 250))]) {
+        expect(Math.min(...ends.map(p => Math.hypot(p.x - q.x, p.y - q.y)))).toBeLessThan(1e-9);
+      }
+      // Le milieu de l'arc transformé est l'image d'un point de l'arc d'origine (pas de son complément).
+      const mid = ellipseMidpoint(target);
+      const back = [...Array(721).keys()].map(i => map(ellipsePointAt(o, 30 + (220 * i) / 720)));
+      expect(Math.min(...back.map(p => Math.hypot(p.x - mid.x, p.y - mid.y)))).toBeLessThan(0.5);
+    }
   });
 });

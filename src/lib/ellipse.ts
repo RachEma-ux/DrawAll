@@ -155,3 +155,35 @@ export function ellipseBeziers(e: EllipseGeom): [Pt, Pt, Pt, Pt][] {
   }
   return out;
 }
+
+/**
+ * Image d'une ellipse par une transformation affine du repère modèle p ↦ T + M·(p − B) : c'est
+ * encore une ellipse. Ses axes principaux se déduisent des demi-diamètres conjugués transformés ;
+ * une symétrie (déterminant négatif) inverse le sens de parcours des paramètres.
+ */
+export function affineEllipse(e: EllipseGeom, M: { a: number; b: number; c: number; d: number }, T: Pt, B: Pt): EllipseGeom | null {
+  const th = e.rotation * RAD;
+  const lin = (v: Pt): Pt => ({ x: M.a * v.x + M.b * v.y, y: M.c * v.x + M.d * v.y });
+  // Demi-axes dans le repère modèle (Y vers le bas) : u à θ, v à θ + 90° du repère DXF.
+  const a1 = lin({ x: e.rx * Math.cos(th), y: -e.rx * Math.sin(th) });
+  const b1 = lin({ x: -e.ry * Math.sin(th), y: -e.ry * Math.cos(th) });
+  const dot = a1.x * b1.x + a1.y * b1.y, na = a1.x * a1.x + a1.y * a1.y, nb = b1.x * b1.x + b1.y * b1.y;
+  const t0 = 0.5 * Math.atan2(2 * dot, na - nb);
+  const a2 = { x: a1.x * Math.cos(t0) + b1.x * Math.sin(t0), y: a1.y * Math.cos(t0) + b1.y * Math.sin(t0) };
+  let b2 = { x: -a1.x * Math.sin(t0) + b1.x * Math.cos(t0), y: -a1.y * Math.sin(t0) + b1.y * Math.cos(t0) };
+  const rx = Math.hypot(a2.x, a2.y), ry = Math.hypot(b2.x, b2.y);
+  if (rx < 1e-12 || ry < 1e-12) return null;
+  const rotation = Math.atan2(-a2.y, a2.x);
+  // Second axe attendu (repère DXF à +90° du premier), exprimé dans le repère modèle.
+  const expected = { x: -Math.sin(rotation), y: -Math.cos(rotation) };
+  const flip = b2.x * expected.x + b2.y * expected.y < 0;
+  if (flip) b2 = { x: -b2.x, y: -b2.y };
+  const c = { x: T.x + M.a * (e.cx - B.x) + M.b * (e.cy - B.y), y: T.y + M.c * (e.cx - B.x) + M.d * (e.cy - B.y) };
+  const shift = t0 / RAD;
+  const out: EllipseGeom = { cx: c.x, cy: c.y, rx, ry, rotation: norm360(rotation / RAD) };
+  if (isFullEllipse(e)) return out;
+  // Paramètre : t' = t − t0, ou −(t − t0) si le sens s'inverse.
+  return flip
+    ? { ...out, start: norm360(-(e.end! - shift)), end: norm360(-(e.start! - shift)) }
+    : { ...out, start: norm360(e.start! - shift), end: norm360(e.end! - shift) };
+}

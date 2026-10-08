@@ -10,6 +10,7 @@
 import type { BlockDef, CadObject, Layer, OpeningObj, PrimitiveObject, TextAlign, TextObj, WallObj } from '@/types/cad';
 import { textLines } from '@/lib/text';
 import { norm360 } from '@/lib/arc';
+import { affineEllipse } from '@/lib/ellipse';
 import { dimensionGeometry, dimensionText, primitiveBounds } from '@/lib/geometry';
 import { pdimGeometry } from '@/lib/pdim';
 import { arcPoints as arcCurvePoints, ellipsePoints, sampleCurve, splinePoints } from '@/lib/dxf-curves';
@@ -1346,6 +1347,12 @@ function affineShape(o: CadObject, M: { a: number; b: number; c: number; d: numb
       const { cx: _cx, cy: _cy, r: _r, start: _s, end: _e, ...rest } = o;
       void _cx; void _cy; void _r; void _s; void _e;
       return { ...rest, kind: 'polyline', points: curve(o.cx, o.cy, o.r, o.start, sweep) } as CadObject;
+    }
+    case 'ellipse': {
+      // Image affine exacte (une ellipse reste une ellipse, même par échelle non uniforme).
+      const g = affineEllipse(o, M, T, B);
+      if (!g) return o;
+      return { ...o, cx: round(g.cx), cy: round(g.cy), rx: round(g.rx), ry: round(g.ry), rotation: round(g.rotation), ...(g.start !== undefined ? { start: round(g.start), end: round(g.end!) } : {}) };
     }
     case 'text': {
       const p = map(o.x, o.y);
