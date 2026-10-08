@@ -34,7 +34,7 @@ import { loadProject, quotaWarning, saveProject, shouldResume, storageUsage } fr
 import { arcBounds } from '@/lib/arc';
 import { ellipseBounds } from '@/lib/ellipse';
 import { splineBounds } from '@/lib/spline';
-import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
+import { cloneAll, withDependencies, type PlacementSpec } from '@/lib/array';
 import { groupPatches, nextGroupId, ungroupIds } from '@/lib/groups';
 import { LINE_TYPES } from '@/lib/linestyle';
 import { profileById } from '@/lib/materials';
@@ -675,7 +675,7 @@ export function useProject() {
    * pose, en une seule version, avec des identifiants neufs. Une copie dont le calque n'existe
    * plus va sur le calque actif ; rien n'est copié vers un calque verrouillé.
    */
-  const addCopies = useCallback((sources: CadObject[], placements: Placement[], label: string) => {
+  const addCopies = useCallback((sources: CadObject[], placements: PlacementSpec[], label: string) => {
     const active = layers.find(l => l.id === activeLayerId);
     const usable = sources
       .map(o => (layers.some(l => l.id === o.layerId) || !active ? o : ({ ...o, layerId: active.id } as CadObject)))
@@ -694,7 +694,7 @@ export function useProject() {
 
   /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
   const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
-    return addCopies(withDependencies(allObjects, ids), [translation(dx, dy)], 'Dupliquer');
+    return addCopies(withDependencies(allObjects, ids), [{ kind: 'translate', dx, dy }], 'Dupliquer');
   }, [allObjects, addCopies]);
 
   /**
@@ -1576,9 +1576,9 @@ export function useProject() {
   };
   /** Transformation déclarative de la sélection (remplace les fonctions, non journalisables). */
   const transform = useCallback((ids: string[], op: TransformOp, label: string) => transformObjects(ids, applyTransform(op), label), [transformObjects]);
-  // Ouvrir un autre projet ou repartir de zéro commence un nouveau journal.
+  // Repartir de zéro commence un nouveau journal ; ouvrir un projet reprend le journal enregistré
+  // avec lui (un paquet restauré se réexporte à l'identique, lot 8.2).
   const resetWithJournal = useCallback(() => { reset(); setState(s => { const { journal: _j, ...rest } = s; void _j; return rest as ProjectState; }); }, [reset]);
-  const loadWithJournal = useCallback((next: unknown) => { loadState(next); setState(s => { const { journal: _j, ...rest } = s; void _j; return rest as ProjectState; }); }, [loadState]);
 
   const commands = {
     publish: cmd('publish', publish), createVariant: cmd('createVariant', createVariant), switchVariant: cmd('switchVariant', switchVariant),
@@ -1601,7 +1601,8 @@ export function useProject() {
     addBom: cmd('addBom', addBom), addUnderlay: cmd('addUnderlay', addUnderlay), addNote: cmd('addNote', addNote), addNotePhoto: cmd('addNotePhoto', addNotePhoto),
     removeNotePhoto: cmd('removeNotePhoto', removeNotePhoto), createBlockFromObject: cmd('createBlockFromObject', createBlockFromObject), insertBlock: cmd('insertBlock', insertBlock),
     importObjects: cmd('importObjects', importObjects), removeBlock: cmd('removeBlock', removeBlock), addLibraryBlock: cmd('addLibraryBlock', addLibraryBlock),
-    undo: cmd('undo', undo), redo: cmd('redo', redo), goTo: cmd('goTo', goTo), nameVersion: cmd('nameVersion', nameVersion), issueIndex: cmd('issueIndex', issueIndex),
+    // Sans argument : un bouton qui passe son événement ne fait pas refuser la commande.
+    undo: () => cmd('undo', undo)(), redo: () => cmd('redo', redo)(), goTo: cmd('goTo', goTo), nameVersion: cmd('nameVersion', nameVersion), issueIndex: cmd('issueIndex', issueIndex),
   };
   type CommandName = keyof typeof commands;
 
@@ -1648,7 +1649,7 @@ export function useProject() {
     profile, surfaceRule, state, objects, layers, blocks, activeLayerId, sheets,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds, georef: current.georef,
-    assets, storageFull, storageWarning, hydrated, canUndo, canRedo, reset: resetWithJournal, loadState: loadWithJournal,
+    assets, storageFull, storageWarning, hydrated, canUndo, canRedo, reset: resetWithJournal, loadState,
     diagnostics,
   };
 }

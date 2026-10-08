@@ -49,7 +49,7 @@ import { kernelExportStep, kernelImportStep, kernelProject, kernelProjectCamera,
 import { effectiveSolid } from '@/lib/solids';
 import type { SolidRecipe } from '@/lib/kernel/recipe';
 import { ensureProjections, projectionsVersion, setProjectionLevels, subscribeProjections } from '@/lib/projection';
-import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
+import { polarArray, rectangularArray, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
 import { encodeHistory } from '@/lib/history';
@@ -305,7 +305,7 @@ function Workbench() {
       pasteCount.current += 1;
       dx = dy = 20 * pasteCount.current;
     }
-    project.addCopies(pastable, [translation(dx, dy)], 'Coller');
+    project.addCopies(pastable, [{ kind: 'translate', dx, dy }], 'Coller');
   }, [clipboard, cursor, project, flash]);
 
   const [arrayMode, setArrayMode] = useState<'rect' | 'polar' | null>(null);

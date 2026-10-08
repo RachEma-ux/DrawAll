@@ -773,13 +773,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 
 ### 10.9 API de commandes et journal (règle, lot 18.1)
 
-- **Une seule porte** : le magasin du projet n'expose que des commandes nommées (`addObject`, `updateObject`, `transform`, `addZone`, `setGeoref`…). La palette, l'interface et les scripts (lot 18.2) passent donc tous par elles. Les opérations qui prenaient une fonction sont devenues déclaratives : `transform` reçoit `{ kind: 'move' | 'rotate' | 'mirror' | 'scale' | 'offset', … }`.
+- **Une seule porte** : le magasin du projet n'expose que des commandes nommées (`addObject`, `updateObject`, `transform`, `addZone`, `setGeoref`…). La palette, l'interface et les scripts (lot 18.2) passent donc tous par elles. Les opérations qui prenaient une fonction sont devenues déclaratives : `transform` reçoit `{ kind: 'move' | 'rotate' | 'mirror' | 'scale' | 'offset', … }` ; les poses de copie (coller, dupliquer, réseaux) sont `{ kind: 'translate', dx, dy }` ou `{ kind: 'rotate', cx, cy, deg }`. Une commande sans argument (annuler, rétablir) ignore ce que lui passe un bouton.
 - **Validation** avant exécution :
   - arguments journalisables (JSON ; un champ retiré `undefined` et les `Map` sont gardés sous une forme marquée ; une fonction ou un nombre non fini est refusé) ;
   - objets désignés existants ;
   - transformations bien formées.
   Une commande refusée n'est pas exécutée ; elle est journalisée avec sa raison.
-- **Journal** : il part de l'état de base du projet au début de la session de commandes, puis liste les commandes dans l'ordre. Il est enregistré avec le projet. Ouvrir un autre projet ou repartir de zéro commence un nouveau journal.
+- **Journal** : il part de l'état de base du projet au début de la session de commandes, puis liste les commandes dans l'ordre. Il est enregistré avec le projet. Ouvrir un projet reprend le journal enregistré avec lui (un paquet restauré se réexporte à l'identique) ; repartir de zéro commence un nouveau journal.
 - **Rejeu** (palette « Journal des commandes ») : l'état de base est rechargé, puis les commandes sont rejouées une par une, chacune sur l'état laissé par la précédente. Le contenu obtenu est comparé à celui d'avant le rejeu (objets, calques, blocs, feuilles, niveaux, contraintes, paramètres, zones, géoréférencement ; ni numéros, ni libellés, ni heures).
 
 ## 11. Références

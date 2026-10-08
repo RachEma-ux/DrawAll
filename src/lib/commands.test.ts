@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject, MicroVersion } from '@/types/cad';
+import { polarArray, rectangularArray } from './array';
 import { applyTransform, decodeArgs, encodeArgs, validateCommand, versionDigest } from './commands';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
@@ -33,6 +34,14 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('addObject', [{}], [])).toBe('objet à créer : type attendu');
     expect(validateCommand('addLevel', ['R+1', 'haut'], [])).toBe('nom et altitude attendus');
     expect(validateCommand('transformObjects', [['OBJ-0001'], (o: CadObject) => o], [line])).toBe('fonction en argument : utiliser une commande déclarative');
+  });
+
+  it('poses de copie déclaratives : réseaux et collage journalisables', () => {
+    const rect = rectangularArray(2, 2, 100, 100), polar = polarArray(4, 360, 0, 0);
+    if (!rect.ok || !polar.ok) throw new Error('réseau');
+    expect(rect.placements).toEqual([{ kind: 'translate', dx: 100, dy: 0 }, { kind: 'translate', dx: 0, dy: 100 }, { kind: 'translate', dx: 100, dy: 100 }]);
+    expect(validateCommand('addCopies', [[line], rect.placements, 'Réseau rectangulaire'], [line])).toBeNull();
+    expect(validateCommand('addCopies', [[line], polar.placements, 'Réseau polaire'], [line])).toBeNull();
   });
 
   it('transformations déclaratives = fonctions de géométrie', () => {
