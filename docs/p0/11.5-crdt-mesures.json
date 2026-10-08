@@ -1,0 +1,88 @@
+{
+  "moteur": "Node v22.22.0",
+  "gcExpose": true,
+  "date": "2026-10-08",
+  "versions": {
+    "yjs": "13.6.33",
+    "automerge": "3.5.0"
+  },
+  "yjs": {
+    "saisie": {
+      "majOctets": {
+        "moyenne": 24.74,
+        "p95": 27,
+        "max": 27
+      },
+      "ms": {
+        "moyenne": 0.04,
+        "p95": 0.08,
+        "max": 4.251295000000027
+      }
+    },
+    "metadonnees": {
+      "majOctets": {
+        "moyenne": 35.81,
+        "p95": 37,
+        "max": 37
+      },
+      "ms": {
+        "moyenne": 0.04,
+        "p95": 0.06,
+        "max": 7.326095999999893
+      }
+    },
+    "documentEnregistreOctets": 123704,
+    "rechargementMs": 118.7,
+    "memoireMo": 6.44
+  },
+  "automerge": {
+    "saisie": {
+      "majOctets": {
+        "moyenne": 108.4,
+        "p95": 113,
+        "max": 113
+      },
+      "ms": {
+        "moyenne": 0.23,
+        "p95": 0.35,
+        "max": 6.786489000000074
+      }
+    },
+    "metadonnees": {
+      "majOctets": {
+        "moyenne": 138.51,
+        "p95": 155,
+        "max": 155
+      },
+      "ms": {
+        "moyenne": 0.77,
+        "p95": 1.18,
+        "max": 6.199211999999534
+      }
+    },
+    "documentEnregistreOctets": 92025,
+    "rechargementMs": 87.1,
+    "memoireMo": 13.35
+  },
+  "concurrence": {
+    "texte": "les deux insertions sont gardées, mêmes résultats sur les deux répliques (Yjs et Automerge)",
+    "memeCleDeuxValeurs": {
+      "yjs": "une valeur retenue (C2), aucun signalement",
+      "automerge": "une valeur retenue (C2), les deux consultables par getConflicts"
+    },
+    "suppressionContreModification": {
+      "yjs": "objet supprimé, modification concurrente perdue sans signalement",
+      "automerge": "objet supprimé, modification concurrente perdue sans signalement"
+    }
+  },
+  "poids": {
+    "yjs": {
+      "minifieMo": 0.09,
+      "gzipMo": 0.03
+    },
+    "automerge": {
+      "minifieMo": 4.94,
+      "gzipMo": 1.65
+    }
+  }
+}

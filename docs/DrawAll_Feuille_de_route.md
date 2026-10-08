@@ -258,7 +258,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 11.2 Noyau : chargement, mémoire, cas difficiles | Fait (compte rendu `docs/p0/11.2-noyau.md`) | #55 |
 | 11.3 Références topologiques | Fait (compte rendu `docs/p0/11.3-references.md`) | #56 |
 | 11.4 Import de référence | Fait (compte rendu `docs/p0/11.4-import-step.md`) | #57 |
-| 11.5 Note de décision P0 | À faire | — |
+| 11.5 Note de décision P0 | Fait (`docs/p0/11.5-note-decision-P0.md`, essai CRDT compris) | #58 |
 | 12.1 Contraintes dans l'atelier | À faire | — |
 | 12.2 Paramètres nommés et cotes pilotantes | À faire | — |
 | 12.3 Propriétés et classification | À faire | — |
@@ -318,5 +318,6 @@ Une étape échappe à la recette navigateur : le partage et les commentaires, f
 | Convertisseur DWG (bibliothèque, licence) | Aucun : DWG refusé avec message | 6.3 |
 | Hébergement durable et comptes (au-delà du tunnel temporaire) | Tunnel de démonstration | 7.2, 8.4 |
 | Licence du noyau OCCT (LGPL avec paquet séparé substituable, ou licence commerciale) — bloquante avant P0 (Exigences D.3) | **Décidé le 8 octobre 2026 : LGPL, module WebAssembly séparé, chargé à la demande et remplaçable** (`docs/licences.md`) | 11.2–11.5, J15–J17 |
+| Évaluation d'un noyau ou d'un solveur commercial (Parasolid, D-Cubed : licence d'évaluation) | Non : OCCT et le solveur écrit pour DrawAll seuls (note de décision P0) | J12, J15–J17 |
 | Système de coordonnées de référence par défaut | Aucun : origine locale, système à déclarer par projet | 17.3 |
 | Fournisseur du modèle de langage de l'assistant (coût, données envoyées) | Aucun : l'assistant fonctionne avec un générateur local de démonstration, aucun envoi externe | 18.3 |

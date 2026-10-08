@@ -730,10 +730,11 @@ Cette annexe consolide la vérification de douze affirmations issues d'une éval
 
 ## D.3 Décisions restant ouvertes (à trancher par prototype)
 
-| Décision | État v4.1 | Élément de résolution |
-| --- | --- | --- |
-| Licence OCCT (LGPL vs commerciale) | Ouverte, bloquante avant P0 | Arbitrage business ; packaging modulaire du WASM en attente |
-| Solveur de contraintes (D-Cubed ou autre) | À évaluer | Cas sous-/sur-contraints, diagnostics, conditions d'intégration [S06] |
-| Bibliothèque CRDT (Yjs vs Automerge) | À évaluer en P0 | Charge mémoire, granularité des mises à jour, observabilité |
-| Fidélité des connecteurs (Revit, Rhino, Tekla…) | À contractualiser | Matrice par format/version/type d'objet (Architecture §10) |
-| Noyau définitif (OCCT vs Parasolid) | À trancher en P0 | Corpus de cas difficiles, mémoire, licences, déploiement [S03, S07] |
+| Décision | État v4.1 | Élément de résolution | État après P0 (note de décision, `docs/p0/11.5-note-decision-P0.md`) |
+| --- | --- | --- | --- |
+| Licence OCCT (LGPL vs commerciale) | Ouverte, bloquante avant P0 | Arbitrage business ; packaging modulaire du WASM en attente | **Tranchée le 8 octobre 2026** par le maître d'ouvrage : LGPL, module WebAssembly séparé, chargé à la demande, remplaçable |
+| Solveur de contraintes (D-Cubed ou autre) | À évaluer | Cas sous-/sur-contraints, diagnostics, conditions d'intégration [S06] | **Solveur écrit pour DrawAll**, planegcs (FreeCAD) en oracle de test (essai 11.1). D-Cubed non évalué (licence commerciale) |
+| Bibliothèque CRDT (Yjs vs Automerge) | À évaluer en P0 | Charge mémoire, granularité des mises à jour, observabilité | **Yjs**, sous réserve d'une couche de fusion validée qui relève les écritures concurrentes (note §2) |
+| Fidélité des connecteurs (Revit, Rhino, Tekla…) | À contractualiser | Matrice par format/version/type d'objet (Architecture §10) | Inchangé : hors P0 |
+| Noyau définitif (OCCT vs Parasolid) | À trancher en P0 | Corpus de cas difficiles, mémoire, licences, déploiement [S03, S07] | **OCCT pour P1** (essais 11.2 à 11.4). Parasolid non évalué : son évaluation exige une licence commerciale, décision du maître d'ouvrage (feuille de route §7) |
+| Lecteur STEP avec structure (XCAF) | — (constat de l'essai 11.4) | Module OCCT incluant `STEPCAFControl_Reader` | **Ouvert** : à compiler avant l'import d'assemblages de P1 (lot 16.x) |
