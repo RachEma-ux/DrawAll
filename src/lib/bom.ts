@@ -106,3 +106,22 @@ export const isAnnotation = (o: CadObject): o is AnnotationObject => isSymbol(o)
 export function annotationGeometry(o: AnnotationObject, u: number, objects: CadObject[], blocks: BlockDef[]): SymbolGeometry | null {
   return o.kind === 'bom' || o.kind === 'balloon' ? bomAnnotation(o, u, objects, blocks) : symbolGeometry(o, u);
 }
+
+/**
+ * Emprise d'une géométrie d'annotation dans le modèle (textes estimés à 0,6 × hauteur par caractère),
+ * ou null si elle est vide.
+ */
+export function annotationBounds(g: SymbolGeometry): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const pts: Pt[] = [
+    ...g.lines.flatMap(l => [l.a, l.b]),
+    ...g.fills.flat(),
+    ...g.circles.flatMap(c => [{ x: c.c.x - c.r, y: c.c.y - c.r }, { x: c.c.x + c.r, y: c.c.y + c.r }]),
+    ...g.texts.flatMap(t => {
+      const w = t.text.length * t.height * 0.6, x0 = t.anchor === 'middle' ? t.at.x - w / 2 : t.at.x;
+      return [{ x: x0, y: t.at.y - t.height }, { x: x0 + w, y: t.at.y }];
+    }),
+  ];
+  if (pts.length === 0) return null;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+}

@@ -30,6 +30,7 @@ import {
   gridSnap,
   objectBounds,
   projectBounds,
+  unionBounds,
   snapLabel,
   type Point,
   type ObjectSnapType,
@@ -47,7 +48,7 @@ import { wallHatchShape, wallQuad, wallsGeometry, type WallGeometry } from '@/li
 import { openingGeometry, swingPath } from '@/lib/opening';
 import { areaM2, centroid, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
 import { distanceToViews, linkedViews } from '@/lib/views';
-import { annotationGeometry, isAnnotation, type AnnotationObject } from '@/lib/bom';
+import { annotationBounds, annotationGeometry, isAnnotation, type AnnotationObject } from '@/lib/bom';
 import { cutView, distanceToCut } from '@/lib/cuts';
 import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 
@@ -787,14 +788,25 @@ export default function CanvasView({
   };
 
   const fitView = () => {
-    const bounds = projectBounds(visibleObjects, blocks);
+    const base = projectBounds(visibleObjects, blocks);
     const rect = ref.current?.getBoundingClientRect();
-    if (!bounds || !rect) return;
+    if (!base || !rect) return;
     // Marge proportionnelle : une marge fixe écraserait les zones basses (téléphone en paysage).
     const pad = Math.min(70, rect.width * 0.08, rect.height * 0.08);
+    const scaleFor = (b: typeof base) => Math.min(4, Math.max(0.08, Math.min(
+      (rect.width - pad * 2) / Math.max(1, b.maxX - b.minX), (rect.height - pad * 2) / Math.max(1, b.maxY - b.minY))));
+    // Annotations (nomenclature, repères, symboles) à taille papier fixe : leur emprise dépend du
+    // zoom ; quelques passes suffisent à faire tenir le tableau entier.
+    const annotations = visibleObjects.filter(isAnnotation);
+    let bounds = base, k = scaleFor(base);
+    for (let i = 0; i < 4 && annotations.length; i++) {
+      const u = SCREEN_PX_PER_PAPER_MM / k;
+      const extents = annotations.map(o => annotationGeometry(o, u, objects, blocks)).map(g => (g ? annotationBounds(g) : null)).filter((b): b is NonNullable<typeof b> => !!b);
+      bounds = unionBounds([base, ...extents])!;
+      k = scaleFor(bounds);
+    }
     const width = Math.max(1, bounds.maxX - bounds.minX);
     const height = Math.max(1, bounds.maxY - bounds.minY);
-    const k = Math.min(4, Math.max(0.08, Math.min((rect.width - pad * 2) / width, (rect.height - pad * 2) / height)));
     setTf({
       k,
       x: (rect.width - width * k) / 2 - bounds.minX * k,

@@ -18,6 +18,7 @@ import {
   type Orientation,
   KIND_LABEL,
   parentOf,
+  withParent,
   polylineExtents,
   supportedDimensionStyles,
 } from '@/types/cad';
@@ -634,7 +635,8 @@ export function useProject() {
       createdSeq: current.seq,
     };
     commit(`Créer bloc ${blockId}`, {
-      objects: allObjects.map(o => (o.id === objectId ? ref : o)),
+      // Les objets associés à la pièce (repère, cotes…) suivent l'occurrence qui la remplace.
+      objects: allObjects.map(o => (o.id === objectId ? ref : parentOf(o) === objectId ? withParent(o, refId) : o)),
       blocks: [...blocks, block],
       counter: state.counter + 1,
       blockCounter: state.blockCounter + 1,
@@ -708,9 +710,11 @@ export function useProject() {
   }, [blocks, state.blockCounter, activeLayerId, commit]);
 
   const removeBlock = useCallback((blockId: string) => {
+    // Les occurrences partent avec la définition, et avec elles leurs objets associés (repères…).
+    const removed = withDependents(allObjects, allObjects.filter(o => o.kind === 'blockRef' && o.blockId === blockId).map(o => o.id));
     commit(`Supprimer bloc ${blockId}`, {
       blocks: blocks.filter(b => b.id !== blockId),
-      objects: allObjects.filter(o => !(o.kind === 'blockRef' && o.blockId === blockId)),
+      objects: allObjects.filter(o => !removed.has(o.id)),
     });
     const selected = allObjects.find(o => selectedIds.includes(o.id));
     if (selected?.kind === 'blockRef' && selected.blockId === blockId) setSelectedIds([]);
