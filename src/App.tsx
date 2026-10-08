@@ -28,6 +28,8 @@ import { offsetObject as offsetCurve } from '@/lib/offset';
 import { pointInPolygon, slabContour, slabQuantities } from '@/lib/slab';
 import { roofError, roofGeometry, roofInput } from '@/lib/roof';
 import ParametersPanel from '@/components/ParametersPanel';
+import ZonesPanel from '@/components/ZonesPanel';
+import { zoneColors as zoneColorsOf } from '@/lib/zones';
 import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
 import type { GeoConstraint, PolylineObj, RoofObj } from '@/types/cad';
@@ -733,6 +735,8 @@ function Workbench() {
 
   // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
   const [paramsOpen, setParamsOpen] = useState(false);
+  const [zonesOpen, setZonesOpen] = useState(false);
+  const zoneColors = useMemo(() => zoneColorsOf(project.objects, project.zones), [project.objects, project.zones]);
   const [constraintType, setConstraintType] = useState<GeoConstraint['type']>('horizontal');
   const [constraintValue, setConstraintValue] = useState('');
   const [constraintPicks, setConstraintPicks] = useState<Pick[]>([]);
@@ -1007,6 +1011,7 @@ function Workbench() {
     { id: 'redo', title: 'Rétablir', hint: 'Revenir à la microversion suivante', keywords: ['retablir', 'redo'], run: project.redo },
     { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
+    { id: 'zones', title: 'Zones', hint: 'Regrouper des pièces : nom, couleur, surface cumulée', keywords: ['zone', 'zones', 'regrouper', 'pieces', 'surface cumulee', 'logement', 'lot', 'secteur'], run: () => setZonesOpen(true) },
     { id: 'parameters', title: 'Paramètres du projet', hint: 'Table des paramètres nommés (nom, expression, unité) ; les cotes de contrainte peuvent les citer', keywords: ['parametre', 'parametres', 'variable', 'expression', 'formule', 'cote pilotante'], run: () => setParamsOpen(true) },
     { id: 'kernel-trial', title: 'Essai du noyau 3D (P0)', hint: 'Charge OCCT (≈ 7 Mo compressés, une fois) et calcule un pavé percé', keywords: ['noyau', '3d', 'occt', 'essai', 'volume', 'p0'], run: () => { void kernelTrial(); } },
     { id: 'edit-group', title: 'Grouper la sélection', hint: 'Les objets forment un groupe (Ctrl+G)', keywords: ['grouper', 'groupe', 'group', 'assembler'], run: groupSelection },
@@ -1112,6 +1117,8 @@ function Workbench() {
   );
   const inspectorEl = (
     <Inspector
+      zones={project.zones}
+      onOpenZones={() => setZonesOpen(true)}
       obj={selected}
       issues={selected ? project.diagnostics.filter(d => d.level === 'avertissement' && new RegExp(`\\b${selected.id}\\b`).test(d.text)).map(d => d.text) : []}
       objects={project.objects}
@@ -1454,6 +1461,7 @@ function Workbench() {
                 onAddSlab={points => addSlab(points)}
                 onAddSlabFromRoom={addSlabFromRoom}
                 onAddRoof={addRoof}
+                zoneColors={zoneColors}
                 constraintMarks={constraintMarks}
                 constraintPicks={constraintPicks.map(p => p.at)}
                 onMeasureArea={measureArea}
@@ -1939,6 +1947,10 @@ function Workbench() {
       {snapPanelOpen && <SnapSettings active={snapTypes} onChange={setSnapTypes} onClose={() => setSnapPanelOpen(false)} />}
       {arrayMode && (
         <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
+      )}
+      {zonesOpen && (
+        <ZonesPanel zones={project.zones} objects={project.objects} selectedRoomIds={project.selectedIds.filter(id => project.objects.find(o => o.id === id)?.kind === 'room')}
+          onAdd={project.addZone} onUpdate={project.updateZone} onRemove={project.removeZone} onRoomZone={project.setRoomZone} onClose={() => setZonesOpen(false)} />
       )}
       {paramsOpen && (
         <ParametersPanel parameters={project.parameters} onAdd={project.addParameter} onUpdate={project.updateParameter} onRemove={project.removeParameter} onClose={() => setParamsOpen(false)} />

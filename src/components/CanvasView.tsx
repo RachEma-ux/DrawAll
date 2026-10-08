@@ -116,6 +116,8 @@ interface Props {
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
   /** Décaler (lot 10.4) : objet désigné puis côté désigné. */
   onOffset?: (id: string, side: { x: number; y: number }) => void;
+  /** Couleur de zone des pièces (lot 13.3). */
+  zoneColors?: Map<string, string>;
   /** Dalle (lot 13.1) : depuis la pièce sous le point, ou contour tracé point par point. */
   slabMode?: 'piece' | 'contour';
   onAddSlab?: (points: number[]) => void;
@@ -213,6 +215,7 @@ export default function CanvasView({
   onAddSlab,
   onAddSlabFromRoom,
   onAddRoof,
+  zoneColors,
   constraintMarks,
   constraintPicks,
   onMeasureArea,
@@ -1172,6 +1175,7 @@ export default function CanvasView({
               key={o.id}
               walls={wallGeom}
               rooms={roomPolys}
+              zoneColors={zoneColors}
               obj={o}
               objects={objects}
               blocks={blocks}
@@ -1410,8 +1414,10 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls, rooms, assets }: {
+export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls, rooms, assets, zoneColors }: {
   obj: CadObject;
+  /** Couleur de zone de chaque pièce rattachée (lot 13.3). */
+  zoneColors?: Map<string, string>;
   /** Images des fonds de plan (lot 6.2). */
   assets?: Record<string, Asset>;
   /** Préfixe des motifs de hachure (une fenêtre de feuille définit les siens, au pas papier). */
@@ -1440,7 +1446,7 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'cut') return <CutShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'views') return <ViewsShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (isAnnotation(obj)) return <SymbolShape obj={obj} objects={objects} blocks={blocks} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
-  if (obj.kind === 'room') return <RoomShape obj={obj} poly={rooms?.get(obj.id) ?? null} selected={selected} zoom={zoom} paperScale={paperScale} />;
+  if (obj.kind === 'room') return <RoomShape obj={obj} poly={rooms?.get(obj.id) ?? null} selected={selected} zoom={zoom} paperScale={paperScale} zoneColor={zoneColors?.get(obj.id)} />;
   if (obj.kind === 'opening') {
     const host = objects.find(o => o.id === obj.hostId);
     return host?.kind === 'wall' ? <OpeningShape obj={obj} wall={host} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} /> : null;
@@ -1480,7 +1486,7 @@ function WallShape({ obj, geom, view, selected, zoom, layer, colorMode, paperSca
 }
 
 /** Pièce : surface légèrement teintée, étiquette nom + surface au centre ; alerte si la pièce n'est pas fermée. */
-function RoomShape({ obj, poly, selected, zoom, paperScale }: { obj: RoomObj; poly: { x: number; y: number }[] | null; selected: boolean; zoom: number; paperScale?: DrawingScale }) {
+function RoomShape({ obj, poly, selected, zoom, paperScale, zoneColor }: { obj: RoomObj; poly: { x: number; y: number }[] | null; selected: boolean; zoom: number; paperScale?: DrawingScale; zoneColor?: string }) {
   const size = (px: number, mm: number) => (paperScale ? paperToModelSize(mm, paperScale) * TEXT_FONT_SCALE : px / zoom);
   if (!poly) {
     return (
@@ -1493,7 +1499,7 @@ function RoomShape({ obj, poly, selected, zoom, paperScale }: { obj: RoomObj; po
   const color = selected ? '#22d3ee' : '#cbd5e1';
   return (
     <g data-piece={obj.id}>
-      <polygon points={poly.map(p => `${p.x},${p.y}`).join(' ')} fill={selected ? 'rgba(34,211,238,0.10)' : 'rgba(148,163,184,0.05)'} stroke="none" />
+      <polygon points={poly.map(p => `${p.x},${p.y}`).join(' ')} data-zone-couleur={zoneColor} fill={zoneColor ?? (selected ? 'rgba(34,211,238,0.10)' : 'rgba(148,163,184,0.05)')} fillOpacity={zoneColor ? (selected ? 0.35 : 0.22) : undefined} stroke="none" />
       <text x={c.x} y={c.y} fontSize={size(13, 3.5)} fill={color} textAnchor="middle" fontFamily="JetBrains Mono, monospace">{obj.name}</text>
       <text x={c.x} y={c.y + size(13, 3.5) * 1.2} fontSize={size(11, 2.5)} fill={color} textAnchor="middle" fontFamily="JetBrains Mono, monospace" data-surface="">
         {formatM2(areaM2(poly))}

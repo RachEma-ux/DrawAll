@@ -501,6 +501,18 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - La toiture se déplace, s'étire par son contour, se met à l'échelle (débord compris) et tourne par quarts de tour ; l'axe et la rive haute suivent, y compris dans une symétrie.
   - Classe IFC par défaut : `IfcRoof`.
 
+### 8.8 Zones (règle, lot 13.3)
+
+- Une zone regroupe des pièces sous un nom et une couleur (#rrggbb). Une pièce appartient à une zone au plus ; l'appartenance est enregistrée avec la pièce.
+- **Panneau « Zones »** (palette, ou bouton « Gérer les zones… » de l'inspecteur d'une pièce) :
+  - créer une zone, avec les pièces sélectionnées s'il y en a ;
+  - renommer, changer la couleur, supprimer une zone (ses pièces restent, sans zone) ;
+  - retirer une pièce de la zone.
+  - L'inspecteur d'une pièce permet aussi de choisir sa zone.
+- **Surface cumulée** : somme exacte des surfaces des pièces de la zone, chacune au contour intérieur des murs (§8.3), affichée au centième de m². Une pièce non fermée est « non évaluée » : elle n'entre pas dans la somme, qui s'affiche alors précédée de « au moins ».
+- **Plan** : les pièces d'une zone sont remplies de sa couleur, translucide.
+- Zones et appartenances sont enregistrées avec la version (historique, annulation, paquet natif).
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)
