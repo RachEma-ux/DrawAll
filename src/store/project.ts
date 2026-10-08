@@ -5,6 +5,7 @@ import {
   createDefaultLayers,
   type BlockDef,
   type CadObject,
+  type OccurrenceObj,
   type DimensionStyle,
   type GeoConstraint,
   type PolylineObj,
@@ -52,6 +53,7 @@ import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications } from '@/lib/publication';
+import { MATE_LABEL, isMate, placeMate, resolveMates, type Mate } from '@/lib/assembly';
 import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
 import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
 import type { ProjView } from '@/lib/kernel/recipe';
@@ -190,7 +192,9 @@ function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
   if (base.kind === 'elevation' && (!['nord', 'sud', 'est', 'ouest', 'coupe'].includes(base.view) || (base.view === 'coupe' && typeof base.markId !== 'string') || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
   if (base.kind === 'projection' && (!['dessus', 'face', 'cote'].includes(base.view) || typeof base.sourceId !== 'string' || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
   // Tableau de quantités (lot 13.5) : type inconnu = nomenclature.
-  if (base.kind === 'bom' && base.table !== undefined && !['pieces', 'ouvertures', 'murs'].includes(base.table)) delete base.table;
+  if (base.kind === 'bom' && base.table !== undefined && !['pieces', 'ouvertures', 'murs', 'assemblage'].includes(base.table)) delete base.table;
+  // Liaison (lot 16.4) : forme reconnue seulement, sinon l'occurrence reste libre.
+  if (base.kind === 'occurrence' && base.mate !== undefined && !isMate(base.mate)) delete base.mate;
   return base;
 }
 
@@ -547,6 +551,8 @@ export function useProject() {
       const parameters = patch.parameters ?? cur.parameters;
       const constraints = bindConstraintValues(pruneConstraints(objects, patch.constraints ?? cur.constraints), parameters);
       if (constraints?.length && (objects !== cur.objects || constraints !== cur.constraints)) objects = enforceConstraints(cur.objects, objects, constraints).objects;
+      // Liaisons d'assemblage (lot 16.4) : chaque occurrence liée suit sa référence.
+      if (objects !== cur.objects) objects = resolveMates(objects).objects;
       const mv: MicroVersion = {
         seq,
         label,
@@ -857,6 +863,20 @@ export function useProject() {
     return id;
   }, [allObjects, state.counter, current.seq, commit]);
 
+  /** Liaison d'une occurrence (lot 16.4) ; `undefined` la délie. La version résout la liaison. */
+  const setMate = useCallback((occId: string, mate: Mate | undefined) => {
+    const o = allObjects.find(x => x.id === occId);
+    if (o?.kind !== 'occurrence') return 'Liaison : une occurrence est attendue.';
+    if (mate) {
+      const p = placeMate(o, mate, allObjects);
+      if ('error' in p) return `Liaison refusée : ${p.error}.`;
+    }
+    commit(mate ? `Liaison ${MATE_LABEL[mate.type].toLowerCase()} ${occId} → ${mate.to}` : `Délier ${occId}`, {
+      objects: allObjects.map(x => { if (x.id !== occId) return x; const { mate: _m, ...rest } = x as OccurrenceObj; void _m; return (mate ? { ...rest, mate } : rest) as CadObject; }),
+    });
+    return null;
+  }, [allObjects, commit]);
+
   /** Façades et coupes du bâtiment (lot 16.2), posées sous lui, en une seule version. */
   const addElevations = useCallback((views: { view: ElevationView; markId?: string }[]) => {
     const placed = elevationPlacement(allObjects, views);
@@ -1137,6 +1157,7 @@ export function useProject() {
 
   const diagnostics = useMemo(() => {
     const out: { level: 'info' | 'avertissement'; text: string }[] = [];
+    const mateErrors = new Map(resolveMates(allObjects).errors.map(e => [e.id, e.text]));
     const unclassified = allObjects.filter(o => o.classification === 'non-classifie' && o.kind !== 'dimension' && o.kind !== 'underlay');
     if (unclassified.length > 0) {
       out.push({ level: 'avertissement', text: `${unclassified.length} objet(s) sans classification métier — lectures indisponibles (${unclassified.map(o => o.id).join(', ')}).` });
@@ -1158,6 +1179,9 @@ export function useProject() {
       }
       if (o.kind === 'cut' && !allObjects.some(t => t.id === o.markId)) {
         out.push({ level: 'avertissement', text: `${o.id} : coupe orpheline — repère ${o.markId} absent.` });
+      }
+      if (o.kind === 'occurrence' && o.mate && mateErrors.has(o.id)) {
+        out.push({ level: 'avertissement', text: `${o.id} : liaison ${MATE_LABEL[o.mate.type].toLowerCase()} non satisfaite — ${mateErrors.get(o.id)}.` });
       }
       if (o.kind === 'projection' && !allObjects.some(t => t.id === o.sourceId && t.kind === 'solid')) {
         out.push({ level: 'avertissement', text: `${o.id} : vue projetée orpheline — solide ${o.sourceId} absent.` });
@@ -1502,7 +1526,7 @@ export function useProject() {
     addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations, makePart, addOccurrence,
+    addObject, updateObject, removeObject, removeObjects, combineSolids, addProjections, addElevations, makePart, addOccurrence, setMate,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
     addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,

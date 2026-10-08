@@ -6,6 +6,7 @@ import type { CadObject, Layer, Level } from '@/types/cad';
 import { building3d, p95, type Building3D, type Mesh3D } from '@/lib/building3d';
 import { kernelMesh } from '@/lib/kernel/client';
 import { effectiveSolid } from '@/lib/solids';
+import { explodeOffsets } from '@/lib/assembly';
 import { levelIdOf, levelsOf } from '@/lib/levels';
 
 interface Props {
@@ -54,9 +55,18 @@ export default function View3D({ objects, layers, levels, onClose }: Props) {
     return () => { live = false; };
   }, [solids, levels]);
   const pending = solids.length > 0 && kernelPart?.for !== solids;
-  const model = useMemo<Building3D>(() => (solids.length && kernelPart?.for === solids
-    ? { meshes: [...plan.meshes, ...kernelPart.part.meshes], skipped: [...plan.skipped, ...kernelPart.part.skipped] }
-    : plan), [plan, solids, kernelPart]);
+  // Vue éclatée (lot 16.4) : solides et occurrences écartés du centre de l'ensemble.
+  const [explode, setExplode] = useState(0);
+  const model = useMemo<Building3D>(() => {
+    if (!(solids.length && kernelPart?.for === solids)) return plan;
+    let parts = kernelPart.part.meshes;
+    if (explode > 0) {
+      const centers = parts.map(m => [0, 1, 2].map(i => { const v = m.positions.filter((_, k) => k % 3 === i); return (Math.min(...v) + Math.max(...v)) / 2; }) as [number, number, number]);
+      const off = explodeOffsets(centers, explode);
+      parts = parts.map((m, j) => ({ ...m, positions: m.positions.map((v, k) => v + off[j][k % 3]) }));
+    }
+    return { meshes: [...plan.meshes, ...parts], skipped: [...plan.skipped, ...kernelPart.part.skipped] };
+  }, [plan, solids, kernelPart, explode]);
   const counts = useMemo(() => {
     const c = new Map<string, number>();
     for (const m of model.meshes) c.set(m.kind, (c.get(m.kind) ?? 0) + 1);
@@ -170,7 +180,7 @@ export default function View3D({ objects, layers, levels, onClose }: Props) {
   }, [model, pending]);
 
   return (
-    <div role="dialog" aria-label="Vue 3D" data-solides={model.meshes.length} data-trame-p95={status.state === 'pret' && status.p95 !== null ? status.p95.toFixed(2) : undefined}
+    <div role="dialog" aria-label="Vue 3D" data-solides={model.meshes.length} data-eclate={explode} data-trame-p95={status.state === 'pret' && status.p95 !== null ? status.p95.toFixed(2) : undefined}
       className="fixed inset-0 z-50 flex flex-col bg-[#0b1120] font-mono text-[11px] text-muted-foreground">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <h2 className="text-sm text-foreground">Vue 3D</h2>
@@ -178,6 +188,11 @@ export default function View3D({ objects, layers, levels, onClose }: Props) {
         <span className="ml-auto" data-testid="vue3d-trame">
           {status.state === 'chargement' ? 'Chargement…' : status.state === 'pret' ? `Temps de trame (p95, 60 trames) : ${status.p95 === null ? 'non mesuré' : `${status.p95.toFixed(1).replace('.', ',')} ms`}` : ''}
         </span>
+        {solids.length > 1 && (
+          <label className="flex items-center gap-1">Éclaté
+            <input type="range" aria-label="Vue éclatée" min={0} max={2} step={0.5} value={explode} onChange={e => setExplode(Number(e.target.value))} />
+          </label>
+        )}
         <button type="button" onClick={() => frameRef.current()} className="rounded-sm border border-border px-2 py-0.5 text-foreground hover:bg-white/5">Cadrer la maquette</button>
         <button type="button" onClick={() => measureRef.current()} className="rounded-sm border border-border px-2 py-0.5 text-foreground hover:bg-white/5">Mesurer</button>
         <button type="button" onClick={onClose} aria-label="Fermer la vue 3D" className="rounded-sm px-2 py-0.5 hover:text-foreground">×</button>

@@ -3,8 +3,9 @@
 // « non évaluée » et n'entre pas dans les totaux. Fonctions pures.
 import type { CadObject } from '@/types/cad';
 import { areaM2, formatM2, roomPolygons } from './rooms';
+import { assemblyRows } from './assembly';
 
-export type ScheduleKind = 'pieces' | 'ouvertures' | 'murs';
+export type ScheduleKind = 'pieces' | 'ouvertures' | 'murs' | 'assemblage';
 
 export interface Table {
   header: string[];
@@ -16,7 +17,7 @@ export interface Table {
   total?: string[];
 }
 
-export const SCHEDULE_TITLE: Record<ScheduleKind, string> = { pieces: 'Tableau des pièces', ouvertures: 'Tableau des ouvertures', murs: 'Tableau des murs' };
+export const SCHEDULE_TITLE: Record<ScheduleKind, string> = { pieces: 'Tableau des pièces', ouvertures: 'Tableau des ouvertures', murs: 'Tableau des murs', assemblage: 'Nomenclature d’assemblage' };
 
 const idNumber = (id: string) => Number(id.match(/(\d+)$/)?.[1] ?? 0);
 const ordered = (objects: CadObject[]) => [...objects].sort((a, b) => a.createdSeq - b.createdSeq || idNumber(a.id) - idNumber(b.id));
@@ -36,6 +37,15 @@ export function scheduleTable(kind: ScheduleKind, objects: CadObject[]): Table {
       return [o.name, formatM2(a)];
     });
     return { header: ['Pièce', 'Surface'], cols: [60, 34], centered: [false, false], rows, total: ['Total', `${missing ? 'au moins ' : ''}${formatM2(total)}`] };
+  }
+  if (kind === 'assemblage') {
+    // Lot 16.4 : une ligne par pièce, quantité = pièce type + occurrences.
+    const rows = assemblyRows(objects);
+    return {
+      header: ['Rep.', 'Désignation', 'Qté'], cols: [14, 60, 16], centered: [true, false, true],
+      rows: rows.map(r => [String(r.no), r.name, String(r.qty)]),
+      total: ['', 'Total', String(rows.reduce((s, r) => s + r.qty, 0))],
+    };
   }
   if (kind === 'ouvertures') {
     // Regroupées par type et largeur, dans l'ordre d'apparition.

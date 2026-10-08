@@ -4,6 +4,7 @@ import type { Parameter } from '@/lib/params/expr';
 import type { PropertySet } from '@/lib/properties';
 import type { Publication } from '@/lib/publication';
 import type { ProjView, SolidRecipe } from '@/lib/kernel/recipe';
+import type { Mate } from '@/lib/assembly';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 import { recipeBounds } from '@/lib/solids';
 
@@ -245,6 +246,8 @@ export interface OccurrenceObj extends Base {
   sourceId: string;
   x: number; y: number; z: number;
   angle: number;
+  /** Liaison (lot 16.4) : la position et l'angle sont recalculés à chaque version. */
+  mate?: Mate;
 }
 
 /**

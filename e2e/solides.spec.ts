@@ -253,3 +253,68 @@ test('lot 16.3 — pièce numérotée et occurrences : modifier la pièce type m
   await expect.poll(traces).toEqual([700, 700]);
   expect(errors).toEqual([]);
 });
+
+test('lot 16.4 — liaison appui plan suivie, nomenclature d’assemblage et vue éclatée', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'désignation multiple à la souris (Maj + clic)');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 300, h: 100 }]);
+  const panel = await extrudeAt(page, info, 150, 0, '50');
+  await panel.getByRole('button', { name: 'Définir comme pièce' }).click();
+  await panel.getByLabel('X de l’occurrence (mm)').fill('1000');
+  await panel.getByLabel('Y de l’occurrence (mm)').fill('0');
+  await panel.getByLabel('Z de l’occurrence (mm)').fill('500');
+  await panel.getByRole('button', { name: 'Poser une occurrence' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('posée');
+  const objs = await currentObjects(page);
+  const def = objs.find(o => o.kind === 'solid')!, occ = objs.find(o => o.kind === 'occurrence')!;
+
+  // L'occurrence d'abord, puis la pièce type : appui de son dessous sur le dessus de la pièce.
+  const reopen = async () => {
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder(/Rechercher un outil/).fill('solides 3d');
+    await page.getByText('Solides 3D', { exact: true }).click();
+  };
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+  await page.getByRole('button', { name: 'Cadrer', exact: true }).click();
+  await tapModel(page, info, 1150, 0);
+  await page.keyboard.down('Shift');
+  await tapModel(page, info, 150, 0);
+  await page.keyboard.up('Shift');
+  await reopen();
+  await panel.getByLabel('Type de liaison').selectOption('appui');
+  await panel.getByLabel('Face de l’occurrence').selectOption({ label: 'OBJ-0001 — dessous' });
+  await panel.getByLabel('Face de la référence').selectOption({ label: 'OBJ-0001 — dessus' });
+  await panel.getByRole('button', { name: 'Lier' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText(`Liaison appui plan : ${occ.id} suit ${def.id}.`);
+  await expect.poll(async () => (await currentObjects(page)).find(o => o.id === occ.id)).toMatchObject({ x: 1000, y: 0, z: 50, mate: { type: 'appui', to: def.id } });
+
+  // La pièce type s'épaissit de 30 mm : l'occurrence liée remonte d'autant.
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+  await tapModel(page, info, 600, 400); // clic dans le vide : désélection
+  await tapModel(page, info, 150, 0);
+  await reopen();
+  await panel.getByLabel('Face à pousser ou tirer').selectOption({ label: 'OBJ-0001 — dessus' });
+  await panel.getByLabel('Distance (mm)').fill('30');
+  await panel.getByRole('button', { name: 'Appliquer' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Face tirée', { timeout: 90_000 });
+  await expect.poll(async () => (await currentObjects(page)).find(o => o.id === occ.id)?.z).toBe(80);
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+
+  // Nomenclature d'assemblage : repère 1, quantité 2 (pièce type + occurrence).
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('nomenclature d’assemblage');
+  await page.getByText('Insérer la nomenclature d’assemblage').click();
+  const canvas = page.getByTestId('canvas');
+  await expect(canvas.locator('text', { hasText: /^Désignation$/ })).toHaveCount(1);
+  await expect(canvas.locator('text', { hasText: /^2$/ })).toHaveCount(2); // quantité et total
+
+  // Vue éclatée : les deux éléments s'écartent.
+  await page.getByRole('button', { name: 'Vue 3D', exact: true }).click();
+  const view = page.getByRole('dialog', { name: 'Vue 3D' });
+  await expect(view.getByTestId('vue3d-contenu')).toHaveText('2 solides', { timeout: 90_000 });
+  await view.getByLabel('Vue éclatée').fill('1');
+  await expect(view).toHaveAttribute('data-eclate', '1');
+  await expect(view).toHaveAttribute('data-trame-p95', /^\d+\.\d\d$/);
+  expect(errors).toEqual([]);
+});

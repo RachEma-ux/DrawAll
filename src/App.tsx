@@ -1125,6 +1125,7 @@ function Workbench() {
       id: `schedule-${t}`, title: `Insérer le ${SCHEDULE_TITLE[t].toLowerCase()}`, hint: 'Tableau de quantités calculé depuis le modèle, mis à jour à chaque modification ; à poser sur une feuille par une fenêtre',
       keywords: ['tableau', 'quantites', 'metre', 'quantitatif', t, t === 'pieces' ? 'surfaces' : t === 'murs' ? 'longueurs' : 'portes fenetres'], run: () => { setMode('atelier'); project.addBom(t); },
     })),
+    { id: 'schedule-assemblage', title: 'Insérer la nomenclature d’assemblage', hint: 'Repère, désignation et quantité de chaque pièce (pièce type et occurrences), mise à jour à chaque modification', keywords: ['nomenclature', 'assemblage', 'pieces', 'occurrences', 'repere', 'quantite', 'bom'], run: () => { setMode('atelier'); project.addBom('assemblage'); } },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
     { id: 'export', title: 'Exporter le paquet du projet', hint: 'Projet entier : historique, niveaux, feuilles, styles, ressources (JSON, relu à l’identique)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json', 'sauvegarde'], run: exportPackage },
     { id: 'import-package', title: 'Restaurer un projet depuis son paquet', hint: 'Remplace le projet courant par celui du paquet DrawAll (historique compris)', keywords: ['restaurer', 'importer', 'paquet', 'json', 'sauvegarde', 'ouvrir'], run: () => packageInputRef.current?.click() },
@@ -2099,7 +2100,7 @@ function Workbench() {
         <SolidsPanel objects={project.allObjects} selectedIds={project.selectedIds}
           onCreate={(from, recipe, label) => project.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe }, undefined, label)}
           onUpdate={(id, recipe, label) => project.updateObject(id, { recipe }, label)}
-          onCombine={project.combineSolids} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onClose={() => setSolidsOpen(false)} />
+          onCombine={project.combineSolids} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onSetMate={project.setMate} onClose={() => setSolidsOpen(false)} />
       )}
       {view3dOpen && (
         <Suspense fallback={null}>

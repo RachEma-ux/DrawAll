@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import type { CadObject, SolidObj } from '@/types/cad';
 import type { FaceRef, ProjView, SolidRecipe } from '@/lib/kernel/recipe';
 import { VIEW_LABEL } from '@/lib/projection';
+import { MATE_LABEL, fixeMate, frameOf, type Mate } from '@/lib/assembly';
 import { kernelDeviation, kernelVolume } from '@/lib/kernel/client';
-import { BOOLEAN_LABEL, partInstances, contourOf, extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
+import { BOOLEAN_LABEL, effectiveSolid, partInstances, contourOf, extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, pushPullRecipe, shellRecipe, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
 
 interface Props {
   objects: CadObject[];
@@ -20,6 +21,8 @@ interface Props {
   /** Pièces et occurrences (lot 16.3). */
   onMakePart?: (id: string) => number | null;
   onAddOccurrence?: (defId: string, x: number, y: number, z: number, angle: number) => string | null;
+  /** Liaison d'une occurrence (lot 16.4) ; `undefined` délie. Renvoie l'erreur éventuelle. */
+  onSetMate?: (occId: string, mate: Mate | undefined) => string | null;
   onClose: () => void;
 }
 
@@ -28,7 +31,7 @@ const button = 'rounded-sm border border-border px-2 py-1 text-foreground hover:
 const parse = (s: string) => Number(s.trim().replace(',', '.'));
 const m3 = (mm3: number) => `${(mm3 / 1e9).toLocaleString('fr-FR', { maximumFractionDigits: 6 })} m³`;
 
-export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, onCombine, onProject, onMakePart, onAddOccurrence, onClose }: Props) {
+export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, onCombine, onProject, onMakePart, onAddOccurrence, onSetMate, onClose }: Props) {
   const selected = selectedIds.map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
   const solids = selected.filter((o): o is SolidObj => o.kind === 'solid');
   const contours = selected.filter(o => o.kind !== 'solid' && !('error' in contourOf(o)));
@@ -43,6 +46,25 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const [push, setPush] = useState({ face: '', distance: '' });
   const [views, setViews] = useState<ProjView[]>(['dessus', 'face', 'cote']);
   const [occ, setOcc] = useState({ x: '', y: '', z: '', angle: '0' });
+  const [mate, setMateDraft] = useState<{ type: Mate['type']; face: string; toFace: string; offset: string }>({ type: 'appui', face: '', toFace: '', offset: '0' });
+  // Liaison : l'occurrence d'abord, puis sa référence (pièce type ou autre occurrence).
+  const dep = selected[0]?.kind === 'occurrence' ? selected[0] : null;
+  const refObj = dep && selected.length === 2 && frameOf(selected[1]) ? selected[1] : null;
+  const depFaces = dep ? faceChoicesOf(dep) : [], refFaces = refObj ? faceChoicesOf(refObj) : [];
+  function faceChoicesOf(o: CadObject) { const s = effectiveSolid(o, objects); return s ? faceChoices(s.recipe) : []; }
+  const doMate = () => {
+    if (!dep || dep.kind !== 'occurrence' || !refObj || !onSetMate) return;
+    let m: Mate | null;
+    if (mate.type === 'fixe') m = fixeMate(dep, refObj);
+    else {
+      const f = depFaces.find(c => key(c.ref) === mate.face)?.ref, t = refFaces.find(c => key(c.ref) === mate.toFace)?.ref;
+      if (!f || !t) { setMessage({ error: true, text: 'Liaison : désignez une face de chaque côté.' }); return; }
+      m = mate.type === 'coaxiale' ? { type: 'coaxiale', to: refObj.id, face: f, toFace: t } : { type: 'appui', to: refObj.id, face: f, toFace: t, offset: parse(mate.offset || '0') };
+    }
+    if (!m) return;
+    const err = onSetMate(dep.id, m);
+    setMessage(err ? { error: true, text: err } : { error: false, text: `Liaison ${MATE_LABEL[m.type].toLowerCase()} : ${dep.id} suit ${refObj.id}.` });
+  };
   const [hole, setHole] = useState({ x: '', y: '', d: '', depth: '' });
 
   // Volume du solide sélectionné, calculé par le noyau.
@@ -234,6 +256,32 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
                 setMessage(id ? { error: false, text: `Occurrence ${id} de la pièce n° ${one.partDef!.no} posée.` } : { error: true, text: 'Occurrence : nombres finis attendus.' });
               }}>Poser une occurrence</button>
             </>
+          )}
+        </section>
+      )}
+
+      {onSetMate && (
+        <section aria-label="Liaison" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">
+          <span className="w-full text-foreground">Liaison : une occurrence, puis sa référence (pièce ou occurrence)</span>
+          <select aria-label="Type de liaison" value={mate.type} onChange={e => setMateDraft(m => ({ ...m, type: e.target.value as Mate['type'] }))} className={`${field} w-auto text-left`}>
+            {(['fixe', 'coaxiale', 'appui'] as const).map(t => <option key={t} value={t}>{MATE_LABEL[t]}</option>)}
+          </select>
+          {mate.type !== 'fixe' && (
+            <>
+              <select aria-label="Face de l’occurrence" value={mate.face} onChange={e => setMateDraft(m => ({ ...m, face: e.target.value }))} className={`${field} w-auto max-w-full text-left`}>
+                <option value="">Face de l’occurrence…</option>
+                {depFaces.map(f => <option key={key(f.ref)} value={key(f.ref)}>{f.label}</option>)}
+              </select>
+              <select aria-label="Face de la référence" value={mate.toFace} onChange={e => setMateDraft(m => ({ ...m, toFace: e.target.value }))} className={`${field} w-auto max-w-full text-left`}>
+                <option value="">Face de la référence…</option>
+                {refFaces.map(f => <option key={key(f.ref)} value={key(f.ref)}>{f.label}</option>)}
+              </select>
+            </>
+          )}
+          {mate.type === 'appui' && <label className="flex items-center gap-1">Écart <input aria-label="Écart de l’appui (mm)" inputMode="decimal" value={mate.offset} onChange={e => setMateDraft(m => ({ ...m, offset: e.target.value }))} className={field} /> mm</label>}
+          <button type="button" className={button} disabled={!refObj} onClick={doMate}>Lier</button>
+          {dep?.kind === 'occurrence' && dep.mate && selected.length === 1 && (
+            <button type="button" className={button} onClick={() => { const err = onSetMate(dep.id, undefined); setMessage(err ? { error: true, text: err } : { error: false, text: `${dep.id} déliée.` }); }}>Délier</button>
           )}
         </section>
       )}

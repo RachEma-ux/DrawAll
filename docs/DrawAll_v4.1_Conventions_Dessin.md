@@ -620,6 +620,17 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Occurrence seule** : elle se déplace et tourne. Elle ne se modifie pas : sa forme est celle de la pièce, donc pas de mise à l'échelle et pas de symétrie propre.
 - **Partout** : plan, accrochage, DXF, PDF, vue 3D, façades et coupes reprennent la forme posée de chaque occurrence.
 
+### 8.20 Liaisons, nomenclature d'assemblage et vue éclatée (règle, lot 16.4)
+
+- **Liaison** : une occurrence (désignée d'abord) suit sa référence, pièce type ou autre occurrence (désignée ensuite) :
+  - **fixe** : position et angle relatifs à la référence, figés à la création ;
+  - **coaxiale** : axes de deux faces cylindriques verticales confondus ; glissement le long de l'axe et rotation libres ;
+  - **appui plan** : une face plane contre une face plane de la référence, à l'écart saisi (0 par défaut), normales opposées. Pour des faces latérales, l'occurrence tourne autour de la verticale ; le glissement dans le plan reste libre.
+- **Résolution** à chaque version, références d'abord : modifier ou déplacer la référence (pièce type épaissie, occurrence déplacée…) replace les occurrences liées, en chaîne.
+- **Liaison non satisfaite** : faces non opposables par une rotation autour de la verticale, face disparue, référence absente ou boucle. L'occurrence reste en place et le diagnostic le signale. Une liaison impossible est refusée à la création, avec sa raison.
+- **Nomenclature d'assemblage** (palette) : une ligne par pièce, avec son repère, sa désignation (désignation de pièce saisie, sinon nom) et sa quantité (pièce type + occurrences), plus le total. Elle est recalculée à chaque modification.
+- **Vue éclatée** (vue 3D, au-delà d'un solide) : les solides et les occurrences s'écartent du centre de l'ensemble, proportionnellement au curseur. Les positions du modèle ne changent pas.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)
