@@ -68,8 +68,8 @@ export type SolidRecipe =
   | { op: 'union' | 'cut' | 'intersect'; a: SolidRecipe; b: SolidRecipe }
   /** Congé de rayon r sur les arêtes désignées (`edges`), sinon sur toutes. */
   | { op: 'fillet'; of: SolidRecipe; r: number; edges?: EdgeRef[] }
-  /** Coque : évidement d'épaisseur `thickness`, face `open` ouverte (par défaut celle du dessus, Z max). */
-  | { op: 'shell'; of: SolidRecipe; thickness: number; open?: FaceRef };
+  /** Coque : évidement d'épaisseur `thickness`, face(s) `open` ouverte(s) (par défaut celle du dessus, Z max). */
+  | { op: 'shell'; of: SolidRecipe; thickness: number; open?: FaceRef | FaceRef[] };
 
 export interface MeshResult { vertices: number[]; triangles: number[] }
 

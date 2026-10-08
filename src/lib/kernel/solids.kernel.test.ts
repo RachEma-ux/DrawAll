@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadKernel } from './occt';
 import { meshVolume, type PathSeg, type SolidRecipe, type SweepProfile } from './recipe';
-import { extrudeRecipe, holeRecipe, loftCheckPoints, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
+import { extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, shellRecipe, loftRecipe, moveSolid, pathLength, pathOf, recipeBounds, revolveRecipe, sweepProfileOf, sweepRecipe } from '../solids';
 
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.abs(b);
 const take = (r: { recipe: SolidRecipe } | { error: string }) => { if ('error' in r) throw new Error(r.error); return r.recipe; };
@@ -148,4 +148,33 @@ describe('lissage (lot 15.4) : sections retrouvées à 10⁻⁶ mm, volumes de r
     if (r.op !== 'loft') throw new Error();
     expect(k.boundaryDeviation(r, loftCheckPoints(r.sections))).toBeLessThan(1e-6);
   });
+});
+
+describe('coque (lot 15.5) : volume de matière de référence, faces ouvertes désignées', async () => {
+  const k = await loadKernel();
+  const block = take(extrudeRecipe(sq(0, 0, 1000, 500), 300, 0, 'P'));
+  const full = 1000 * 500 * 300;
+
+  it('dessus ouvert, épaisseur 20 : volume − cavité (960 × 460 × 280)', () => {
+    expectVolumeOf(k.volume(take(shellRecipe(block, 20, [{ feature: 'P', role: 'top' }]))), full - 960 * 460 * 280);
+  });
+
+  it('dessus et un côté ouverts : la cavité traverse ce côté', () => {
+    const choices = faceChoices(block);
+    expect(choices.map(c => c.label)).toContain('P — côté 4 (0 ; 500) → (0 ; 0)');
+    const side = choices.find(c => c.label.startsWith('P — côté 4'))!.ref;
+    expectVolumeOf(k.volume(take(shellRecipe(block, 20, [{ feature: 'P', role: 'top' }, side]))), full - 980 * 460 * 280);
+  });
+
+  it('solide déplacé puis tourné : les faces désignées suivent', () => {
+    const moved: SolidRecipe = { op: 'rotate', of: moveSolid(block, 5000, -2000), angle: 30, about: [0, 0] };
+    expect(faceChoices(moved)).toHaveLength(6);
+    expectVolumeOf(k.volume(take(shellRecipe(moved, 20, [{ feature: 'P', role: 'top' }, { feature: 'P', role: 'bottom' }]))), full - 960 * 460 * 300);
+  });
+
+  it('face inexistante : référence à réparer, rien n’est appliqué', () => {
+    expect(() => k.volume(take(shellRecipe(block, 20, [{ feature: 'Q', role: 'top' }])))).toThrow(/Référence à réparer/);
+  });
+
+  function expectVolumeOf(v: number, ref: number) { expect(rel(v, ref)).toBeLessThan(1e-6); }
 });

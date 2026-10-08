@@ -3,7 +3,7 @@
 // évaluée par OCCT dans le Worker ; ce module, pur, construit et contrôle les recettes, calcule leur
 // encombrement et leur trace en plan. Millimètres, degrés ; X, Y du plan, Z vers le haut.
 import type { CadObject, PrimitiveObject, SolidObj } from '@/types/cad';
-import type { LoftSection, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './kernel/recipe';
+import type { FaceRef, LoftSection, PathSeg, SolidRecipe, SweepProfile, Vec3 } from './kernel/recipe';
 import { arcEndpoints, arcLength, arcMidpoint } from './arc';
 import { splineLength, splineSamples } from './spline';
 
@@ -45,11 +45,15 @@ function selfIntersects(pts: P2[]): boolean {
   return false;
 }
 
-/** Extrusion verticale d'un contour, de la cote `z` sur `height` (> 0). */
-export function extrudeRecipe(c: Contour, height: number, z = 0): SolidResult {
+/**
+ * Extrusion verticale d'un contour, de la cote `z` sur `height` (> 0). `name` (lot 15.5) nomme la
+ * fonction : ses faces (dessus, dessous, côtés) deviennent désignables (coque, pousser / tirer).
+ */
+export function extrudeRecipe(c: Contour, height: number, z = 0, name?: string): SolidResult {
   if (!(height > 0) || !ok(height, z)) return { error: 'Extrusion : hauteur positive attendue.' };
-  if (c.kind === 'circle') return { recipe: { op: 'cylinder', r: c.r, h: height, at: [c.cx, c.cy, z] } };
-  return { recipe: { op: 'extrude', profile: c.points, height, ...(z ? { z } : {}) } };
+  const named = name ? { name } : {};
+  if (c.kind === 'circle') return { recipe: { op: 'cylinder', r: c.r, h: height, at: [c.cx, c.cy, z], ...named } };
+  return { recipe: { op: 'extrude', profile: c.points, height, ...(z ? { z } : {}), ...named } };
 }
 
 /**
@@ -261,7 +265,11 @@ export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
     }
     case 'union': case 'cut': case 'intersect': return isRecipe(x.a, depth + 1) && isRecipe(x.b, depth + 1);
     case 'fillet': return num(x.r, true) && isRecipe(x.of, depth + 1);
-    case 'shell': return num(x.thickness, true) && isRecipe(x.of, depth + 1);
+    case 'shell': {
+      const face = (f: unknown) => !!f && typeof f === 'object' && typeof (f as FaceRef).feature === 'string' && typeof (f as FaceRef).role === 'string';
+      const open = x.open === undefined || face(x.open) || (Array.isArray(x.open) && x.open.length > 0 && x.open.every(face));
+      return num(x.thickness, true) && open && isRecipe(x.of, depth + 1);
+    }
     case 'translate': return v3(x.by) && isRecipe(x.of, depth + 1);
     case 'rotate': return num(x.angle) && p2(x.about) && isRecipe(x.of, depth + 1);
     case 'mirror': return (x.axis === 'x' || x.axis === 'y') && num(x.value) && isRecipe(x.of, depth + 1);
@@ -404,4 +412,40 @@ export function loftCheckPoints(sections: LoftSection[]): Vec3[] {
 /** Liste de cotes saisie (« 0 ; 1000 ; 2500 », virgule décimale admise). */
 export function parseLevels(text: string): number[] {
   return text.split(';').map(t => t.trim()).filter(Boolean).map(t => Number(t.replace(',', '.')));
+}
+
+// ——— Coque (lot 15.5) ———
+
+/** Face désignable d'un solide : référence générative et libellé lisible. */
+export interface FaceChoice { ref: FaceRef; label: string }
+
+/** Faces nommées de la recette (fonctions nommées : extrusion, pavé, cylindre), dans l'ordre. */
+export function faceChoices(r: SolidRecipe): FaceChoice[] {
+  const out: FaceChoice[] = [];
+  const f = (n: number) => n.toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+  const walk = (x: SolidRecipe) => {
+    if ('a' in x) { walk(x.a); walk(x.b); return; }
+    if ('of' in x) { walk(x.of); return; }
+    if (x.op === 'extrude' && x.name) {
+      const feature = x.name;
+      out.push({ ref: { feature, role: 'top' }, label: `${feature} — dessus` }, { ref: { feature, role: 'bottom' }, label: `${feature} — dessous` });
+      x.profile.forEach((p, i) => {
+        const q = x.profile[(i + 1) % x.profile.length];
+        out.push({ ref: { feature, role: `side:${x.segmentIds?.[i] ?? `s${i}`}` }, label: `${feature} — côté ${i + 1} (${f(p[0])} ; ${f(p[1])}) → (${f(q[0])} ; ${f(q[1])})` });
+      });
+    } else if (x.op === 'cylinder' && x.name) {
+      out.push({ ref: { feature: x.name, role: 'cap' }, label: `${x.name} — dessus` }, { ref: { feature: x.name, role: 'base' }, label: `${x.name} — dessous` }, { ref: { feature: x.name, role: 'wall' }, label: `${x.name} — paroi` });
+    } else if (x.op === 'box' && x.name) {
+      for (const [role, label] of [['zmax', 'dessus'], ['zmin', 'dessous'], ['xmin', 'côté X min'], ['xmax', 'côté X max'], ['ymin', 'côté Y min'], ['ymax', 'côté Y max']]) out.push({ ref: { feature: x.name, role }, label: `${x.name} — ${label}` });
+    }
+  };
+  walk(r);
+  return out;
+}
+
+/** Coque d'épaisseur `thickness` (> 0, vers l'intérieur), faces ouvertes désignées (une au moins). */
+export function shellRecipe(of: SolidRecipe, thickness: number, open: FaceRef[]): SolidResult {
+  if (!(thickness > 0) || !Number.isFinite(thickness)) return { error: 'Coque : épaisseur positive attendue.' };
+  if (!open.length) return { error: 'Coque : désignez au moins une face ouverte.' };
+  return { recipe: { op: 'shell', of, thickness, open: open.length === 1 ? open[0] : open } };
 }

@@ -2,9 +2,9 @@
 // perçage. Chaque recette est contrôlée par le noyau OCCT (volume non nul) avant d'entrer au projet.
 import { useEffect, useState } from 'react';
 import type { CadObject, SolidObj } from '@/types/cad';
-import type { SolidRecipe } from '@/lib/kernel/recipe';
+import type { FaceRef, SolidRecipe } from '@/lib/kernel/recipe';
 import { kernelDeviation, kernelVolume } from '@/lib/kernel/client';
-import { BOOLEAN_LABEL, contourOf, extrudeRecipe, holeRecipe, loftCheckPoints, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
+import { BOOLEAN_LABEL, contourOf, extrudeRecipe, faceChoices, holeRecipe, loftCheckPoints, shellRecipe, loftRecipe, parseLevels, pathOf, recipeSteps, revolveRecipe, sweepRecipe, type BooleanOp, type Contour, type SolidResult } from '@/lib/solids';
 
 interface Props {
   objects: CadObject[];
@@ -33,6 +33,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const [angle, setAngle] = useState('360');
   const [sweepZ, setSweepZ] = useState('0');
   const [loft, setLoft] = useState({ levels: '', ruled: true });
+  const [shell, setShell] = useState<{ thickness: string; open: string[] }>({ thickness: '', open: [] });
   const [hole, setHole] = useState({ x: '', y: '', d: '', depth: '' });
 
   // Volume du solide sélectionné, calculé par le noyau.
@@ -66,7 +67,8 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const extrude = () => {
     const src = contours[0], c = contourOf(src);
     if ('error' in c) return;
-    void run(extrudeRecipe(c, parse(extr.height), parse(extr.z || '0')), r => onCreate(src, r, 'Extruder'), 'Extrusion créée');
+    // La fonction porte le nom de l'objet source : ses faces deviennent désignables (coque).
+    void run(extrudeRecipe(c, parse(extr.height), parse(extr.z || '0'), src.id), r => onCreate(src, r, 'Extruder'), 'Extrusion créée');
   };
   const revolve = () => {
     const src = contours[0], c = contourOf(src), ax = lines.find(l => l.id !== src.id);
@@ -94,6 +96,13 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
       const dev = await kernelDeviation(r, loftCheckPoints(r.sections));
       return dev <= 1e-6 ? { ok: true, text: 'sections retrouvées à 10⁻⁶ mm' } : { ok: false, text: `Lissage refusé : une section s’écarte du solide de ${dev.toLocaleString('fr-FR', { maximumSignificantDigits: 3 })} mm.` };
     });
+  };
+  const faces = one ? faceChoices(one.recipe) : [];
+  const key = (f: FaceRef) => `${f.feature}.${f.role}`;
+  const doShell = () => {
+    if (!one) return;
+    const open = faces.filter(f => shell.open.includes(key(f.ref))).map(f => f.ref);
+    void run(shellRecipe(one.recipe, parse(shell.thickness), open), r => onUpdate(one.id, r, 'Coque'), `Coque faite (${open.length} face${open.length > 1 ? 's' : ''} ouverte${open.length > 1 ? 's' : ''})`);
   };
   const combine = (op: BooleanOp) => {
     const [a, b] = solids;
@@ -158,6 +167,24 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
         <label className="flex items-center gap-1">Ø <input aria-label="Diamètre du perçage (mm)" inputMode="decimal" value={hole.d} onChange={e => setHole(h => ({ ...h, d: e.target.value }))} className={field} /></label>
         <label className="flex items-center gap-1">Profondeur <input aria-label="Profondeur du perçage (mm)" placeholder="traversant" inputMode="decimal" value={hole.depth} onChange={e => setHole(h => ({ ...h, depth: e.target.value }))} className={field} /></label>
         <button type="button" className={button} disabled={!one || busy} onClick={drill}>Percer</button>
+      </section>
+
+      <section aria-label="Coque" className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border p-2">
+        <span className="w-full text-foreground">Coque : évidement à épaisseur donnée, faces ouvertes désignées</span>
+        <label className="flex items-center gap-1">Épaisseur <input aria-label="Épaisseur de la coque (mm)" inputMode="decimal" value={shell.thickness} onChange={e => setShell(s => ({ ...s, thickness: e.target.value }))} className={field} /> mm</label>
+        {one && !faces.length && <span className="w-full text-[11px]">Aucune face nommée sur ce solide (seules les extrusions nommées à leur création en ont).</span>}
+        {faces.length > 0 && (
+          <fieldset className="flex w-full flex-col gap-0.5 text-[11px]">
+            <legend className="sr-only">Faces ouvertes</legend>
+            {faces.map(f => (
+              <label key={key(f.ref)} className="flex items-center gap-1.5">
+                <input type="checkbox" checked={shell.open.includes(key(f.ref))} onChange={e => setShell(s => ({ ...s, open: e.target.checked ? [...s.open, key(f.ref)] : s.open.filter(k => k !== key(f.ref)) }))} />
+                {f.label}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        <button type="button" className={button} disabled={!one || busy} onClick={doShell}>Évider</button>
       </section>
 
       {one && (

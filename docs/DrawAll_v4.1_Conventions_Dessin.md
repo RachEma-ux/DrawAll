@@ -581,6 +581,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Contrôle** : en plus du volume non nul (§8.12), le noyau vérifie que le solide passe par chaque section : sommets, milieux des côtés, huit points par cercle, à 10⁻⁶ mm du bord. Sinon le lissage est refusé et l'écart est donné.
 - **En plan**, la trace du lissage montre le contour de chaque section.
 
+### 8.15 Coque (règle, lot 15.5)
+
+- **Faces désignables** : une extrusion prend, à sa création, le nom de l'objet source (`OBJ-0001`). Ses faces se désignent alors par ce nom et leur rôle : dessus, dessous, côté *n* avec ses extrémités. Les noms suivent le solide déplacé, tourné, symétrisé ou mis à l'échelle (références du lot 11.3). Les faces des deux opérandes d'un booléen restent désignables.
+- **Coque** : évidement vers l'intérieur à l'épaisseur saisie. Une face ouverte au moins est désignée, sans face choisie par défaut.
+- **Référence non résolue** : une face disparue, partagée en morceaux, ou un nom en double, est signalée « à réparer ». La coque n'est alors pas appliquée, et rien n'est réattribué en silence.
+- **Contrôle** : volume de matière non nul, calculé par le noyau (§8.12).
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)

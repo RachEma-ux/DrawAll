@@ -107,9 +107,12 @@ function build(r: SolidRecipe, report?: RefReport[]): Shape3D {
     case 'shell': {
       const open = r.open;
       if (!open) return derive(r.of, report, s => s.shell(r.thickness, f => f.inPlane('XY', topOf(s))));
+      // Une ou plusieurs faces ouvertes désignées (lot 15.5) : toutes doivent être résolues.
+      const opens = Array.isArray(open) ? open : [open];
       return derive(r.of, report, s => {
-        const found = [resolveFace(s, featureSupports(r.of), open)];
-        return applyResolved(found, report, s, ([t]) => s.shell(r.thickness, f => f.when(({ element }) => element.isSame(t))));
+        const sup = featureSupports(r.of);
+        const found = opens.map(o => resolveFace(s, sup, o));
+        return applyResolved(found, report, s, ts => s.shell(r.thickness, f => f.when(({ element }) => ts.some(t => element.isSame(t)))));
       });
     }
   }

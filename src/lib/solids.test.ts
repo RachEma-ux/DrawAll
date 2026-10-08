@@ -4,7 +4,7 @@ import { createDefaultLayers, dimensionOf } from '@/types/cad';
 import { exportDxf, exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
 import { defaultIfcClass } from './properties';
-import { contourOf, extrudeRecipe, loftCheckPoints, loftRecipe, parseLevels, holeRecipe, isRecipe, moveSolid, pathLength, pathOf, pathPoints, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace, sweepProfileOf, sweepRecipe } from './solids';
+import { contourOf, extrudeRecipe, faceChoices, shellRecipe, loftCheckPoints, loftRecipe, parseLevels, holeRecipe, isRecipe, moveSolid, pathLength, pathOf, pathPoints, recipeBounds, recipeSteps, revolveRecipe, solidPrimitives, solidTrace, sweepProfileOf, sweepRecipe } from './solids';
 import { stretchObject, stretchPreview } from './stretch';
 import type { PathSeg, SolidRecipe } from './kernel/recipe';
 
@@ -188,5 +188,30 @@ describe('solides : recettes (lot 15.2)', () => {
     expect(loftRecipe([a, b], [0, Number.NaN], true)).toEqual({ error: 'Lissage : cote invalide.' });
     expect(parseLevels('0 ; 1000,5;2500 ')).toEqual([0, 1000.5, 2500]);
     expect(parseLevels('')).toEqual([]);
+  });
+
+  it('coque : faces désignables des fonctions nommées, une face ouverte au moins, épaisseur positive', () => {
+    const e = ok(extrudeRecipe({ kind: 'polygon', points: [[0, 0], [100, 0], [100, 50]] }, 20, 0, 'OBJ-0001'));
+    expect(e).toMatchObject({ op: 'extrude', name: 'OBJ-0001' });
+    expect(faceChoices(e).map(f => f.label)).toEqual([
+      'OBJ-0001 — dessus', 'OBJ-0001 — dessous',
+      'OBJ-0001 — côté 1 (0 ; 0) → (100 ; 0)', 'OBJ-0001 — côté 2 (100 ; 0) → (100 ; 50)', 'OBJ-0001 — côté 3 (100 ; 50) → (0 ; 0)',
+    ]);
+    expect(faceChoices(e)[2].ref).toEqual({ feature: 'OBJ-0001', role: 'side:s0' });
+    const cyl = ok(extrudeRecipe({ kind: 'circle', cx: 0, cy: 0, r: 5 }, 10, 0, 'C'));
+    expect(faceChoices(cyl).map(f => f.ref.role)).toEqual(['cap', 'base', 'wall']);
+    expect(faceChoices({ op: 'box', x: 1, y: 1, z: 1, name: 'B' })).toHaveLength(6);
+    expect(faceChoices(ok(extrudeRecipe({ kind: 'polygon', points: [[0, 0], [1, 0], [0, 1]] }, 1)))).toEqual([]);
+    // Les faces des deux opérandes d'un booléen restent désignables.
+    expect(faceChoices({ op: 'union', a: e, b: cyl })).toHaveLength(8);
+    const top = { feature: 'OBJ-0001', role: 'top' };
+    expect(shellRecipe(e, 2, [top])).toEqual({ recipe: { op: 'shell', of: e, thickness: 2, open: top } });
+    expect(shellRecipe(e, 2, [top, top])).toMatchObject({ recipe: { open: [top, top] } });
+    expect(shellRecipe(e, 2, [])).toEqual({ error: 'Coque : désignez au moins une face ouverte.' });
+    expect(shellRecipe(e, 0, [top])).toEqual({ error: 'Coque : épaisseur positive attendue.' });
+    expect(isRecipe({ op: 'shell', of: e, thickness: 2, open: [top] })).toBe(true);
+    expect(isRecipe({ op: 'shell', of: e, thickness: 2, open: [] })).toBe(false);
+    expect(isRecipe({ op: 'shell', of: e, thickness: 2, open: { feature: 1 } })).toBe(false);
+    expect(recipeSteps({ op: 'shell', of: e, thickness: 2, open: top })).toEqual(['extrusion', 'coque']);
   });
 });

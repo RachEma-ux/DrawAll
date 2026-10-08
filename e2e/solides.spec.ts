@@ -153,3 +153,21 @@ test('lot 15.4 — lissage par deux sections : tronc de pyramide, sections retro
   expect((await currentObjects(page)).find(o => o.kind === 'solid')!.recipe).toMatchObject({ op: 'loft', ruled: true, sections: [{ z: 0 }, { z: 1000 }] });
   expect(errors).toEqual([]);
 });
+
+test('lot 15.5 — coque : extrusion évidée, dessus ouvert, épaisseur 20 mm', async ({ page }, info) => {
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  const panel = await extrudeAt(page, info, 500, 0, '300');
+  // Aucune face désignée : refus en clair.
+  await panel.getByLabel('Épaisseur de la coque (mm)').fill('20');
+  await panel.getByRole('button', { name: 'Évider' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText('Coque : désignez au moins une face ouverte.');
+  await panel.getByLabel('OBJ-0001 — dessus').check();
+  await panel.getByRole('button', { name: 'Évider' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Coque faite (1 face ouverte)', { timeout: 90_000 });
+  // 1 000 × 500 × 300 − 960 × 460 × 280 mm³.
+  expect(rel(await shownVolume(page), 1.5e8 - 960 * 460 * 280)).toBeLessThan(1e-9);
+  await expect(panel.getByTestId('solide-volume')).toContainText('extrusion → coque');
+  expect(errors).toEqual([]);
+});
