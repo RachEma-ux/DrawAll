@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { roofGeometry, roofInput } from '@/lib/roof';
 import { slabQuantities } from '@/lib/slab';
 import PropertiesEditor from '@/components/PropertiesEditor';
+import type { Zone } from '@/types/cad';
 import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj, Asset } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
@@ -39,6 +40,9 @@ interface Props {
   view: ViewReading;
   level: DisplayLevel;
   onUpdate: (id: string, patch: Partial<CadObject>, label?: string) => void;
+  /** Zones du projet (lot 13.3), pour rattacher une pièce. */
+  zones?: Zone[];
+  onOpenZones?: () => void;
   onRemove: (id: string) => void;
   onCreateBlock: (id: string) => void;
   /** Diagnostics du projet concernant cet objet (contrôles légers, pas une validation métier). */
@@ -66,7 +70,7 @@ interface Props {
   comments?: ReactNode;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
+export default function Inspector({ zones, onOpenZones, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -731,6 +735,17 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                   className="mt-0.5 w-full rounded-sm border border-input bg-background px-2 py-1 text-xs" />
               </label>
+              {onOpenZones && <button type="button" onClick={onOpenZones} className="w-full rounded-sm border border-border px-2 py-1 text-left text-[11px] text-muted-foreground hover:text-foreground">Gérer les zones…</button>}
+              {zones && zones.length > 0 && (
+                <label className="block text-[11px] text-muted-foreground">Zone
+                  <select aria-label="Zone de la pièce" value={obj.zoneId && zones.some(z => z.id === obj.zoneId) ? obj.zoneId : ''}
+                    onChange={e => onUpdate(obj.id, { zoneId: e.target.value || undefined }, e.target.value ? 'Rattacher la pièce à une zone' : 'Pièce hors zone')}
+                    className="mt-0.5 w-full rounded-sm border border-input bg-background px-2 py-1 text-xs">
+                    <option value="">Aucune</option>
+                    {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                  </select>
+                </label>
+              )}
               <p aria-label="Surface de la pièce" className="font-mono text-sm text-foreground">
                 {poly ? formatM2(areaM2(poly)) : 'non évaluée — pièce non fermée par des murs'}
               </p>

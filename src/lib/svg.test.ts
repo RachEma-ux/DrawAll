@@ -51,4 +51,13 @@ describe('export SVG (lot 6.4)', () => {
     expect(line).toContain('stroke="#000000"');
     expect(white).not.toMatch(/(?:stroke|fill)="#fff(?:fff)?"/i);
   });
+
+  it('pièce rattachée à une zone : remplissage de zone présent dans la fenêtre (lot 13.3)', () => {
+    const w = (id: string, x1: number, y1: number, x2: number, y2: number) => ({ ...base, id, kind: 'wall', x1, y1, x2, y2, thickness: 200, justification: 'axe' }) as CadObject;
+    const room = { ...base, id: 'OBJ-0020', kind: 'room', x: 2500, y: 2000, zoneId: 'ZON-0001' } as CadObject;
+    const objs = [w('OBJ-0010', 0, 0, 5000, 0), w('OBJ-0011', 5000, 0, 5000, 4000), w('OBJ-0012', 5000, 4000, 0, 4000), w('OBJ-0013', 0, 4000, 0, 0), room];
+    const args = { sheet, objects: objs, levels: [DEFAULT_LEVEL], layers, blocks: [], profile: profileById(undefined), view: 'batiment' as const, versions, pointer: 0 };
+    expect(sheetToSvg({ ...args, zones: [{ id: 'ZON-0001', name: 'Logement', color: '#22d3ee' }] })).toContain('data-zone-couleur="#22d3ee"');
+    expect(sheetToSvg(args)).not.toContain('data-zone-couleur');
+  });
 });

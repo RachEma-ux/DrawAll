@@ -197,7 +197,12 @@ export interface OpeningObj extends Base {
 export interface RoomObj extends Base {
   kind: 'room';
   x: number; y: number;
+  /** Zone de la pièce (lot 13.3) ; absente = aucune. */
+  zoneId?: string;
 }
+
+/** Zone (lot 13.3) : regroupement nommé de pièces, couleur de remplissage (#rrggbb). */
+export interface Zone { id: string; name: string; color: string }
 
 /**
  * Dalle ou plancher (lot 13.1) : contour fermé (sommets, sans répétition du premier), épaisseur (mm).
@@ -473,6 +478,7 @@ export interface MicroVersion {
   levels?: Level[];        // niveaux (lot 4.4) ; absent = un seul niveau par défaut
   constraints?: GeoConstraint[]; // contraintes géométriques (lot 12.1) ; absent = aucune
   parameters?: Parameter[];      // paramètres nommés (lot 12.2) ; absent = aucun
+  zones?: Zone[];                // zones (lot 13.3) ; absent = aucune
 }
 
 export interface ProjectState {

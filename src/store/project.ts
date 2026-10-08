@@ -8,6 +8,7 @@ import {
   type DimensionStyle,
   type GeoConstraint,
   type PolylineObj,
+  type Zone,
   type Asset,
   type Layer,
   type Level,
@@ -45,6 +46,7 @@ import { enforceConstraints, pruneConstraints } from '@/lib/constraints/model';
 import { isValidName, resolveParameters, type Parameter } from '@/lib/params/expr';
 import { bindConstraintValues, constraintExprError, usesOf } from '@/lib/params/bind';
 import { isIfcClass, normalizePsets } from '@/lib/properties';
+import { isHexColor } from '@/lib/zones';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -215,6 +217,18 @@ export function normalizeConstraints(raw: unknown): GeoConstraint[] | undefined 
   return out.length ? out : undefined;
 }
 
+/** Zones (lot 13.3) : identifiant, nom et couleur #rrggbb ; doublons d'identifiant écartés. */
+export function normalizeZones(raw: unknown): Zone[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<string>();
+  const out = raw.filter((z): z is Zone => {
+    if (!z || typeof z !== 'object' || typeof z.id !== 'string' || typeof z.name !== 'string' || !isHexColor(z.color) || seen.has(z.id)) return false;
+    seen.add(z.id);
+    return true;
+  }).map(z => ({ id: z.id, name: z.name, color: z.color }));
+  return out.length ? out : undefined;
+}
+
 /** Paramètres nommés (lot 12.2) : nom valide et unique, expression textuelle, unité connue. */
 export function normalizeParameters(raw: unknown): Parameter[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -277,6 +291,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
           })),
           ...(normalizeConstraints(v.constraints) ? { constraints: normalizeConstraints(v.constraints) } : {}),
           ...(normalizeParameters(v.parameters) ? { parameters: normalizeParameters(v.parameters) } : {}),
+          ...(normalizeZones(v.zones) ? { zones: normalizeZones(v.zones) } : {}),
           ...(typeof v.profileId === 'string' ? { profileId: v.profileId } : {}),
           ...(v.surfaceRule === 'carrez' || v.surfaceRule === 'sia-416' ? { surfaceRule: v.surfaceRule } : {}),
         };
@@ -359,6 +374,7 @@ interface SnapshotPatch {
   objects?: CadObject[];
   constraints?: GeoConstraint[];
   parameters?: Parameter[];
+  zones?: Zone[];
   layers?: Layer[];
   blocks?: BlockDef[];
   counter?: number;
@@ -504,6 +520,7 @@ export function useProject() {
         ...((patch.levels ?? cur.levels) ? { levels: patch.levels ?? cur.levels } : {}),
         ...(constraints?.length ? { constraints } : {}),
         ...(parameters?.length ? { parameters } : {}),
+        ...((patch.zones ?? cur.zones)?.length ? { zones: patch.zones ?? cur.zones } : {}),
       };
       return {
         ...s,
@@ -1275,7 +1292,56 @@ export function useProject() {
     return null;
   }, [parameters, constraints, commit]);
 
+  // ─── Zones (lot 13.3) ────────────────────────────────────────────────────────
+  const zones = useMemo(() => current.zones ?? [], [current.zones]);
+  const allZoneIds = useMemo(() => versions.flatMap(v => (v.zones ?? []).map(z => z.id)), [versions]);
+
+  /** Nouvelle zone ; les pièces données la rejoignent (elles quittent leur zone précédente). */
+  const addZone = useCallback((name: string, color: string, roomIds: string[] = []): string | null => {
+    const n = name.trim();
+    if (!n) return 'Nom de zone attendu.';
+    if (!isHexColor(color)) return 'Couleur attendue au format #rrggbb.';
+    const id = nextId('ZON', allZoneIds);
+    const rooms = new Set(roomIds);
+    commit(`Créer zone ${n}`, {
+      zones: [...zones, { id, name: n, color }],
+      ...(rooms.size ? { objects: allObjects.map(o => (o.kind === 'room' && rooms.has(o.id) ? { ...o, zoneId: id } : o)) } : {}),
+    });
+    return null;
+  }, [zones, allZoneIds, allObjects, commit]);
+
+  const updateZone = useCallback((id: string, patch: Partial<Pick<Zone, 'name' | 'color'>>): string | null => {
+    const z = zones.find(q => q.id === id);
+    if (!z) return 'Zone inconnue.';
+    if (patch.name !== undefined && !patch.name.trim()) return 'Nom de zone attendu.';
+    if (patch.color !== undefined && !isHexColor(patch.color)) return 'Couleur attendue au format #rrggbb.';
+    const next = { ...z, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) };
+    if (JSON.stringify(next) === JSON.stringify(z)) return null;
+    commit(`Modifier zone ${next.name}`, { zones: zones.map(q => (q.id === id ? next : q)) });
+    return null;
+  }, [zones, commit]);
+
+  /** Supprime une zone ; ses pièces restent, sans zone. */
+  const removeZone = useCallback((id: string) => {
+    const z = zones.find(q => q.id === id);
+    if (!z) return;
+    commit(`Supprimer zone ${z.name}`, {
+      zones: zones.filter(q => q.id !== id),
+      objects: allObjects.map(o => (o.kind === 'room' && o.zoneId === id ? (({ zoneId: _drop, ...rest }) => { void _drop; return rest as CadObject; })(o) : o)),
+    });
+  }, [zones, allObjects, commit]);
+
+  /** Rattache une pièce à une zone, ou la détache (zoneId absent). */
+  const setRoomZone = useCallback((roomId: string, zoneId: string | undefined) => {
+    const room = allObjects.find(o => o.id === roomId);
+    if (!room || room.kind !== 'room' || room.zoneId === zoneId || (zoneId && !zones.some(z => z.id === zoneId))) return;
+    commit(zoneId ? `Pièce ${room.name} dans la zone ${zones.find(z => z.id === zoneId)!.name}` : `Pièce ${room.name} hors zone`, {
+      objects: allObjects.map(o => (o.id !== roomId ? o : zoneId ? { ...o, zoneId } : (({ zoneId: _drop, ...rest }) => { void _drop; return rest as CadObject; })(o as CadObject & { zoneId?: string }))),
+    });
+  }, [allObjects, zones, commit]);
+
   return {
+    zones, addZone, updateZone, removeZone, setRoomZone,
     constraints, addConstraint, removeConstraint, setConstraintExpr,
     parameters, addParameter, updateParameter, removeParameter,
     levels, activeLevelId, setActiveLevelId, addLevel, updateLevel, removeLevel, copyLevel, allObjects,
