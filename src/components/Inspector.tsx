@@ -1,6 +1,6 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
-import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj } from '@/types/cad';
+import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj, Asset } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
 import { formatLevel, pdimValues } from '@/lib/pdim';
@@ -54,9 +54,13 @@ interface Props {
   onAddBalloon?: (targetId: string) => void;
   onAddBom?: () => void;
   onSelect?: (id: string) => void;
+  /** Notes de terrain (lot 7.3) : images du projet, ajout et retrait de photos. */
+  assets?: Record<string, Asset>;
+  onAddNotePhoto?: (noteId: string, file: File) => void;
+  onRemoveNotePhoto?: (noteId: string, assetId: string) => void;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -319,6 +323,39 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             </div>
           );
         })()}
+
+        {obj.kind === 'note' && (
+          <div className="space-y-1.5" data-testid="note-inspecteur">
+            <p className="ui-label mb-1.5">Note de terrain</p>
+            <p className="font-mono text-[10px] text-muted-foreground">
+              {new Date(obj.time).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · {obj.targetId ? <>jointe à <button className="text-cyan-300 underline" onClick={() => onSelect?.(obj.targetId!)}>{obj.targetId}</button></> : 'sur un point'}
+            </p>
+            <textarea key={obj.id} aria-label="Texte de la note" defaultValue={obj.text} rows={3}
+              onBlur={e => { const v = e.target.value; if (v !== obj.text) onUpdate(obj.id, { text: v }, 'Modifier la note'); }}
+              className="w-full rounded-sm border border-border bg-background px-1.5 py-1 font-mono text-[11px] text-foreground" />
+            <div className="grid grid-cols-3 gap-1">
+              {(obj.photoIds ?? []).map(id => (
+                <figure key={id} className="relative">
+                  {assets?.[id]
+                    ? <img src={assets[id].dataUrl} alt={`Photo ${assets[id].name}`} className="h-16 w-full rounded-sm object-cover" />
+                    : <span className="block h-16 rounded-sm border border-red-400/40 p-1 text-[9px] text-red-300">photo absente</span>}
+                  {onRemoveNotePhoto && (
+                    <button aria-label={`Supprimer la photo ${id}`} title="Supprimer la photo du projet (libère la place ; définitif)"
+                      onClick={() => { if (window.confirm('Supprimer définitivement cette photo du projet ? La place est libérée ; l’annulation ne la fera pas revenir.')) onRemoveNotePhoto(obj.id, id); }}
+                      className="absolute right-0.5 top-0.5 rounded-sm bg-black/70 px-1 text-[10px] text-red-300">×</button>
+                  )}
+                </figure>
+              ))}
+            </div>
+            {onAddNotePhoto && (
+              <label className="block w-full cursor-pointer rounded-sm border border-amber-400/40 px-2 py-1.5 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-amber-300 hover:bg-amber-400/10">
+                Ajouter une photo
+                <input type="file" accept="image/*" capture="environment" aria-label="Photo de la note" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onAddNotePhoto(obj.id, f); }} />
+              </label>
+            )}
+          </div>
+        )}
 
         {obj.kind === 'underlay' && (
           <div className="space-y-1.5">

@@ -3,7 +3,7 @@
 
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -267,7 +267,22 @@ export interface UnderlayObj extends Base {
   locked?: boolean;
 }
 
-/** Ressource d'image du projet (fond de plan), conservée une fois hors de l'historique. */
+/**
+ * Note de terrain (lot 7.3) : texte daté et photos, jointe à un objet (elle le suit et part avec
+ * lui ; `x`, `y` relatifs au coin de son emprise) ou à un point du plan (`x`, `y` absolus). Les photos
+ * sont des ressources du projet. Une note n'est pas dessinée sur les feuilles ni exportée.
+ */
+export interface NoteObj extends Base {
+  kind: 'note';
+  x: number; y: number;
+  targetId?: string;
+  text: string;
+  photoIds?: string[];
+  /** Date de la note (ms depuis 1970). */
+  time: number;
+}
+
+/** Ressource d'image du projet (fond de plan, photo de note), conservée une fois hors de l'historique. */
 export interface Asset {
   id: string;
   name: string;
@@ -277,11 +292,11 @@ export interface Asset {
   source: 'image' | 'pdf';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj;
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
-  return o.kind === 'dimension' || o.kind === 'balloon' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' ? o.sourceId : null;
+  return o.kind === 'dimension' || o.kind === 'balloon' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' ? o.sourceId : o.kind === 'note' ? o.targetId ?? null : null;
 }
 
 /**
@@ -304,7 +319,7 @@ export function withParents<T extends CadObject>(o: T, copyOf: (id: string) => s
 
 /** Même objet, rattaché à un autre parent (copie). */
 export function withParent<T extends CadObject>(o: T, parent: string): T {
-  if (o.kind === 'dimension' || o.kind === 'balloon') return { ...o, targetId: parent };
+  if (o.kind === 'dimension' || o.kind === 'balloon' || o.kind === 'note') return { ...o, targetId: parent };
   if (o.kind === 'opening') return { ...o, hostId: parent };
   if (o.kind === 'views' || o.kind === 'cut') return { ...o, sourceId: parent };
   return o;
@@ -435,6 +450,7 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   bom: 'Nomenclature',
   balloon: 'Repère de pièce',
   underlay: 'Fond de plan',
+  note: 'Note',
 };
 
 export const HATCH_LABEL: Record<HatchStyle, string> = {
@@ -522,6 +538,7 @@ export function dimensionOf(obj: CadObject): string {
     case 'bom': return 'Tableau de nomenclature';
     case 'balloon': return `Repère de ${obj.targetId}`;
     case 'underlay': return `Fond ${fmt(obj.w)} × ${fmt(obj.h)} mm${obj.locked ? ' · verrouillé' : ''}`;
+    case 'note': return `${obj.text.slice(0, 40) || 'Note'}${obj.photoIds?.length ? ` · ${obj.photoIds.length} photo${obj.photoIds.length > 1 ? 's' : ''}` : ''}`;
     case 'blockRef': return `bloc ${obj.blockId} ×${fmt(obj.scale)}`;
     case 'text': return `texte h ${fmt(obj.height)} mm`;
   }

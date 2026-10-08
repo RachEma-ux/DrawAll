@@ -33,12 +33,13 @@ import { DEFAULT_LEVEL, copyLevelObjects, levelIdOf, levelsOf, onLevel } from '@
 import { DEFAULT_MARGINS, PAPER_FORMATS, STANDARD_SCALES, printableArea } from '@/lib/sheet';
 import { nextIndexLetter } from '@/lib/titleblock';
 import { cutView } from '@/lib/cuts';
-import { objectBounds, projectBounds } from '@/lib/geometry';
+import { objectBounds, projectBounds, reanchorNote } from '@/lib/geometry';
 import { linkedViews } from '@/lib/views';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
 const SAVED_AT_KEY = 'drawall-projet-v1-date';
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
 /** Tolérance de calcul : en deçà, une longueur est considérée comme nulle (mm). */
 const GEOMETRY_EPSILON = 1e-6;
 const LAYER_COLORS = ['#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185'];
@@ -454,7 +455,9 @@ export function useProject() {
   const transformObjects = useCallback((ids: string[], fn: (o: CadObject) => Partial<CadObject> | null, label: string) => {
     const editable = ids
       .map(id => allObjects.find(o => o.id === id))
-      .filter((o): o is CadObject => !!o && !layers.find(l => l.id === o.layerId)?.locked && o.kind !== 'dimension' && !(o.kind === 'underlay' && o.locked));
+      .filter((o): o is CadObject => !!o && !layers.find(l => l.id === o.layerId)?.locked && o.kind !== 'dimension' && !(o.kind === 'underlay' && o.locked))
+      // Une note jointe suit son objet : transformée avec lui, elle se déplacerait deux fois.
+      .filter(o => !(o.kind === 'note' && o.targetId && ids.includes(o.targetId)));
     if (editable.length === 0) return 0;
     const patches = new Map<string, Partial<CadObject>>();
     for (const o of editable) {
@@ -462,11 +465,18 @@ export function useProject() {
       if (patch) patches.set(o.id, patch);
     }
     if (patches.size === 0) return 0;
-    commit(`${label} (${patches.size} objet${patches.size > 1 ? 's' : ''})`, {
-      objects: allObjects.map(o => (patches.has(o.id) ? ({ ...o, ...patches.get(o.id) } as CadObject) : o)),
-    });
+    let next = allObjects.map(o => (patches.has(o.id) ? ({ ...o, ...patches.get(o.id) } as CadObject) : o));
+    // Notes jointes aux objets transformés : le point noté suit la même transformation.
+    const notes = new Map<string, Partial<CadObject>>();
+    for (const o of allObjects) {
+      if (o.kind !== 'note' || !o.targetId || !patches.has(o.targetId)) continue;
+      const p = reanchorNote(o, fn, allObjects, next, blocks);
+      if (p) notes.set(o.id, p);
+    }
+    if (notes.size) next = next.map(o => (notes.has(o.id) ? ({ ...o, ...notes.get(o.id) } as CadObject) : o));
+    commit(`${label} (${patches.size} objet${patches.size > 1 ? 's' : ''})`, { objects: next });
     return patches.size;
-  }, [allObjects, layers, commit]);
+  }, [allObjects, layers, blocks, commit]);
 
   /**
    * Ajoute des copies de `sources` (objets du projet ou contenu du presse-papiers) pour chaque
@@ -479,7 +489,7 @@ export function useProject() {
       .map(o => (layers.some(l => l.id === o.layerId) || !active ? o : ({ ...o, layerId: active.id } as CadObject)))
       .filter(o => !layers.find(l => l.id === o.layerId)?.locked);
     if (usable.length === 0 || placements.length === 0) return [];
-    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq);
+    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks);
     const clones = cloned.map(stampLevel);
     if (clones.length === 0) return [];
     commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
@@ -488,7 +498,7 @@ export function useProject() {
     });
     setSelectedIds(clones.map(c => c.id));
     return clones.map(c => c.id);
-  }, [allObjects, layers, activeLayerId, state.counter, current.seq, commit, setSelectedIds, stampLevel]);
+  }, [allObjects, layers, blocks, activeLayerId, state.counter, current.seq, commit, setSelectedIds, stampLevel]);
 
   /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
   const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
@@ -668,6 +678,50 @@ export function useProject() {
     setSelectedId(id);
     return id;
   }, [state.assets, state.counter, activeLayerId, current.seq, allObjects, commit, setSelectedId, stampLevel]);
+
+  /**
+   * Note de terrain (lot 7.3) au point (x, y) : jointe à `targetId` (position relative au coin de son
+   * emprise, elle le suit) ou au point. Datée de l'instant de sa création.
+   */
+  const addNote = useCallback((x: number, y: number, text: string, targetId?: string) => {
+    const target = targetId ? allObjects.find(o => o.id === targetId && o.kind !== 'note') : undefined;
+    const b = target ? objectBounds(target, blocks, allObjects) : null;
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const count = allObjects.filter(o => o.kind === 'note').length + 1;
+    const note = stampLevel({
+      id, name: `Note ${count}`, kind: 'note', classification: target?.classification ?? 'non-classifie', layerId: target?.layerId ?? activeLayerId, hatch: 'none', createdSeq: current.seq,
+      x: round3(b ? x - b.minX : x), y: round3(b ? y - b.minY : y), ...(b && target ? { targetId: target.id } : {}), text, time: Date.now(),
+    } as CadObject);
+    commit(`Note ${target ? `sur ${target.id}` : 'sur un point'}`, { objects: [...allObjects, note], counter: state.counter + 1 });
+    setSelectedId(id);
+    return id;
+  }, [allObjects, blocks, state.counter, activeLayerId, current.seq, commit, setSelectedId, stampLevel]);
+
+  /** Photo jointe à une note : ressource du projet (hors historique), référencée par la note. */
+  const addNotePhoto = useCallback((noteId: string, asset: Omit<Asset, 'id'>) => {
+    const note = allObjects.find(o => o.id === noteId);
+    if (note?.kind !== 'note') return null;
+    const assetId = nextId('IMG', Object.keys(state.assets ?? {}));
+    setState(s => ({ ...s, assets: { ...(s.assets ?? {}), [assetId]: { ...asset, id: assetId } } }));
+    commit(`Photo jointe à ${noteId}`, { objects: allObjects.map(o => (o.id === noteId ? ({ ...note, photoIds: [...(note.photoIds ?? []), assetId] } as CadObject) : o)) });
+    return assetId;
+  }, [allObjects, state.assets, commit]);
+
+  const removeNotePhoto = useCallback((noteId: string, assetId: string) => {
+    const note = allObjects.find(o => o.id === noteId);
+    if (note?.kind !== 'note') return;
+    const photoIds = (note.photoIds ?? []).filter(p => p !== assetId);
+    commit(`Photo supprimée de ${noteId}`, { objects: allObjects.map(o => (o.id === noteId ? ({ ...note, photoIds } as CadObject) : o)) });
+    // Suppression définitive : la photo quitte le projet et tout son historique (la place est
+    // libérée ; une annulation ne ferait pas réapparaître une référence vers une image absente).
+    setState(s => {
+      const purge = (objects: CadObject[]) => objects.map(o => (o.kind === 'note' && o.photoIds?.includes(assetId) ? ({ ...o, photoIds: o.photoIds.filter(p => p !== assetId) } as CadObject) : o));
+      const stillUsed = s.versions.some(v => v.objects.some(o => o.kind === 'underlay' && o.assetId === assetId));
+      const assets = { ...(s.assets ?? {}) };
+      if (!stillUsed) delete assets[assetId];
+      return { ...s, versions: s.versions.map(v => ({ ...v, objects: purge(v.objects) })), assets };
+    });
+  }, [allObjects, commit]);
 
   /** Repère (bulle) d'une pièce, posé en haut à droite de son emprise. */
   const addBalloon = useCallback((targetId: string) => {
@@ -1022,7 +1076,7 @@ export function useProject() {
     addObject, updateObject, removeObject, removeObjects,
     transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches,
     addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, assets, storageFull, storageWarning, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
+    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
     undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
     diagnostics,
   };

@@ -387,6 +387,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - Alertes : « Hors ligne — travail conservé sur l'appareil » tant que le réseau manque ; « Stockage de l'appareil presque plein » au-delà de 90 % du quota estimé ; alerte rouge si aucun des deux stockages n'a pu enregistrer.
 - Recette : dessiner hors ligne, recharger, retrouver ; enregistrement manqué par le stockage local repris d'IndexedDB.
 
+### 9.3 Photos et notes (règle, lot 7.3)
+
+- Outil « Note » (U) : toucher un objet y joint la note (le point noté suit l'objet quand il est déplacé, tourné, symétrisé, mis à l'échelle ou copié en réseau ; la note est copiée et supprimée avec lui) ; toucher ailleurs la pose sur le point. Le texte est saisi à la création et modifiable dans l'inspecteur ; la note est datée.
+- Photos : jointes depuis l'inspecteur (appareil photo du téléphone ou fichier), réduites à 1 600 px de côté et encodées dans la place restante du stockage du projet (même budget que les fonds de plan, §7.3). Supprimer une photo la retire du projet et de tout son historique (après confirmation) : la place est libérée, l'annulation ne la fait pas revenir.
+- Sur le plan : repère à taille d'écran fixe (crayon, ou pastille si une photo est jointe), désignable avant les objets qu'il recouvre.
+- Les notes ne sont ni dessinées sur les feuilles ni exportées (PDF, SVG, DXF) ; le rapport DXF les compte ; elles sont conservées dans le projet et son paquet.
+
 ## 10. Références
 
 | Sujet | Référence |

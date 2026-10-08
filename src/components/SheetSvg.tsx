@@ -39,7 +39,7 @@ export function SheetSvg(p: SvgInput) {
       <rect x={0} y={0} width={size.w} height={size.h} fill="white" />
       <rect data-cadre="" x={area.x} y={area.y} width={area.w} height={area.h} fill="none" stroke="#000000" strokeWidth={0.5} />
       {sheet.viewports.map(v => {
-        const objs = onLevel(p.objects, viewportLevelId(v, p.levels)).filter(o => o.kind !== 'underlay');
+        const objs = onLevel(p.objects, viewportLevelId(v, p.levels)).filter(o => o.kind !== 'underlay' && o.kind !== 'note');
         const ctx = v.context ?? 'coupe';
         const drawn = withProfile(objs, p.profile, ctx, p.blocks);
         const blocks = withProfileBlocks(p.blocks, p.profile, ctx);
