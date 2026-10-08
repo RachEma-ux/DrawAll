@@ -23,6 +23,18 @@ test('lot 12.3 — classe IFC et jeux de propriétés éditables dans l’inspec
   await page.getByLabel('Unité de la propriété').selectOption('W/(m²·K)');
   await page.getByRole('button', { name: 'Ajouter la propriété' }).click();
   await expect(page.locator('[data-propriete="Pset_WallCommon.ThermalTransmittance"]')).toContainText('0,24 W/(m²·K)');
+  // Jeu choisi puis retiré : la propriété suivante va dans un jeu qui existe encore.
+  await page.getByLabel('Nom du nouveau jeu de propriétés').fill('Pset_Brouillon');
+  await page.getByRole('button', { name: 'Ajouter le jeu de propriétés' }).click();
+  await expect(page.getByLabel('Jeu de la propriété')).toHaveValue('Pset_Brouillon');
+  await page.getByRole('button', { name: 'Retirer le jeu Pset_Brouillon' }).click();
+  await expect(page.getByLabel('Jeu de la propriété')).toHaveValue('Pset_WallCommon');
+  await page.getByLabel('Nom de la propriété').fill('Reference');
+  await page.getByLabel('Type de la valeur').selectOption('texte');
+  await page.getByLabel('Valeur de la propriété').fill('M-01');
+  await page.getByLabel('Unité de la propriété').selectOption('');
+  await page.getByRole('button', { name: 'Ajouter la propriété' }).click();
+  await expect(page.locator('[data-propriete="Pset_WallCommon.Reference"]')).toContainText('M-01');
   // Saisie invalide : refusée avec sa raison.
   await page.getByLabel('Nom de la propriété').fill('LoadBearing');
   await page.getByLabel('Type de la valeur').selectOption('booleen');
@@ -33,11 +45,11 @@ test('lot 12.3 — classe IFC et jeux de propriétés éditables dans l’inspec
   await page.getByLabel('Classe IFC').selectOption('IfcCurtainWall');
   await expect.poll(async () => (await currentObjects(page))[0]).toMatchObject({
     ifcClass: 'IfcCurtainWall',
-    psets: [{ name: 'Pset_WallCommon', props: [{ name: 'IsExternal', value: true }, { name: 'ThermalTransmittance', value: 0.24, unit: 'W/(m²·K)' }] }],
+    psets: [{ name: 'Pset_WallCommon', props: [{ name: 'IsExternal', value: true }, { name: 'ThermalTransmittance', value: 0.24, unit: 'W/(m²·K)' }, { name: 'Reference', value: 'M-01' }] }],
   });
 
   // Rechargement : relu depuis l'enregistrement local.
   await page.reload();
-  await expect.poll(async () => (await currentObjects(page))[0]?.psets).toEqual([{ name: 'Pset_WallCommon', props: [{ name: 'IsExternal', value: true }, { name: 'ThermalTransmittance', value: 0.24, unit: 'W/(m²·K)' }] }]);
+  await expect.poll(async () => (await currentObjects(page))[0]?.psets).toEqual([{ name: 'Pset_WallCommon', props: [{ name: 'IsExternal', value: true }, { name: 'ThermalTransmittance', value: 0.24, unit: 'W/(m²·K)' }, { name: 'Reference', value: 'M-01' }] }]);
   expect(errors).toEqual([]);
 });

@@ -24,6 +24,10 @@ describe('propriétés et classification IFC (lot 12.3)', () => {
     let ps = addPset(undefined, 'Pset_WallCommon') as PropertySet[];
     expect(addPset(ps, 'Pset_WallCommon')).toEqual({ error: 'Le jeu « Pset_WallCommon » existe déjà.' });
     expect(addPset(ps, '  ')).toEqual({ error: 'Nom du jeu de propriétés attendu.' });
+    // Un nom que la relecture écarterait est refusé dès la création.
+    expect(addPset(ps, 'P'.repeat(129))).toEqual({ error: 'Nom du jeu de propriétés trop long (128 caractères au plus).' });
+    expect(normalizePsets([{ name: 'P'.repeat(129), props: [] }])).toBeUndefined();
+    expect(Array.isArray(addPset(ps, 'P'.repeat(128)))).toBe(true);
     ps = setProperty(ps, 'Pset_WallCommon', { name: 'IsExternal', value: true }) as PropertySet[];
     ps = setProperty(ps, 'Pset_WallCommon', { name: 'ThermalTransmittance', value: 0.24, unit: 'W/(m²·K)' }) as PropertySet[];
     ps = setProperty(ps, 'Pset_WallCommon', { name: 'IsExternal', value: false }) as PropertySet[];

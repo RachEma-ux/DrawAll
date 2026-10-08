@@ -66,6 +66,8 @@ export function normalizePsets(raw: unknown): PropertySet[] | undefined {
 export function addPset(psets: PropertySet[] | undefined, name: string): PropertySet[] | { error: string } {
   const n = name.trim();
   if (!n) return { error: 'Nom du jeu de propriétés attendu.' };
+  // Même règle qu'à la relecture : un jeu accepté ici n'est jamais écarté au rechargement.
+  if (!validName(n)) return { error: 'Nom du jeu de propriétés trop long (128 caractères au plus).' };
   if (psets?.some(s => s.name === n)) return { error: `Le jeu « ${n} » existe déjà.` };
   return [...(psets ?? []), { name: n, props: [] }];
 }

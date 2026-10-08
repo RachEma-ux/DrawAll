@@ -21,6 +21,8 @@ export default function PropertiesEditor({ obj, onUpdate }: Props) {
   const psets = obj.psets ?? [];
   const save = (next: PropertySet[], label: string) => { onUpdate(obj.id, { psets: next.length ? next : undefined }, label); setError(null); };
   const cls = ifcClassOf(obj);
+  // Jeu visé : celui choisi s'il existe encore sur cet objet, sinon le premier (jeu retiré, autre objet).
+  const activeSet = psets.some(s => s.name === draft.set) ? draft.set : psets[0]?.name ?? '';
 
   return (
     <div data-testid="proprietes">
@@ -54,7 +56,7 @@ export default function PropertiesEditor({ obj, onUpdate }: Props) {
       {psets.length > 0 && (
         <form className="mb-2 flex flex-wrap items-center gap-1" onSubmit={e => {
           e.preventDefault();
-          const set = draft.set || psets[0].name;
+          const set = activeSet;
           const value = parseValue(draft.value, draft.kind);
           if (typeof value === 'object') { setError(value.error); return; }
           const next = setProperty(psets, set, { name: draft.name.trim(), value, ...(draft.unit ? { unit: draft.unit } : {}) });
@@ -62,7 +64,7 @@ export default function PropertiesEditor({ obj, onUpdate }: Props) {
           save(next, `Propriété ${draft.name.trim()}`);
           setDraft(d => ({ ...d, name: '', value: '' }));
         }}>
-          <select aria-label="Jeu de la propriété" value={draft.set || psets[0].name} onChange={e => setDraft(d => ({ ...d, set: e.target.value }))} className={field}>
+          <select aria-label="Jeu de la propriété" value={activeSet} onChange={e => setDraft(d => ({ ...d, set: e.target.value }))} className={field}>
             {psets.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
           </select>
           <input aria-label="Nom de la propriété" placeholder="Nom" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} className={`${field} w-24`} />
@@ -85,7 +87,7 @@ export default function PropertiesEditor({ obj, onUpdate }: Props) {
         setDraft(d => ({ ...d, set: newSet.trim() }));
         setNewSet('');
       }}>
-        <input aria-label="Nom du nouveau jeu de propriétés" list="psets-usuels" placeholder={commonPsetName(cls)} value={newSet} onChange={e => setNewSet(e.target.value)} className={`${field} min-w-0 flex-1`} />
+        <input aria-label="Nom du nouveau jeu de propriétés" maxLength={128} list="psets-usuels" placeholder={commonPsetName(cls)} value={newSet} onChange={e => setNewSet(e.target.value)} className={`${field} min-w-0 flex-1`} />
         <datalist id="psets-usuels"><option value={commonPsetName(cls)} /></datalist>
         <button type="submit" aria-label="Ajouter le jeu de propriétés" className="rounded-sm border border-border px-2 py-1 text-xs text-foreground hover:bg-accent">Nouveau jeu</button>
       </form>
