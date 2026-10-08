@@ -4,6 +4,7 @@
 // journal depuis son état de base reproduit le projet. Fonctions pures.
 import { KIND_LABEL, type CadObject, type Layer, type MicroVersion } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
+import { isRecipe } from './solids';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
 export type TransformOp =
@@ -55,6 +56,33 @@ function transformError(op: unknown): string | null {
   }
 }
 
+/**
+ * Forme complète d'un objet à créer (scripts, assistant) : champs numériques finis, champs texte et
+ * listes de points requis par son type. Un objet incomplet serait enregistré puis casserait le rendu.
+ */
+const NUMS: Partial<Record<string, string[]>> = {
+  line: ['x1', 'y1', 'x2', 'y2'], rect: ['x', 'y', 'w', 'h'], circle: ['cx', 'cy', 'r'], arc: ['cx', 'cy', 'r', 'start', 'end'],
+  ellipse: ['cx', 'cy', 'rx', 'ry', 'rotation'], text: ['x', 'y', 'height', 'rotation'], wall: ['x1', 'y1', 'x2', 'y2', 'thickness'],
+  opening: ['position', 'width'], room: ['x', 'y'], slab: ['thickness'], roof: ['x', 'y', 'w', 'h', 'pitch', 'overhang'],
+  column: ['x', 'y'], beam: ['x1', 'y1', 'x2', 'y2', 'b', 'h'], occurrence: ['x', 'y', 'z', 'angle'], spline: ['degree'],
+};
+const STRS: Partial<Record<string, string[]>> = { text: ['content'], opening: ['hostId'], occurrence: ['sourceId'] };
+const POINTS = new Set(['polyline', 'slab', 'spline']);
+
+export function objectShapeError(o: Record<string, unknown>): string | null {
+  const kind = o.kind as string;
+  for (const k of NUMS[kind] ?? []) if (!finite(o[k])) return `${kind} : ${k} numérique fini attendu`;
+  for (const k of STRS[kind] ?? []) if (!str(o[k])) return `${kind} : ${k} attendu`;
+  if (POINTS.has(kind)) {
+    const p = o.points;
+    if (!Array.isArray(p) || p.length < 4 || p.length % 2 !== 0 || !p.every(finite)) return `${kind} : liste de points (x, y) finie attendue`;
+  }
+  if (kind === 'wall' && !['axe', 'gauche', 'droite'].includes(o.justification as string)) return 'mur : justification axe, gauche ou droite attendue';
+  if (kind === 'column' && o.section !== 'rect' && o.section !== 'circle') return 'poteau : section rect ou circle attendue';
+  if (kind === 'solid' && !isRecipe(o.recipe)) return 'solide : recette attendue';
+  return null;
+}
+
 /** Validateurs propres à certaines commandes (les autres : arguments sérialisables). */
 const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; layerIds?: Set<string> }) => string | null> = {
   addObject: ([o], { layerIds }) => {
@@ -62,7 +90,7 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; laye
     if (!n || typeof n !== 'object' || !str(n.kind)) return 'objet à créer : type attendu';
     if (!Object.prototype.hasOwnProperty.call(KIND_LABEL, n.kind as string)) return `type d’objet inconnu « ${String(n.kind)} »`;
     if (layerIds && !(str(n.layerId) && layerIds.has(n.layerId as string))) return `objet à créer : calque ${String(n.layerId)} absent`;
-    return null;
+    return objectShapeError(n as Record<string, unknown>);
   },
   updateObject: ([id, patch], { ids }) => (!str(id) ? 'identifiant attendu' : !ids.has(id as string) ? `objet ${String(id)} absent` : patch && typeof patch === 'object' ? null : 'modification attendue'),
   removeObject: ([id], { ids }) => (str(id) && ids.has(id as string) ? null : `objet ${String(id)} absent`),

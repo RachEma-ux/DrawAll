@@ -84,3 +84,27 @@ test('lot 18.2 — un script fautif n’abîme rien ; le script n’a accès ni 
   expect(await currentObjects(page)).toEqual(before);
   expect(errors).toEqual([]);
 });
+
+test('lot 18.2 — aucun accès réseau : import() dynamique bloqué avant toute requête', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 4000, y2: 0 }]);
+  // Une tentative bloquée par la politique de sécurité apparaît comme requête échouée, sans réponse :
+  // seule une réponse (ou une requête réellement partie) serait une fuite.
+  const leaks: string[] = [], blocked: string[] = [];
+  page.on('response', r => { if (r.url().includes('fuite')) leaks.push(r.url()); });
+  page.on('requestfinished', r => { if (r.url().includes('fuite')) leaks.push(r.url()); });
+  page.on('requestfailed', r => { if (r.url().includes('fuite')) blocked.push(r.failure()?.errorText ?? ''); });
+  await openConsole(page);
+  // Le script lit le projet puis tente de l'envoyer par un chargement de module.
+  const dlg = await runCode(page, [
+    "const data = encodeURIComponent(JSON.stringify(await drawall.objects()));",
+    "await import(location.origin === 'null' ? 'http://localhost:4173/fuite.js?d=' + data : '/fuite.js?d=' + data);",
+  ].join('\n'), 'annule');
+  await expect(dlg.getByRole('log', { name: 'Sortie du script' })).toContainText('Échec');
+  // Ni import(), ni requête d'aucune sorte : rien n'a quitté la page.
+  await page.waitForTimeout(500);
+  expect(leaks).toEqual([]);
+  expect(blocked.every(t => /BLOCKED_BY_CSP|csp/i.test(t))).toBe(true);
+  expect(errors).toEqual([]);
+});

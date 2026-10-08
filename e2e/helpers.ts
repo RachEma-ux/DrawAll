@@ -8,10 +8,13 @@ export async function openAtelier(page: Page): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.addInitScript(() => {
-    if (!sessionStorage.getItem('drawall-e2e-init')) {
-      localStorage.clear();
-      sessionStorage.setItem('drawall-e2e-init', '1');
-    }
+    // Les cadres isolés (scripts, lot 18.2) n'ont pas de stockage : rien à préparer.
+    try {
+      if (!sessionStorage.getItem('drawall-e2e-init')) {
+        localStorage.clear();
+        sessionStorage.setItem('drawall-e2e-init', '1');
+      }
+    } catch { /* cadre sans stockage */ }
   });
   await page.goto('/');
   await expect(page.getByTestId('canvas')).toBeVisible();

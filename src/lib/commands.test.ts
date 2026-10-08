@@ -30,13 +30,18 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('transform', [['OBJ-0001'], { kind: 'move', dx: 1, dy: 2 }, 'Déplacer'], [line])).toBeNull();
     expect(validateCommand('transform', [['OBJ-0001'], { kind: 'scale', cx: 0, cy: 0, factor: 0 }, 'x'], [line])).toBe('échelle : centre et rapport positif attendus');
     expect(validateCommand('transform', [['OBJ-0001'], { kind: 'twist' }, 'x'], [line])).toBe('transformation inconnue « twist »');
-    expect(validateCommand('addObject', [{ kind: 'line', x1: 0 }], [])).toBeNull();
+    expect(validateCommand('addObject', [{ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 }], [])).toBeNull();
     expect(validateCommand('addObject', [{}], [])).toBe('objet à créer : type attendu');
     // Scripts (lot 18.2) : type connu, calque existant.
     expect(validateCommand('addObject', [{ kind: 'licorne' }], [])).toBe('type d’objet inconnu « licorne »');
     expect(validateCommand('addObject', [{ kind: 'toString' }], [])).toBe('type d’objet inconnu « toString »');
     expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0009' }], [], [{ id: 'LAY-0001' }])).toBe('objet à créer : calque LAY-0009 absent');
-    expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0001' }], [], [{ id: 'LAY-0001' }])).toBeNull();
+    expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0001', x: 0, y: 0, section: 'rect' }], [], [{ id: 'LAY-0001' }])).toBeNull();
+    // Objet complet exigé : un solide sans recette, une ligne sans extrémité, des points invalides sont refusés.
+    expect(validateCommand('addObject', [{ kind: 'solid', layerId: 'LAY-0001' }], [], [{ id: 'LAY-0001' }])).toBe('solide : recette attendue');
+    expect(validateCommand('addObject', [{ kind: 'line', x1: 0, y1: 0, x2: 1 }], [])).toBe('line : y2 numérique fini attendu');
+    expect(validateCommand('addObject', [{ kind: 'polyline', points: [0, 0, 1] }], [])).toBe('polyline : liste de points (x, y) finie attendue');
+    expect(validateCommand('addObject', [{ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } }], [])).toBeNull();
     expect(validateCommand('addLevel', ['R+1', 'haut'], [])).toBe('nom et altitude attendus');
     expect(validateCommand('transformObjects', [['OBJ-0001'], (o: CadObject) => o], [line])).toBe('fonction en argument : utiliser une commande déclarative');
   });

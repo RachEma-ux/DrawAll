@@ -59,6 +59,13 @@ describe('assemblage (lot 16.4)', () => {
     expect(placeMate(b, { ...m, to: 'Z' }, [pin, a, b])).toEqual({ error: 'référence Z absente' });
     const loop = resolveMates([plate, { ...occ('A', 'P1'), mate: { type: 'fixe', to: 'B', rel: [0, 0, 0, 0] } }, { ...occ('B', 'P1'), mate: { type: 'fixe', to: 'A', rel: [0, 0, 0, 0] } }]);
     expect(loop.errors.map(e => e.text)).toContain('liaisons en boucle');
+    // Chaque membre de la boucle est signalé et laissé en place, ainsi que ce qui en dépend.
+    const a0 = { ...occ('A', 'P1', { x: 10 }), mate: { type: 'fixe', to: 'B', rel: [100, 0, 0, 0] } } as OccurrenceObj;
+    const b0 = { ...occ('B', 'P1', { x: 20 }), mate: { type: 'fixe', to: 'A', rel: [100, 0, 0, 0] } } as OccurrenceObj;
+    const c0 = { ...occ('C', 'P1', { x: 30 }), mate: { type: 'fixe', to: 'A', rel: [100, 0, 0, 0] } } as OccurrenceObj;
+    const cyc = resolveMates([plate, a0, b0, c0]);
+    expect(cyc.errors.map(e => e.id).sort()).toEqual(['A', 'B', 'C']);
+    expect(cyc.objects.filter(o => o.kind === 'occurrence').map(o => (o as OccurrenceObj).x)).toEqual([10, 20, 30]);
   });
 
   it('chaîne de liaisons : déplacer la base entraîne tout l’empilement', () => {

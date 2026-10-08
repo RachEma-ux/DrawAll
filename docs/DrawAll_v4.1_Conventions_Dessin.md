@@ -669,7 +669,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - **coaxiale** : axes de deux faces cylindriques verticales confondus ; glissement le long de l'axe et rotation libres ;
   - **appui plan** : une face plane contre une face plane de la référence, à l'écart saisi (0 par défaut), normales opposées. Pour des faces latérales, l'occurrence tourne autour de la verticale ; le glissement dans le plan reste libre.
 - **Résolution** à chaque version, références d'abord : modifier ou déplacer la référence (pièce type épaissie, occurrence déplacée…) replace les occurrences liées, en chaîne.
-- **Liaison non satisfaite** : faces non opposables par une rotation autour de la verticale, face disparue, référence absente ou boucle. L'occurrence reste en place et le diagnostic le signale. Une liaison impossible est refusée à la création, avec sa raison.
+- **Liaison non satisfaite** : faces non opposables par une rotation autour de la verticale, face disparue, référence absente ou boucle. L'occurrence reste en place et le diagnostic le signale. Dans une boucle, chaque membre est signalé et laissé en place, de même que toute occurrence liée à la boucle. Une liaison impossible est refusée à la création, avec sa raison.
 - **Nomenclature d'assemblage** (palette) : une ligne par pièce, avec son repère, sa désignation (désignation de pièce saisie, sinon nom) et sa quantité (pièce type + occurrences), plus le total. Elle est recalculée à chaque modification.
 - **Vue éclatée** (vue 3D, au-delà d'un solide) : les solides et les occurrences s'écartent du centre de l'ensemble, proportionnellement au curseur. Les positions du modèle ne changent pas.
 
@@ -749,6 +749,14 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - Sinon, la fusion est refusée et la raison est donnée.
 - **Comparaison** (palette, ou « Comparer et fusionner… » dans l'historique) : nombre d'éléments ajoutés, modifiés et supprimés de chaque côté depuis l'ancêtre commun. En surimpression sur le dessin, les changements de l'autre variante sont encadrés : ajouté en vert, modifié en ambre, supprimé en rouge pointillé.
 - **Fusion à trois voies**, par identifiant, sur les objets, calques, blocs, feuilles, niveaux, contraintes, paramètres et zones, ainsi que sur le profil de dessin et la règle de surface.
+- **Dépendances** : un élément supprimé d'un côté mais encore désigné dans le résultat est gardé provisoirement, et sa suppression devient un conflit qui nomme les objets dépendants. C'est le cas :
+  - d'un calque, d'un bloc ou d'un niveau ;
+  - d'une pièce désignée par une occurrence ;
+  - d'un mur désigné par une ouverture ;
+  - d'une source de vue ;
+  - de la cible d'une cote, d'une note ou d'une liaison.
+
+  Retenir la suppression retire aussi, de proche en proche, ce qui en dépend : aucune référence orpheline.
   - Un changement fait d'un seul côté est repris.
   - Un même changement fait des deux côtés est accepté.
   - Des changements différents d'un même élément (modifié des deux côtés, supprimé d'un côté et modifié de l'autre) sont un **conflit**. Le panneau les liste, et chacun doit être tranché (« garder » l'une ou l'autre variante) avant de fusionner. Rien n'est tranché en silence.
@@ -803,9 +811,11 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 
   Les commandes passent une à une, dans l'ordre ; chacune voit l'état laissé par la précédente et est journalisée comme celles de l'interface.
 - **Création d'objet validée** : le type doit être connu et le calque doit exister. Sans cela, l'objet serait invisible ou illisible.
-- **Sans accès au stockage** : `indexedDB`, `localStorage`, `sessionStorage` et `caches` sont retirés de l'objet global et de toute sa chaîne de prototypes. Il en va de même pour `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `BroadcastChannel`, `importScripts`, `navigator`, les Workers et la messagerie brute.
-  - Limite déclarée : la syntaxe `import()` du langage ne peut pas être retirée d'un Worker.
-  - L'isolement garanti porte donc sur le stockage et sur les données du projet, que le script ne lit et n'écrit que par l'API. Le réseau n'est pas tenu pour scellé.
+- **Sans accès au stockage ni au réseau** :
+  - Le Worker est créé, depuis un Blob, dans un cadre isolé (`sandbox`, origine opaque). La politique de sécurité de ce cadre (`default-src 'none'`) n'autorise aucune source réseau, et le Worker en hérite. `import()` d'une adresse, `fetch`, `XMLHttpRequest` et `WebSocket` sont ainsi bloqués avant toute requête. La recette le vérifie : un script qui tente d'envoyer le projet par `import()` n'obtient aucune réponse.
+  - En outre, `indexedDB`, `localStorage`, `sessionStorage`, `caches`, `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `BroadcastChannel`, `importScripts`, `navigator`, les Workers et la messagerie brute sont retirés de l'objet global et de toute sa chaîne de prototypes.
+  - Le script ne lit et n'écrit les données du projet que par l'API. Retirer le cadre arrête le Worker.
+- **Objets créés complets** : `addObject` exige la forme complète de l'objet selon son type (champs numériques finis, points, recette d'un solide, désignations), en plus d'un type connu et d'un calque existant.
 - **Tout ou rien** : un script qui échoue est annulé en entier. Les cas d'échec sont une exception, une commande refusée, un délai dépassé ou un arrêt à la main. Le projet revient à son état d'avant le script, journal compris.
   - Délai réglable de 1 à 120 s, 10 s par défaut. Au-delà, le Worker est arrêté.
   - Un script réussi laisse ses commandes au journal et ses versions dans l'historique.

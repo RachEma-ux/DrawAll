@@ -101,4 +101,21 @@ describe('comparaison et fusion (lot 14.2)', () => {
     const other = v(1, [line('A', 1)], { layers: [...layers, { id: 'LAY-0009', name: 'X', color: '#000000', visible: true, locked: false }], profileId: 'beton' } as Partial<MicroVersion>);
     expect(versionDiff(base, other)).toEqual([{ id: 'LAY-0009', kind: 'ajouté', where: 'layers' }, { id: 'profileId', kind: 'modifié', where: 'profileId' }]);
   });
+
+  it('dépendances entre objets : pièce supprimée d’un côté, occurrence ajoutée de l’autre → conflit, aucune occurrence orpheline', () => {
+    const part = { ...base0, id: 'P', name: 'P', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const occ = { ...base0, id: 'O', name: 'O', kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0 } as unknown as CadObject;
+    const dim = { ...base0, id: 'D', name: 'D', kind: 'dimension', targetId: 'O', style: 'aligned', offset: 10 } as unknown as CadObject;
+    const r = merge3(v(0, [part]), v(1, []), v(1, [part, occ, dim]));
+    expect(r.merged.objects!.map(o => o.id).sort()).toEqual(['D', 'O', 'P']);
+    const c = r.conflicts.find(x => x.where === 'objects' && x.id === 'P')!;
+    expect(c).toMatchObject({ ours: 'supprimé', dependents: ['O'] });
+    // Retenir la suppression retire l'occurrence et, de proche en proche, la cote qui la vise.
+    const del = resolve(r, { [conflictKey(c)]: 'nôtre' });
+    if ('error' in del) throw new Error(del.error);
+    expect(del.objects).toEqual([]);
+    const keep = resolve(r, { [conflictKey(c)]: 'leur' });
+    if ('error' in keep) throw new Error(keep.error);
+    expect(keep.objects!.map(o => o.id).sort()).toEqual(['D', 'O', 'P']);
+  });
 });

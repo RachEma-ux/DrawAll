@@ -102,19 +102,23 @@ export function resolveMates(objects: CadObject[]): { objects: CadObject[]; erro
   const errors: { id: string; text: string }[] = [];
   const byId = new Map(objects.map(o => [o.id, o]));
   const done = new Set<string>(), visiting = new Set<string>();
-  const visit = (o: OccurrenceObj & { mate: Mate }) => {
-    if (done.has(o.id)) return;
-    if (visiting.has(o.id)) { errors.push({ id: o.id, text: 'liaisons en boucle' }); return; }
+  const cyclic = new Set<string>();
+  /** Vrai si l'occurrence dépend (directement ou non) d'une boucle de liaisons : elle reste en place. */
+  const visit = (o: OccurrenceObj & { mate: Mate }): boolean => {
+    if (done.has(o.id)) return cyclic.has(o.id);
+    if (visiting.has(o.id)) return true;
     visiting.add(o.id);
     const ref = byId.get(o.mate.to);
-    if (ref?.kind === 'occurrence' && ref.mate) visit(ref as OccurrenceObj & { mate: Mate });
+    const inLoop = ref?.kind === 'occurrence' && !!ref.mate && visit(ref as OccurrenceObj & { mate: Mate });
     visiting.delete(o.id);
-    if (errors.some(e => e.id === o.id)) { done.add(o.id); return; }
+    done.add(o.id);
+    // Chaque membre d'une boucle, et ce qui en dépend, est signalé et laissé en place.
+    if (inLoop) { cyclic.add(o.id); errors.push({ id: o.id, text: 'liaisons en boucle' }); return true; }
     const current = byId.get(o.id) as OccurrenceObj;
     const p = placeMate(current, o.mate, [...byId.values()]);
     if ('error' in p) errors.push({ id: o.id, text: p.error });
     else if (p.x !== current.x || p.y !== current.y || p.z !== current.z || p.angle !== current.angle) byId.set(o.id, { ...current, ...p });
-    done.add(o.id);
+    return false;
   };
   for (const o of mated) visit(o);
   return { objects: objects.map(o => byId.get(o.id) ?? o), errors };

@@ -2,7 +2,7 @@
 // supprimé, modifié) et fusion à trois voies par identifiant : une modification faite d'un seul côté
 // est reprise, des modifications différentes d'un même élément sont un conflit, listé puis tranché
 // (garder l'une ou l'autre). Rien n'est tranché en silence. Fonctions pures.
-import type { CadObject, MicroVersion, ProjectState } from '@/types/cad';
+import { parentsOf, type CadObject, type MicroVersion, type ProjectState } from '@/types/cad';
 import { activeBranch } from './branches';
 
 type WithId = { id: string };
@@ -123,6 +123,32 @@ function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: Mic
       merged[where] = [...list, kept];
     }
   }
+  // Objets qui en désignent d'autres (occurrence → pièce, ouverture → mur, vue → source, cote,
+  // note, liaison) : un objet désigné supprimé d'un côté mais encore désigné dans le résultat est
+  // gardé provisoirement ; sa suppression devient un conflit. Répété jusqu'à stabilité (un objet
+  // gardé peut lui-même en désigner un autre supprimé).
+  const refsOf = (o: CadObject) => [...parentsOf(o), ...(o.kind === 'occurrence' && o.mate ? [o.mate.to] : [])];
+  for (let pass = 0; pass < 100; pass++) {
+    const objs = (merged.objects as CadObject[] | undefined) ?? [];
+    const present = new Set(objs.map(o => o.id));
+    const users = new Map<string, string[]>();
+    for (const o of objs) for (const r of refsOf(o)) if (!present.has(r)) users.set(r, [...(users.get(r) ?? []), o.id]);
+    let added = false;
+    for (const [id, dependents] of users) {
+      const find = (v: MicroVersion) => (v.objects.find(x => x.id === id) as CadObject | undefined) ?? null;
+      const o = find(ours), t = find(theirs), b = find(base);
+      const kept = o ?? t ?? b;
+      if (!kept) continue; // référence déjà absente partout : rien à garder
+      const existing = conflicts.find(c => c.where === 'objects' && c.id === id);
+      if (existing) existing.dependents = dependents;
+      else {
+        const kind = (v: unknown): ChangeKind => (v === null ? 'supprimé' : b ? 'modifié' : 'ajouté');
+        conflicts.push({ where: 'objects', id, ours: kind(o), theirs: kind(t), oursValue: o, theirsValue: t, dependents });
+      }
+      if (!present.has(id)) { merged.objects = [...((merged.objects as CadObject[]) ?? []), kept]; added = true; }
+    }
+    if (!added) break;
+  }
 }
 
 /**
@@ -163,6 +189,15 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
     if (value === null) {
       out[c.where] = list.filter(x => x.id !== c.id);
       for (const d of c.dependents) gone.add(d);
+    }
+  }
+  // Dépendants des dépendants (une cote d'une ouverture d'un mur retiré…) : retirés à leur tour.
+  for (let grew = gone.size > 0; grew;) {
+    grew = false;
+    for (const o of (out.objects as CadObject[] | undefined) ?? []) {
+      if (gone.has(o.id)) continue;
+      const refs = [...parentsOf(o), ...(o.kind === 'occurrence' && o.mate ? [o.mate.to] : [])];
+      if (refs.some(r => gone.has(r))) { gone.add(o.id); grew = true; }
     }
   }
   if (gone.size) out.objects = ((out.objects as WithId[] | undefined) ?? []).filter(o => !gone.has(o.id));
