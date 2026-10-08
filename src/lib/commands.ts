@@ -2,7 +2,7 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import { KIND_LABEL, parentsOf, type CadObject, type Layer, type MicroVersion } from '@/types/cad';
+import { CLASSIFICATION_META, KIND_LABEL, parentsOf, type CadObject, type Layer, type MicroVersion } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isRecipe } from './solids';
 
@@ -106,10 +106,16 @@ const SPECS: Record<string, Spec> = {
   note: { nums: ['x', 'y', 'time'], extra: o => (typeof o.text === 'string' ? null : 'note : texte attendu') },
 };
 
+const HATCHES = ['none', 'diagonal', 'cross', 'solid'];
+
 export function objectShapeError(o: Record<string, unknown>): string | null {
   const kind = o.kind as string;
   const spec = SPECS[kind];
   if (!spec) return `type d’objet inconnu « ${String(kind)} »`;
+  // Champs communs : classification connue (couleurs métier), hachure permise, désignations textuelles.
+  if (!Object.prototype.hasOwnProperty.call(CLASSIFICATION_META, o.classification as string)) return `${kind} : classification parmi ${Object.keys(CLASSIFICATION_META).join(', ')} attendue`;
+  if (o.hatch !== undefined && !HATCHES.includes(o.hatch as string)) return `${kind} : hachure parmi ${HATCHES.join(', ')} attendue`;
+  for (const k of ['part', 'materialId', 'groupId']) if (o[k] !== undefined && !str(o[k])) return `${kind} : ${k} texte attendu`;
   for (const k of spec.nums ?? []) if (!finite(o[k])) return `${kind} : ${k} numérique fini attendu`;
   for (const k of spec.pos ?? []) if (!positive(o[k])) return `${kind} : ${k} positif attendu`;
   for (const k of spec.strs ?? []) if (!str(o[k])) return `${kind} : ${k} attendu`;

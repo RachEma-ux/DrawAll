@@ -70,6 +70,11 @@ test('lot 18.2 — un script fautif n’abîme rien ; le script n’a accès ni 
   await expect(dlg).toContainText('commande non ouverte aux scripts « addSolids »');
   await expect.poll(() => currentObjects(page)).toEqual(before);
 
+  // Commande acceptée qui ne change rien (liste vide) : le script continue, pas d'attente sans fin.
+  dlg = await runCode(page, "await drawall.execute('removeObjects', []);\ndrawall.log('après la commande vide');", 'reussi');
+  await expect(dlg).toContainText('après la commande vide');
+  await expect.poll(() => currentObjects(page)).toEqual(before);
+
   // Argument facultatif mal typé (nom d'objet non textuel) : refusé, annulation, pas d'attente sans fin.
   dlg = await runCode(page, `${add(0)}\nawait drawall.execute('addObject', { kind: 'column', classification: 'structure', layerId: (await drawall.context()).activeLayerId, hatch: 'none', x: 0, y: 0, section: 'circle', d: 400 }, {});`, 'annule');
   await expect(dlg).toContainText('addObject : argument 2 texte attendu');

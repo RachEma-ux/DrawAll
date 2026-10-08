@@ -293,7 +293,12 @@ export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
     case 'compound': return Array.isArray(x.parts) && x.parts.length > 0 && x.parts.every(p => isRecipe(p, depth + 1));
     case 'polyhedron': return Array.isArray(x.faces) && x.faces.length > 0 && x.faces.every(f => Array.isArray(f) && f.length >= 3 && f.every(v3));
     case 'union': case 'cut': case 'intersect': return isRecipe(x.a, depth + 1) && isRecipe(x.b, depth + 1);
-    case 'fillet': return num(x.r, true) && isRecipe(x.of, depth + 1);
+    case 'fillet': {
+      // Arêtes désignées (facultatives) : chacune par ses deux faces adjacentes.
+      const face = (f: unknown) => !!f && typeof f === 'object' && typeof (f as FaceRef).feature === 'string' && typeof (f as FaceRef).role === 'string';
+      const edge = (e: unknown) => !!e && typeof e === 'object' && Array.isArray((e as { faces?: unknown }).faces) && (e as { faces: unknown[] }).faces.length === 2 && (e as { faces: unknown[] }).faces.every(face);
+      return num(x.r, true) && (x.edges === undefined || (Array.isArray(x.edges) && x.edges.every(edge))) && isRecipe(x.of, depth + 1);
+    }
     case 'pushpull': {
       const f = x.face as FaceRef | undefined;
       return !!f && typeof f.feature === 'string' && typeof f.role === 'string' && num(x.distance) && x.distance !== 0 && isRecipe(x.of, depth + 1);

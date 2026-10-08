@@ -455,6 +455,20 @@ export function withDependents(objects: CadObject[], ids: Iterable<string>): Set
   return out;
 }
 
+/**
+ * Après une suppression : une occurrence liée (liaison d'assemblage) à une occurrence disparue garde sa
+ * place mais perd sa liaison, au lieu d'une liaison pendante jamais satisfaite.
+ */
+export function withoutDanglingMates(objects: CadObject[]): CadObject[] {
+  const present = new Set(objects.map(o => o.id));
+  return objects.map(o => {
+    if (o.kind !== 'occurrence' || !o.mate || present.has(o.mate.to)) return o;
+    const { mate: _m, ...rest } = o;
+    void _m;
+    return rest as CadObject;
+  });
+}
+
 /** Même objet rattaché aux copies de tous ses parents, ou null si l'un d'eux n'est pas copié. */
 export function withParents<T extends CadObject>(o: T, copyOf: (id: string) => string | undefined): T | null {
   let out: T = o;

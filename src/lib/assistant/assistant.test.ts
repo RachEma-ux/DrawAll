@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CadObject } from '@/types/cad';
+import { withoutDanglingMates, type CadObject } from '@/types/cad';
 import { MAX_CORRECTIONS, controlledLoop, dryRun, previewDiff, provisionalId, remapIds, requestKey, scriptedGenerator, type AssistantContext, type Proposal } from './loop';
 import { localGenerator } from './local-generator';
 
@@ -196,5 +196,15 @@ describe('transformation simulée comme la commande', () => {
     expect(dryRun([{ type: 'transform', args: [['OBJ-0020'], { kind: 'move', dx: 1, dy: 0 }, 'x'] }], c).errors)
       .toEqual(['opération 1 (transform) : OBJ-0020 non transformable (calque verrouillé)']);
     expect(dryRun([{ type: 'transform', args: [['OBJ-0001'], { kind: 'move', dx: 1, dy: 0 }, 'x'] }], c).errors).toEqual([]);
+  });
+});
+
+describe('liaisons d’assemblage à la suppression', () => {
+  it('une occurrence liée à une occurrence supprimée garde sa place et perd sa liaison', () => {
+    const occ = (id: string, extra: Record<string, unknown> = {}) => ({ ...ctx.objects[0], id, kind: 'occurrence', sourceId: 'S', x: 0, y: 0, z: 0, angle: 0, ...extra }) as unknown as CadObject;
+    const left = withoutDanglingMates([occ('A'), occ('C', { mate: { type: 'coincidence', to: 'B' } })]);
+    expect(left.map(o => ('mate' in o ? o.mate : undefined))).toEqual([undefined, undefined]);
+    const kept = withoutDanglingMates([occ('B'), occ('C', { mate: { type: 'coincidence', to: 'B' } })]);
+    expect((kept[1] as { mate?: unknown }).mate).toEqual({ type: 'coincidence', to: 'B' });
   });
 });

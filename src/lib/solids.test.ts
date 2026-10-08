@@ -118,6 +118,12 @@ describe('solides : recettes (lot 15.2)', () => {
     expect(isRecipe({ op: 'translate', of: e, by: [1, 2, Number.NaN] })).toBe(false);
     // Direction de longueur nulle (axe de cylindre, axe de révolution) : refusée.
     expect(isRecipe({ op: 'cylinder', r: 1, h: 2, dir: [0, 0, 0] })).toBe(false);
+    // Congé : arêtes désignées, si présentes, chacune par deux faces complètes.
+    const face = { feature: 'f1', role: 'top' };
+    expect(isRecipe({ op: 'fillet', of: e, r: 1, edges: {} })).toBe(false);
+    expect(isRecipe({ op: 'fillet', of: e, r: 1, edges: [{ faces: [face] }] })).toBe(false);
+    expect(isRecipe({ op: 'fillet', of: e, r: 1, edges: [{ faces: [face, { feature: 'f1', role: 'side-0' }] }] })).toBe(true);
+    expect(isRecipe({ op: 'fillet', of: e, r: 1 })).toBe(true);
     expect(isRecipe({ op: 'cylinder', r: 1, h: 2, dir: [1, 0, 0] })).toBe(true);
     const tri: [number, number][] = [[1, 0], [2, 0], [2, 1]];
     expect(isRecipe({ op: 'revolve', profile: tri, angle: 90, axis: { origin: [0, 0], dir: [0, 0] } })).toBe(false);

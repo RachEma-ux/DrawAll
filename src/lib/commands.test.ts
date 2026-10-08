@@ -31,29 +31,33 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('transform', [['OBJ-0001'], { kind: 'move', dx: 1, dy: 2 }, 'Déplacer'], [line])).toBeNull();
     expect(validateCommand('transform', [['OBJ-0001'], { kind: 'scale', cx: 0, cy: 0, factor: 0 }, 'x'], [line])).toBe('échelle : centre et rapport positif attendus');
     expect(validateCommand('transform', [['OBJ-0001'], { kind: 'twist' }, 'x'], [line])).toBe('transformation inconnue « twist »');
-    expect(validateCommand('addObject', [{ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 }], [])).toBeNull();
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 }], [])).toBeNull();
     expect(validateCommand('addObject', [{}], [])).toBe('objet à créer : type attendu');
     // Scripts (lot 18.2) : type connu, calque existant.
-    expect(validateCommand('addObject', [{ kind: 'licorne' }], [])).toBe('type d’objet inconnu « licorne »');
-    expect(validateCommand('addObject', [{ kind: 'toString' }], [])).toBe('type d’objet inconnu « toString »');
-    expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0009' }], [], [{ id: 'LAY-0001' }])).toBe('objet à créer : calque LAY-0009 absent');
-    expect(validateCommand('addObject', [{ kind: 'column', layerId: 'LAY-0001', x: 0, y: 0, section: 'rect', b: 300, h: 300 }], [], [{ id: 'LAY-0001' }])).toBeNull();
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'licorne' }], [])).toBe('type d’objet inconnu « licorne »');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'toString' }], [])).toBe('type d’objet inconnu « toString »');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'column', layerId: 'LAY-0009' }], [], [{ id: 'LAY-0001' }])).toBe('objet à créer : calque LAY-0009 absent');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'column', layerId: 'LAY-0001', x: 0, y: 0, section: 'rect', b: 300, h: 300 }], [], [{ id: 'LAY-0001' }])).toBeNull();
     // Dimensions exigées selon la section du poteau.
-    expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'rect' }], [])).toBe('poteau rectangulaire : b et h positifs attendus');
-    expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'rect', b: 300, h: 0 }], [])).toBe('poteau rectangulaire : b et h positifs attendus');
-    expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'circle', b: 300, h: 300 }], [])).toBe('poteau circulaire : diamètre d positif attendu');
-    expect(validateCommand('addObject', [{ kind: 'column', x: 0, y: 0, section: 'circle', d: 400 }], [])).toBeNull();
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'column', x: 0, y: 0, section: 'rect' }], [])).toBe('poteau rectangulaire : b et h positifs attendus');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'column', x: 0, y: 0, section: 'rect', b: 300, h: 0 }], [])).toBe('poteau rectangulaire : b et h positifs attendus');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'column', x: 0, y: 0, section: 'circle', b: 300, h: 300 }], [])).toBe('poteau circulaire : diamètre d positif attendu');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'column', x: 0, y: 0, section: 'circle', d: 400 }], [])).toBeNull();
     // Dimensions strictement positives (rayon, largeur, épaisseur, hauteur de texte…).
-    expect(validateCommand('addObject', [{ kind: 'circle', cx: 0, cy: 0, r: -1 }], [])).toBe('circle : r positif attendu');
-    expect(validateCommand('addObject', [{ kind: 'circle', cx: 0, cy: 0, r: 0 }], [])).toBe('circle : r positif attendu');
-    expect(validateCommand('addObject', [{ kind: 'rect', x: 0, y: 0, w: 10, h: -5 }], [])).toBe('rect : h positif attendu');
-    expect(validateCommand('addObject', [{ kind: 'wall', x1: 0, y1: 0, x2: 1, y2: 0, thickness: 0, justification: 'axe' }], [])).toBe('wall : thickness positif attendu');
-    expect(validateCommand('addObject', [{ kind: 'circle', cx: -5, cy: -5, r: 2 }], [])).toBeNull();
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'circle', cx: 0, cy: 0, r: -1 }], [])).toBe('circle : r positif attendu');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'circle', cx: 0, cy: 0, r: 0 }], [])).toBe('circle : r positif attendu');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'rect', x: 0, y: 0, w: 10, h: -5 }], [])).toBe('rect : h positif attendu');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'wall', x1: 0, y1: 0, x2: 1, y2: 0, thickness: 0, justification: 'axe' }], [])).toBe('wall : thickness positif attendu');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'circle', cx: -5, cy: -5, r: 2 }], [])).toBeNull();
+    // Champs communs : classification connue, hachure permise.
+    expect(validateCommand('addObject', [{ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 }], [])).toBe('line : classification parmi non-classifie, architecture, structure, mecanique, electrique attendue');
+    expect(validateCommand('addObject', [{ classification: 'licorne', kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 }], [])).toMatch(/^line : classification parmi/);
+    expect(validateCommand('addObject', [{ classification: 'structure', hatch: 'zigzag', kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 }], [])).toBe('line : hachure parmi none, diagonal, cross, solid attendue');
     // Objet complet exigé : un solide sans recette, une ligne sans extrémité, des points invalides sont refusés.
-    expect(validateCommand('addObject', [{ kind: 'solid', layerId: 'LAY-0001' }], [], [{ id: 'LAY-0001' }])).toBe('solide : recette attendue');
-    expect(validateCommand('addObject', [{ kind: 'line', x1: 0, y1: 0, x2: 1 }], [])).toBe('line : y2 numérique fini attendu');
-    expect(validateCommand('addObject', [{ kind: 'polyline', points: [0, 0, 1] }], [])).toBe('polyline : liste de points (x, y) finie attendue');
-    expect(validateCommand('addObject', [{ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } }], [])).toBeNull();
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', layerId: 'LAY-0001' }], [], [{ id: 'LAY-0001' }])).toBe('solide : recette attendue');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'line', x1: 0, y1: 0, x2: 1 }], [])).toBe('line : y2 numérique fini attendu');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'polyline', points: [0, 0, 1] }], [])).toBe('polyline : liste de points (x, y) finie attendue');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } }], [])).toBeNull();
     expect(validateCommand('addLevel', ['R+1', 'haut'], [])).toBe('nom et altitude attendus');
     expect(validateCommand('transformObjects', [['OBJ-0001'], (o: CadObject) => o], [line])).toBe('fonction en argument : utiliser une commande déclarative');
   });
@@ -61,7 +65,7 @@ describe('API de commandes (lot 18.1)', () => {
   it('références vérifiées : niveau, bloc, objet désigné présent et du bon type', () => {
     const L = [{ id: 'LAY-0001' }];
     const P = { levels: [{ id: 'NIV-0001' }], blocks: [{ id: 'BLK-0001' }] };
-    const add = (o: Record<string, unknown>, objects: CadObject[] = [line]) => validateCommand('addObject', [{ layerId: 'LAY-0001', ...o }], objects, L, P);
+    const add = (o: Record<string, unknown>, objects: CadObject[] = [line]) => validateCommand('addObject', [{ classification: 'non-classifie', layerId: 'LAY-0001', ...o }], objects, L, P);
     expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, levelId: 'NIV-0009' })).toBe('line : niveau NIV-0009 absent');
     expect(add({ kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, levelId: 'NIV-0001' })).toBeNull();
     expect(add({ kind: 'blockRef', x: 0, y: 0, scale: 1, blockId: 'BLK-0009' })).toBe('blockRef : bloc BLK-0009 absent');
@@ -86,7 +90,7 @@ describe('API de commandes (lot 18.1)', () => {
     expect(SCRIPT_COMMANDS).toEqual(expect.arrayContaining(['addObject', 'updateObject', 'removeObjects', 'transform', 'addLevel', 'setActiveLevelId']));
     expect(validateCommand('undo', [{ type: 'click' }], [])).toBe('annuler : sans argument');
     // Arguments en trop ou mal typés : refusés (un nom d'objet non textuel casserait l'affichage).
-    const col = { kind: 'column', x: 0, y: 0, section: 'circle', d: 400 };
+    const col = { classification: 'structure', kind: 'column', x: 0, y: 0, section: 'circle', d: 400 };
     expect(scriptCommandError('addObject', [col, {}])).toBe('addObject : argument 2 texte attendu');
     expect(scriptCommandError('addObject', [col, 'P1', 'Poser', 'trop'])).toBe('addObject : 3 arguments au plus');
     expect(scriptCommandError('addObject', [col, 'P1', 'Poser'])).toBeNull();
@@ -96,9 +100,9 @@ describe('API de commandes (lot 18.1)', () => {
 
   it('chaque type d’objet a sa fiche de validation ; mise à jour validée sur l’objet résultant', () => {
     expect([...OBJECT_SPEC_KINDS].sort()).toEqual(Object.keys(KIND_LABEL).sort());
-    expect(validateCommand('addObject', [{ kind: 'pdim', mode: 'chain', axis: 'horizontal', offset: 1 }], [])).toBe('pdim : liste de points (x, y) finie attendue');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'pdim', mode: 'chain', axis: 'horizontal', offset: 1 }], [])).toBe('pdim : liste de points (x, y) finie attendue');
     // Points selon le mode : niveau 1, chaîne et ligne de base 2, angle 3.
-    const pd = (mode: string, points: number[]) => validateCommand('addObject', [{ kind: 'pdim', mode, axis: 'horizontal', offset: 1, points }], []);
+    const pd = (mode: string, points: number[]) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'pdim', mode, axis: 'horizontal', offset: 1, points }], []);
     expect(pd('level', [0, 0])).toBeNull();
     expect(pd('chain', [0, 0])).toBe('pdim : 2 points au moins pour le mode chain');
     expect(pd('baseline', [0, 0, 10, 0])).toBeNull();

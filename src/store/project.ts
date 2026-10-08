@@ -27,6 +27,7 @@ import {
   KIND_LABEL,
   parentOf,
   withDependents,
+  withoutDanglingMates,
   withParent,
   polylineExtents,
   supportedDimensionStyles,
@@ -645,7 +646,7 @@ export function useProject() {
     // Les objets associatifs (cotes, ouvertures, vues liées) partent avec leur parent.
     const removed = withDependents(allObjects, ids);
     commit(ids.length === 1 ? `Supprimer ${ids[0]}` : `Supprimer ${ids.length} objets`, {
-      objects: allObjects.filter(o => !removed.has(o.id)),
+      objects: withoutDanglingMates(allObjects.filter(o => !removed.has(o.id))),
     });
     setSelectedIds([]);
   }, [allObjects, commit, setSelectedIds]);
@@ -725,7 +726,7 @@ export function useProject() {
     const next = allObjects
       .filter(o => !removed.has(o.id))
       .map(o => (o.id === id && edit.patch ? ({ ...o, ...edit.patch } as CadObject) : o));
-    commit(`${label} ${id}`, { objects: [...next, ...added], counter });
+    commit(`${label} ${id}`, { objects: withoutDanglingMates([...next, ...added]), counter });
     if (edit.remove) setSelectedIds(added.map(o => o.id));
     return true;
   }, [allObjects, state.counter, current.seq, commit, setSelectedIds]);
@@ -1349,7 +1350,7 @@ export function useProject() {
     const rest = levels.filter(l => l.id !== id);
     // Un objet associatif qui dépendait d'un objet supprimé part avec lui.
     const gone = withDependents(allObjects, allObjects.filter(o => levelIdOf(o) === id).map(o => o.id));
-    const objectsLeft = allObjects.filter(o => !gone.has(o.id));
+    const objectsLeft = withoutDanglingMates(allObjects.filter(o => !gone.has(o.id)));
     commit(`Supprimer niveau ${id}`, {
       levels: rest,
       objects: objectsLeft,
