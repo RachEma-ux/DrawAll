@@ -66,6 +66,14 @@ La tolérance de fabrication (variation physique admissible d'une pièce, ISO 27
 - Périmètre par quadrature (erreur relative < 10⁻⁹) ; aire π·a·b pour une ellipse entière.
 - PDF : courbes de Bézier par portions de 45° (écart ≤ 2·10⁻⁵ × demi-axe). Une ellipse n'est pas encore un contour de hachure ; le décalage parallèle d'une ellipse relève du lot 10.4.
 
+### 1.8 Spline (règle, lot 10.2)
+
+- Objet natif : B-spline de degré 1 à 3 (ou plus à l'import) par points de contrôle ; nœuds bornés uniformes par défaut (la courbe passe par le premier et le dernier point) ; nœuds et poids d'un fichier DXF conservés tels quels.
+- Outil « Spline » (touche S) : points de contrôle cliqués, touchés ou saisis, puis « Terminer » (Entrée ou double-clic) ; degré 3, ou moins s'il y a moins de quatre points. Aperçu de la courbe et du polygone de contrôle pendant le tracé.
+- Les points de contrôle se modifient dans l'inspecteur ; la courbe suit. Déplacer, tourner, symétrie et échelle transforment les points de contrôle : la courbe transformée est exacte.
+- Accrochages : extrémités ; plus proche, perpendiculaire et intersections par une approche à 0,01 mm. Longueur par approche à 10⁻⁵ mm.
+- Rendu à l'écran et PDF : polyligne à 0,005 mm papier de la courbe. Une spline n'est pas un contour de hachure ; son décalage relève du lot 10.4.
+
 ## 2. Échelles de représentation
 
 ### 2.1 Définition (règle)
@@ -285,7 +293,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 
 - Export au format **DXF R2000 (AC1015)**, unité déclarée millimètre (`$INSUNITS = 4`), lisible par les lecteurs stricts (vérifié avec ezdxf à chaque intégration continue).
 - Import des entités LINE, CIRCLE, ARC, LWPOLYLINE, TEXT, MTEXT, INSERT (blocs, imbrications comprises), DIMENSION (géométrie), HATCH, SPLINE et ELLIPSE (lot 6.1), y compris les segments courbes (`bulge`) et les entités en repère symétrique (extrusion 0,0,−1). Une entité d'un bloc posée sur le calque 0 prend le calque de l'occurrence.
-- Courbes approchées (spline, arêtes d'ellipse de contour de hachure, arcs de contour de hachure, courbures) : écart de corde ≤ 0,05 mm par subdivision adaptative ; l'écart maximal effectif est annoncé dans le rapport.
+- Courbes approchées (spline sans points de contrôle, arêtes d'ellipse et de spline de contour de hachure, arcs de contour de hachure, courbures) : écart de corde ≤ 0,05 mm par subdivision adaptative ; l'écart maximal effectif est annoncé dans le rapport.
 - Jeu de fichiers de référence de l'import : `src/lib/__fixtures__/dxf/` (écrit par ezdxf, `scripts/make-dxf-fixtures.py`), relu par les tests à chaque intégration.
 - Chaque import et chaque export produit un rapport : **conservé / transformé / perdu**.
 - Les caractères hors ASCII (accents, Ø, ±, m², noms de calques) s'écrivent `\U+XXXX` (convention DXF R2000) et sont décodés à l'import.
@@ -304,7 +312,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 | Hachure | Conservée (HATCH : contour polyligne ou arêtes ligne / arc / ellipse / spline, îlots ; arcs et arcs d'ellipse parcourus dans le sens horaire lus en angles complémentaires (360 − angle), comme AutoCAD ; splines rationnelles avec leurs poids ; aplat SOLID ; traits parallèles ou croisés à l'angle et au pas de la première famille, motif prédéfini simplifié et signalé ; dans un bloc éclaté, angle, pas et origine suivent la transformation) | Conservée (HATCH _USER ou SOLID : angle, pas, origine, îlots) |
 | Cote | Transformée (DIMENSION : géométrie de son bloc — traits, flèches, texte ; non associative) | Transformée en traits + texte ; association perdue |
 | Occurrence de bloc | Conservée si simple (INSERT sans rotation, échelle uniforme positive, bloc de traits, cercles, arcs, polylignes sans style propre, tous sur le calque de l'occurrence) ; sinon éclatée (rotation, échelle non uniforme, symétrie, imbrication, textes ou hachures dans le bloc, couleur, type ou épaisseur de trait propres, autre calque que celui de l'occurrence) ; MINSERT : première occurrence seulement (signalé) | Éclatée en entités simples |
-| Spline | Approchée en polyligne (B-spline rationnelle, ≤ 0,05 mm ; points d'ajustement reliés si pas de points de contrôle) | — |
+| Spline | Conservée (SPLINE natif, lot 10.2 : degré, points de contrôle, nœuds et poids, B-spline rationnelle comprise) ; spline définie par ses seuls points d'ajustement : points reliés en polyligne (signalé) | Conservée (SPLINE : degré, nœuds, poids si rationnelle, points de contrôle ; relue par ezdxf, points vérifiés à 10⁻³ mm) |
 | Ellipse | Conservée (ELLIPSE natif, lot 10.1 : centre, demi-axes, rotation, arc d'ellipse ; cercle ou arc exacts si circulaire) | Conservée (ELLIPSE : grand axe, rapport, paramètres en radians à 10⁻¹² ; relue par ezdxf, points vérifiés à 10⁻³ mm) |
 | Calques | Nom, couleur, type et épaisseur de trait conservés | Nom, couleur, type et épaisseur de trait, visibilité, verrouillage |
 | Propriétés de trait d'un objet | Conservées (types usuels reconnus, ACI 1–9) | Conservées (6, 370, 420 ; BYLAYER sinon) |

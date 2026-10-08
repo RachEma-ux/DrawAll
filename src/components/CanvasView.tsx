@@ -43,6 +43,7 @@ import {
 import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE } from '@/lib/text';
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 import { distanceToEllipse, ellipseFrom3Points, ellipsePath } from '@/lib/ellipse';
+import { distanceToSpline, splinePath } from '@/lib/spline';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -61,7 +62,7 @@ import { SCREEN_PX_PER_PAPER_MM, distanceToSymbol } from '@/lib/symbols';
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'arc' | 'arcCenter' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'measure' | 'block' | 'text' | 'trim' | 'extend' | 'fillet' | 'chamfer' | 'area' | 'pdim' | 'wall' | 'opening' | 'room' | 'symbol' | 'calibrate' | 'note' | 'pan';
 
 interface Props {
   objects: CadObject[];
@@ -353,6 +354,14 @@ export default function CanvasView({
       return;
     }
     if (tool === 'wall') { setDraft(null); return; }
+    if (tool === 'spline') {
+      // Spline par points de contrôle : degré 3, ou moins s'il y a moins de quatre points.
+      if (draft?.kind === 'polyline' && draft.origin === 'spline' && draft.points.length >= 4 && pathLength(draft.points) > MIN_LENGTH && activeLayer && !activeLayer.locked) {
+        onAdd({ kind: 'spline', classification: 'non-classifie' as Classification, layerId: activeLayer.id, hatch: 'none', points: draft.points, degree: Math.min(3, draft.points.length / 2 - 1) });
+      }
+      setDraft(null);
+      return;
+    }
     setDraft(d => {
       // Seul un tracé commencé par l'outil Polyligne crée une polyligne.
       if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === 'polyline' && d.points.length >= 4 && pathLength(d.points) > MIN_LENGTH && activeLayer && !activeLayer.locked) {
@@ -398,7 +407,7 @@ export default function CanvasView({
       setDraft({ kind: 'polyline', sx: pts[0], sy: pts[1], cx: point.x, cy: point.y, points: pts, origin: 'symbol' });
       return;
     }
-    if (tool === 'polyline' || tool === 'area') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'spline') {
       setDraft(d => {
         if (d?.kind === 'polyline' && (d.origin ?? 'polyline') === tool) return { ...d, points: [...d.points, point.x, point.y], cx: point.x, cy: point.y };
         return { kind: 'polyline', sx: point.x, sy: point.y, cx: point.x, cy: point.y, points: [point.x, point.y], origin: tool };
@@ -717,7 +726,7 @@ export default function CanvasView({
       if (activeLayer && !activeLayer.locked) onPlaceText(x, y);
       return;
     }
-    if (tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse') {
+    if (tool === 'polyline' || tool === 'area' || tool === 'spline' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse') {
       startOrContinueDraft(point);
       return;
     }
@@ -1051,7 +1060,18 @@ export default function CanvasView({
             <circle cx={activeDraft.sx} cy={activeDraft.sy} r={Math.hypot(activeDraft.cx - activeDraft.sx, activeDraft.cy - activeDraft.sy)}
               fill="#22d3ee" fillOpacity={0.08} stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
           )}
-          {activeDraft && activeDraft.kind === 'polyline' && (
+          {activeDraft && activeDraft.kind === 'polyline' && tool === 'spline' && (() => {
+            // Aperçu : polygone de contrôle et spline passant par le curseur comme dernier point.
+            const pts = [...activeDraft.points, activeDraft.cx, activeDraft.cy];
+            const preview = { points: pts, degree: Math.min(3, pts.length / 2 - 1) };
+            return (
+              <g>
+                <polyline points={pts.join(',')} fill="none" stroke="#22d3ee" strokeOpacity={0.4} strokeWidth={1 / tf.k} strokeDasharray={`${3 / tf.k} ${3 / tf.k}`} />
+                {preview.degree >= 1 && <path data-apercu-spline d={splinePath(preview, 0.5 / tf.k)} fill="none" stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />}
+              </g>
+            );
+          })()}
+          {activeDraft && activeDraft.kind === 'polyline' && tool !== 'spline' && (
             tool === 'area'
               ? <polygon points={[...activeDraft.points, activeDraft.cx, activeDraft.cy].join(',')} fill="#34d399" fillOpacity={0.12}
                   stroke="#34d399" strokeWidth={1.5 / tf.k} strokeDasharray={`${6 / tf.k} ${4 / tf.k}`} />
@@ -1136,7 +1156,7 @@ export default function CanvasView({
         </button>
       </div>
 
-      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
+      {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'polyline' || tool === 'area' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 sm:right-auto">
           {/* Pas de longueur directe pour un arc : la saisie de point précis reste disponible. */}
           {activeDraft && activeDraft.kind !== 'measure' && !isArcDraft(activeDraft) && (
@@ -1543,6 +1563,18 @@ function PrimitiveShape({ obj, view, selected, zoom, showLabel, unit = 'mm', lay
           {showLabel && label(obj.cx - obj.r, obj.cy - obj.r)}
         </g>
       );
+    case 'spline': {
+      const d = splinePath(obj, 0.25 / zoom);
+      return (
+        <g data-spline>
+          <path d={d} {...common} fill="none" />
+          <path d={d} stroke="transparent" strokeWidth={10 / zoom} fill="none" />
+          {selected && <polyline points={obj.points.join(',')} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={1 / zoom} strokeDasharray={`${3 / zoom} ${3 / zoom}`} />}
+          {selected && Array.from({ length: obj.points.length / 2 }, (_, i) => <circle key={i} cx={obj.points[2 * i]} cy={obj.points[2 * i + 1]} r={2.5 / zoom} fill="none" stroke={color} strokeWidth={1 / zoom} />)}
+          {showLabel && label(obj.points[0], obj.points[1])}
+        </g>
+      );
+    }
     case 'ellipse':
       return (
         <g data-ellipse>
@@ -1737,6 +1769,7 @@ function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[
     if (o.kind === 'circle' && Math.abs(Math.hypot(x - o.cx, y - o.cy) - o.r) <= tol) return o;
     if (o.kind === 'arc' && distanceToArc(o, x, y) <= tol) return o;
     if (o.kind === 'ellipse' && distanceToEllipse(o, { x, y }) <= tol) return o;
+    if (o.kind === 'spline' && distanceToSpline(o, { x, y }) <= tol) return o;
     if (o.kind === 'polyline') {
       for (let j = 0; j + 3 <= o.points.length; j += 2) {
         if (distanceSegment(x, y, o.points[j], o.points[j + 1], o.points[j + 2], o.points[j + 3]) <= tol) return o;

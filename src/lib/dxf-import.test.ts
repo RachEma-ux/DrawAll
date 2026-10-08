@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CadObject, EllipseObj, Layer } from '@/types/cad';
 import { distanceToEllipse, ellipsePointAt } from './ellipse';
-import { ARC_TOLERANCE_MM, parseDxf } from './dxf';
+import { parseDxf } from './dxf';
 
 // Jeu de fichiers de référence (scripts/make-dxf-fixtures.py, écrits par ezdxf).
 const fixture = (name: string) => readFileSync(join(__dirname, '__fixtures__', 'dxf', name), 'utf8');
@@ -86,18 +86,18 @@ describe('import DXF complet (lot 6.1) — jeu de référence', () => {
     expect(hatch.hatchParams!.spacing).toBeCloseTo(6.35, 6);
   });
 
-  it('courbes : ellipses natives (lot 10.1), spline approchée dans la tolérance, ellipse circulaire exacte', () => {
+  it('courbes : spline (lot 10.2) et ellipses (lot 10.1) natives, ellipse circulaire exacte', () => {
     const r = read('courbes.dxf');
-    expect(kinds(r.objects)).toEqual({ polyline: 1, ellipse: 2, circle: 1 });
-    // Ellipse complète 40 × 20 : aucun paramètre ; arc d'ellipse au grand axe vertical (rotation 90°), demi-tour.
+    expect(kinds(r.objects)).toEqual({ spline: 1, ellipse: 2, circle: 1 });
+    // Spline ouverte de degré 3 par quatre points de contrôle (nœuds bornés écrits par ezdxf).
+    expect(r.objects[0]).toMatchObject({ kind: 'spline', degree: 3, points: [0, 0, 10, -20, 20, 20, 30, 0] });
     expect(r.objects[1]).toMatchObject({ kind: 'ellipse', cx: 100, cy: 0, rx: 20, ry: 10, rotation: 0 });
     expect(r.objects[1]).not.toHaveProperty('start');
     expect(r.objects[2]).toMatchObject({ kind: 'ellipse', cx: 150, cy: 0, rx: 15, ry: 6, rotation: 90, start: 0, end: 180 });
     expect(r.objects[3]).toMatchObject({ kind: 'circle', cx: 200, cy: 0, r: 10 });
     expect(r.report.kept.join(' ')).toContain('Ellipses : 2 (ELLIPSE natif, sans approximation).');
-    const curves = r.report.transformed.find(t => t.startsWith('Courbes : 1 spline'))!;
-    const err = Number(curves.match(/écart maximal ([\d,]+) mm/)![1].replace(',', '.'));
-    expect(err).toBeLessThanOrEqual(ARC_TOLERANCE_MM);
+    expect(r.report.kept.join(' ')).toContain('Splines : 1 (SPLINE natif');
+    expect(r.report.transformed.join(' ')).not.toMatch(/spline\(s\)/);
   });
 
   it('ellipses dans des blocs : point de base, rotation, échelle, symétrie, échelle non uniforme (référence ezdxf)', () => {
@@ -121,6 +121,22 @@ describe('import DXF complet (lot 6.1) — jeu de référence', () => {
         && (e.start === undefined || [ellipsePointAt(e, e.start), ellipsePointAt(e, e.end!)].every(q => model.slice(3).some(p => Math.hypot(p.x - q.x, p.y - q.y) < 1e-5))));
       expect(match, JSON.stringify(pts)).toBeDefined();
     }
+  });
+
+  it('splines dans des blocs : points de contrôle transformés comme par ezdxf (lot 10.2)', () => {
+    const r = read('blocs-splines.dxf');
+    const splines = r.objects.filter(o => o.kind === 'spline');
+    const ref: number[][][] = JSON.parse(fixture('blocs-splines.points.json'));
+    expect(splines).toHaveLength(ref.length);
+    ref.forEach((pts, i) => {
+      const s = splines[i];
+      if (s.kind !== 'spline') throw new Error('spline attendue');
+      expect(s.points.length).toBe(pts.length * 2);
+      pts.forEach(([x, y], j) => {
+        expect(s.points[2 * j]).toBeCloseTo(x, 6);
+        expect(s.points[2 * j + 1]).toBeCloseTo(-y, 6);
+      });
+    });
   });
 
   it('textes : TEXT et MTEXT', () => {

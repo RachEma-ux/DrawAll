@@ -11,6 +11,7 @@ import type { BlockDef, CadObject, Layer, OpeningObj, PrimitiveObject, TextAlign
 import { textLines } from '@/lib/text';
 import { norm360 } from '@/lib/arc';
 import { affineEllipse } from '@/lib/ellipse';
+import { isValidSpline, knotsOf } from '@/lib/spline';
 import { dimensionGeometry, dimensionText, primitiveBounds } from '@/lib/geometry';
 import { pdimGeometry } from '@/lib/pdim';
 import { arcPoints as arcCurvePoints, ellipsePoints, sampleCurve, splinePoints } from '@/lib/dxf-curves';
@@ -114,7 +115,7 @@ export function exportDxf(objects: CadObject[], layers: Layer[], blocks: BlockDe
   const push = (code: number, value: string | number) => out.push(String(code), typeof value === 'string' ? encodeDxfString(value) : String(value));
   let handle = 0x20;
   const nextHandle = () => (handle++).toString(16).toUpperCase();
-  const counts = { room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, ellipse: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
+  const counts = { room: 0, symbol: 0, views: 0, cut: 0, bom: 0, underlay: 0, note: 0, opening: 0, wall: 0, pdim: 0, line: 0, circle: 0, arc: 0, polyline: 0, ellipse: 0, spline: 0, rect: 0, hatch: 0, dimension: 0, blockRef: 0, dimensionSkipped: 0, blockSkipped: 0, text: 0, mtext: 0 };
 
   const layerNames = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -505,6 +506,21 @@ function writePrimitive(header: EntityHeader, push: Push, object: PrimitiveObjec
     push(50, n(norm360(object.start))); push(51, n(norm360(object.end)));
     return;
   }
+  if (object.kind === 'spline') {
+    // SPLINE natif : degré, nœuds, poids (si rationnelle), points de contrôle ; aucun point d'ajustement.
+    const count = object.points.length / 2;
+    const knots = knotsOf(object);
+    const rational = !!object.weights && object.weights.some(w => Math.abs(w - 1) > 1e-12);
+    header('SPLINE', layer, 'AcDbSpline');
+    push(210, 0); push(220, 0); push(230, 1);
+    push(70, 8 | (rational ? 4 : 0) | (object.closed ? 1 : 0));
+    push(71, object.degree); push(72, knots.length); push(73, count); push(74, 0);
+    push(42, '0.0000000001'); push(43, '0.0000000001');
+    for (const k of knots) push(40, nf(k));
+    if (rational) for (const w of object.weights!) push(41, nf(w));
+    for (let i = 0; i + 1 < object.points.length; i += 2) { push(10, n(object.points[i])); push(20, n(-object.points[i + 1])); push(30, 0); }
+    return;
+  }
   if (object.kind === 'ellipse') {
     // ELLIPSE natif : grand axe (relatif au centre), rapport petit / grand axe, paramètres en radians.
     const major = object.rx >= object.ry;
@@ -608,6 +624,7 @@ function transformPrimitive(p: PrimitiveObject, x: number, y: number, scale: num
     case 'circle': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
     case 'arc': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, r: p.r * scale };
     case 'ellipse': return { ...p, cx: x + p.cx * scale, cy: y + p.cy * scale, rx: p.rx * scale, ry: p.ry * scale };
+    case 'spline':
     case 'polyline': return { ...p, points: p.points.map((v, i) => (i % 2 === 0 ? x + v * scale : y + v * scale)) };
   }
 }
@@ -720,7 +737,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
   const stats = {
     text: 0, line: 0, circle: 0, arc: 0, polyline: 0, bulgeSegments: 0, maxArcError: 0, mirrored: 0, outOfPlane: 0, widths: 0, degenerate: 0,
     blockKept: 0, blockExploded: 0, missingBlock: 0, minsert: 0, dimension: 0, hatch: 0, hatchApprox: 0, hatchIslands: 0,
-    spline: 0, ellipse: 0, ellipseNative: 0, curveError: 0, curveFit: 0,
+    spline: 0, splineNative: 0, ellipse: 0, ellipseNative: 0, curveError: 0, curveFit: 0,
   };
   // Identifiants provisoires (les îlots de hachure y font référence), remplacés à la fin.
   let tempCounter = 0;
@@ -794,7 +811,7 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       // propre, toutes sur le calque de l'occurrence : bloc conservé (une occurrence DrawAll dessine ses
       // primitives avec son propre calque et son propre trait). Sinon, éclatée : rien n'est perdu.
       const simple = depth === 0 && Math.abs(rot % 360) < 1e-9 && scaleX > 0 && Math.abs(scaleX - scaleY) < 1e-9
-        && local.length > 0 && local.every(o => (o.kind === 'line' || o.kind === 'circle' || o.kind === 'arc' || o.kind === 'ellipse' || o.kind === 'polyline') && !o.holes
+        && local.length > 0 && local.every(o => (o.kind === 'line' || o.kind === 'circle' || o.kind === 'arc' || o.kind === 'ellipse' || o.kind === 'spline' || o.kind === 'polyline') && !o.holes
           && o.layerId === layer.id && o.color === undefined && o.lineType === undefined && o.lineWeight === undefined);
       if (simple) {
         let blockId = keptBlocks.get(def.name);
@@ -888,6 +905,13 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
       const weights = body.filter(p => p.code === 41).map(p => Number(p.value));
       const ctrl = xyPairs(body, 10, 20), fit = xyPairs(body, 11, 21);
       const closed = (numberOf(body, 70, 0) & 1) === 1;
+      // SPLINE natif (lot 10.2) : points de contrôle, nœuds et poids conservés ; repère symétrique : X opposé.
+      const w = weights.length === ctrl.length && weights.length > 0 && weights.some(v => Math.abs(v - 1) > 1e-12) ? weights : undefined;
+      const native = { points: ctrl.flatMap(p => [round(sx * p.x * k), round(-p.y * k)]), degree, knots, ...(w ? { weights: w } : {}) };
+      if (ctrl.length > 0 && isValidSpline(native)) {
+        stats.splineNative++;
+        return [{ ...base('Spline'), kind: 'spline', ...native, ...(closed ? { closed: true } : {}) } as CadObject];
+      }
       const s = splinePoints(degree, knots, ctrl, weights.length === ctrl.length && weights.length > 0 ? weights : null, fit, tolLocal);
       if (!s) { stats.degenerate++; return []; }
       stats.spline++;
@@ -983,8 +1007,9 @@ export function parseDxf(text: string, options: DxfImportOptions): DxfImportResu
   if (stats.hatchApprox) report.transformed.push(`Motifs de hachure : ${stats.hatchApprox} motif(s) prédéfini(s) ramené(s) à des traits parallèles ou croisés (angle et pas de la première famille).`);
   if (stats.ellipseNative) report.kept.push(`Ellipses : ${stats.ellipseNative} (ELLIPSE natif, sans approximation).`);
   if (stats.ellipse) report.kept.push(`Ellipses circulaires : ${stats.ellipse} → cercles ou arcs exacts.`);
+  if (stats.splineNative) report.kept.push(`Splines : ${stats.splineNative} (SPLINE natif : degré, points de contrôle, nœuds et poids conservés).`);
   if (stats.spline) {
-    report.transformed.push(`Courbes : ${stats.spline} spline(s) approchée(s) par des polylignes (écart maximal ${formatMm(stats.curveError)} mm, tolérance ${formatMm(ARC_TOLERANCE_MM)} mm${stats.curveFit ? ` ; ${stats.curveFit} spline(s) par points d'ajustement reliés` : ''}).`);
+    report.transformed.push(`Courbes : ${stats.spline} spline(s) sans points de contrôle exploitables approchée(s) par des polylignes (écart maximal ${formatMm(stats.curveError)} mm, tolérance ${formatMm(ARC_TOLERANCE_MM)} mm${stats.curveFit ? ` ; ${stats.curveFit} spline(s) par points d'ajustement reliés` : ''}).`);
   }
   if (stats.bulgeSegments) {
     const parts = `${stats.bulgeSegments} segment(s) courbe(s) de polyligne`;
@@ -1347,6 +1372,12 @@ function affineShape(o: CadObject, M: { a: number; b: number; c: number; d: numb
       const { cx: _cx, cy: _cy, r: _r, start: _s, end: _e, ...rest } = o;
       void _cx; void _cy; void _r; void _s; void _e;
       return { ...rest, kind: 'polyline', points: curve(o.cx, o.cy, o.r, o.start, sweep) } as CadObject;
+    }
+    case 'spline': {
+      // Transformation affine exacte : elle s'applique aux points de contrôle.
+      const points: number[] = [];
+      for (let i = 0; i + 1 < o.points.length; i += 2) { const p = map(o.points[i], o.points[i + 1]); points.push(p.x, p.y); }
+      return { ...o, points };
     }
     case 'ellipse': {
       // Image affine exacte (une ellipse reste une ellipse, même par échelle non uniforme).

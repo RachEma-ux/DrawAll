@@ -131,3 +131,19 @@ for ins in msp.query("INSERT"):
         if e.dxftype() == "ELLIPSE":
             ref.append([[v.x, v.y] for v in e.vertices([0.3, 1.0, 1.4])] + [[e.start_point.x, e.start_point.y], [e.end_point.x, e.end_point.y]])
 (out / "blocs-ellipses.points.json").write_text(json.dumps(ref, indent=0))
+
+# 9. Splines dans des blocs (lot 10.2) : point de base non nul, occurrence tournée et à l'échelle,
+# symétrique, à l'échelle non uniforme ; référence : splines transformées par ezdxf.
+doc, msp = new()
+sb = doc.blocks.new("COURBE", base_point=(5, 5))
+sb.add_open_spline([(0, 0), (10, 20), (20, -20), (30, 0)], degree=3)
+msp.add_blockref("COURBE", (100, 0), dxfattribs={"rotation": 90, "xscale": 2, "yscale": 2})
+msp.add_blockref("COURBE", (200, 0), dxfattribs={"xscale": -1})
+msp.add_blockref("COURBE", (300, 0), dxfattribs={"xscale": 3, "yscale": 1})
+save(doc, "blocs-splines.dxf")
+ref = []
+for ins in msp.query("INSERT"):
+    for e in ins.virtual_entities():
+        if e.dxftype() == "SPLINE":
+            ref.append([[float(p[0]), float(p[1])] for p in e.control_points])
+(out / "blocs-splines.points.json").write_text(json.dumps(ref, indent=0))
