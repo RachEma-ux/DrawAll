@@ -35,6 +35,7 @@ import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } 
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
 import { pdimGeometry } from '@/lib/pdim';
+import { occurrencePrimitives } from '@/lib/materials';
 
 /** Couleur des objets à l'écran : celle du trait (calque ou objet) ou celle de la classification métier. */
 export type ColorMode = 'calque' | 'metier';
@@ -1205,7 +1206,7 @@ function BlockRefShape({ obj, blocks, view, selected, zoom, layer, colorMode, pa
     <g>
       <g transform={`translate(${obj.x},${obj.y}) scale(${obj.scale})`}>
         {/* Sous scale(s), une unité locale vaut s × zoom pixels : le zoom vu par la primitive est zoom × s. */}
-        {block.primitives.map(p => (
+        {occurrencePrimitives(block, obj).map(p => (
           <PrimitiveShape key={p.id} obj={p} view={view} selected={false} zoom={zoom * obj.scale} showLabel={false} layer={layer} colorMode={colorMode} owner={obj}
             paperScale={paperScale && { paper: paperScale.paper * obj.scale, model: paperScale.model }} hatchPrefix={hatchPrefix} />
         ))}

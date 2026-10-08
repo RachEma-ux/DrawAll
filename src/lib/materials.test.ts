@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CadObject } from '@/types/cad';
-import { PROFILES, effectiveHatch, profileById, withProfile } from './materials';
+import type { BlockDef, CadObject } from '@/types/cad';
+import { PROFILES, effectiveHatch, occurrencePrimitives, profileById, withProfile, withProfileBlocks } from './materials';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', createdSeq: 0, name: 'o' };
 const wall: CadObject = { ...base, id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 100, h: 20, hatch: 'none', materialId: 'beton' };
@@ -31,5 +31,29 @@ describe('matériaux et profils de dessin', () => {
       expect(p.source).not.toMatch(/conforme|selon la norme/i);
     }
     expect(profileById('inconnu').id).toBe('neutre');
+  });
+});
+
+describe('blocs et profils (lot 3.1)', () => {
+  const prim = { classification: 'non-classifie' as const, layerId: 'LAY-0001', createdSeq: 0, name: 'p' };
+  const block: BlockDef = {
+    id: 'BLQ-0001', name: 'Platine',
+    primitives: [
+      { ...prim, id: 'BLQ-0001-P1', kind: 'rect', x: 0, y: 0, w: 10, h: 10, hatch: 'none', materialId: 'beton' },
+      { ...prim, id: 'BLQ-0001-P2', kind: 'rect', x: 20, y: 0, w: 10, h: 10, hatch: 'none' },
+      { ...prim, id: 'BLQ-0001-P3', kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0, hatch: 'none' },
+    ],
+  };
+  it('les primitives à matériau d’un bloc suivent le profil', () => {
+    const ens = profileById('enseignement'), pleins = profileById('pleins');
+    expect(withProfileBlocks([block], ens)[0].primitives[0].hatch).toBe('cross');
+    expect(withProfileBlocks([block], pleins)[0].primitives[0].hatch).toBe('solid');
+    // Le modèle n'est pas modifié.
+    expect(block.primitives[0].hatch).toBe('none');
+  });
+  it('une occurrence à matériau hachure les contours fermés sans matériau propre', () => {
+    const prims = occurrencePrimitives(block, { hatch: 'diagonal' });
+    expect(prims.map(p => p.hatch)).toEqual(['none', 'diagonal', 'none']);
+    expect(occurrencePrimitives(block, { hatch: 'none' })).toBe(block.primitives);
   });
 });

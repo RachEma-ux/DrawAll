@@ -2,7 +2,8 @@
 // dessin dit comment le représenter. Changer de profil change l'apparence, jamais le matériau.
 // Les correspondances matériau → motif sont des usages (enseignement, entreprise), pas une norme :
 // chaque profil porte sa version, sa source et son domaine (Conventions §4.3).
-import type { CadObject, HatchStyle } from '@/types/cad';
+import type { BlockDef, CadObject, HatchStyle, PrimitiveObject } from '@/types/cad';
+import { canHatch } from '@/types/cad';
 
 export interface Material {
   id: string;
@@ -90,4 +91,18 @@ export function withProfile<T extends CadObject>(objects: T[], profile: DrawingP
     const hatch = effectiveHatch(o, profile);
     return hatch === o.hatch ? o : { ...o, hatch };
   });
+}
+
+/** Définitions de blocs telles qu'il faut les dessiner avec ce profil (motifs de leurs primitives). */
+export function withProfileBlocks(blocks: BlockDef[], profile: DrawingProfile): BlockDef[] {
+  return blocks.map(b => (b.primitives.some(p => p.materialId) ? { ...b, primitives: withProfile(b.primitives, profile) } : b));
+}
+
+/**
+ * Primitives d'une occurrence telles qu'elles se dessinent : un contour fermé sans matériau ni motif
+ * propres prend la hachure de l'occurrence (motif que le profil donne au matériau de l'occurrence).
+ */
+export function occurrencePrimitives(block: BlockDef, ref: Pick<CadObject, 'hatch'>): PrimitiveObject[] {
+  if (!ref.hatch || ref.hatch === 'none') return block.primitives;
+  return block.primitives.map(p => (!p.materialId && (p.hatch ?? 'none') === 'none' && canHatch(p) ? { ...p, hatch: ref.hatch } as PrimitiveObject : p));
 }

@@ -26,7 +26,7 @@ import { chamferLines, filletLines } from '@/lib/fillet';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { measurePolygon, type Measure } from '@/lib/area';
-import { PROFILES, withProfile } from '@/lib/materials';
+import { PROFILES, withProfile, withProfileBlocks } from '@/lib/materials';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
@@ -107,6 +107,8 @@ function Workbench() {
   // Objets tels qu'ils se dessinent avec le profil de dessin actif (motif tiré du matériau) ;
   // le modèle (project.objects) n'est pas modifié.
   const shownObjects = useMemo(() => withProfile(project.objects, project.profile), [project.objects, project.profile]);
+  // Blocs : leurs primitives à matériau suivent aussi le profil (le modèle n'est pas modifié).
+  const shownBlocks = useMemo(() => withProfileBlocks(project.blocks, project.profile), [project.blocks, project.profile]);
   // Incrémenté quand le projet est remplacé : le canevas oublie alors son dernier point posé.
   const [projectKey, setProjectKey] = useState(0);
   // Réglages d'affichage propres à ce navigateur : pas de grille et unité d'affichage.
@@ -271,7 +273,7 @@ function Workbench() {
   }, [project]);
 
   const exportDxf = useCallback(() => {
-    const { content, report } = exportDxfFile(shownObjects, project.layers, project.blocks);
+    const { content, report } = exportDxfFile(shownObjects, project.layers, shownBlocks);
     const blob = new Blob([content], { type: 'application/dxf' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -281,7 +283,7 @@ function Workbench() {
     if (report.transformed.length > 0 || report.lost.length > 0) {
       window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report));
     }
-  }, [cloudName, shownObjects, project.layers, project.blocks]);
+  }, [cloudName, shownObjects, shownBlocks, project.layers]);
 
   const importDxfFile = useCallback(async (file: File) => {
     const text = await file.text();
@@ -695,7 +697,7 @@ function Workbench() {
           sheets={project.sheets}
           objects={shownObjects}
           layers={project.layers}
-          blocks={project.blocks}
+          blocks={shownBlocks}
           view={view}
           colorMode={colorMode}
           onAddSheet={project.addSheet}
@@ -911,7 +913,7 @@ function Workbench() {
               <CanvasView
                 objects={shownObjects}
                 layers={project.layers}
-                blocks={project.blocks}
+                blocks={shownBlocks}
                 activeLayerId={project.activeLayerId}
                 activeBlockId={activeBlockId}
                 tool={tool}
