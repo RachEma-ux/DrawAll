@@ -56,6 +56,13 @@ describe('expressions des paramètres (lot 12.2)', () => {
     expect(isValidName('L')).toBe(true);
     expect(isValidName('largeur_2')).toBe(true);
     expect(isValidName('2L')).toBe(false);
+    // Première lettre obligatoire : ni souligné, ni signe Latin-1 (× ÷) ; lettres accentuées admises.
+    expect(isValidName('_L')).toBe(false);
+    expect(isValidName('×')).toBe(false);
+    expect(isValidName('a÷b')).toBe(false);
+    expect(isValidName('Épaisseur_dalle')).toBe(true);
+    expect(() => parse('_L + 1')).toThrow();
+    expect(() => parse('L×2')).toThrow();
     expect(isValidName('pi')).toBe(false);
     expect(isValidName('sin')).toBe(false);
   });

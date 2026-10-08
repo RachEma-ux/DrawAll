@@ -31,7 +31,10 @@ const CONSTANTS: Record<string, number> = { pi: Math.PI };
 
 /** Noms réservés (fonctions, constantes) : refusés comme noms de paramètres. */
 export const RESERVED = new Set([...Object.keys(FUNCTIONS), ...Object.keys(CONSTANTS)]);
-export const isValidName = (n: string) => /^[A-Za-z_À-ÿ][A-Za-z0-9_À-ÿ]*$/.test(n) && !RESERVED.has(n.toLowerCase());
+// Lettres : ASCII et Latin-1 accentué, sans × (U+00D7) ni ÷ (U+00F7). Un nom commence par une lettre.
+const LETTER = 'A-Za-zÀ-ÖØ-öø-ÿ';
+const NAME = new RegExp(`^[${LETTER}][${LETTER}0-9_]*`);
+export const isValidName = (n: string) => NAME.exec(n)?.[0] === n && !RESERVED.has(n.toLowerCase());
 
 export class ExprError extends Error {}
 
@@ -49,7 +52,7 @@ export function parse(src: string): Node {
     if (c === '(') { i++; const e = expr(); if (peek() !== ')') fail('Parenthèse fermante attendue'); i++; return e; }
     const num = /^(\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][-+]?\d+)?/.exec(s.slice(i));
     if (num) { i += num[0].length; return { k: 'num', v: Number(num[0].replace(',', '.')) }; }
-    const id = /^[A-Za-z_À-ÿ][A-Za-z0-9_À-ÿ]*/.exec(s.slice(i));
+    const id = NAME.exec(s.slice(i));
     if (id) {
       i += id[0].length;
       if (peek() === '(') {
