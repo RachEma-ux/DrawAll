@@ -93,18 +93,45 @@ export function stretchAll(objects: CadObject[], w: Window, dx: number, dy: numb
   return objects.flatMap(o => { const patch = stretchObject(o, w, dx, dy); return patch ? [{ id: o.id, patch }] : []; });
 }
 
+/** Sommets d'un objet dans un ordre stable (coins du rectangle : haut gauche, haut droit, bas droit, bas gauche). */
+function vertices(o: CadObject): { x: number; y: number }[] {
+  switch (o.kind) {
+    case 'line': case 'wall': case 'section': return [{ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }];
+    case 'polyline': case 'spline': case 'pdim': {
+      const out: { x: number; y: number }[] = [];
+      for (let i = 0; i + 1 < o.points.length; i += 2) out.push({ x: o.points[i], y: o.points[i + 1] });
+      return out;
+    }
+    case 'rect': return [{ x: o.x, y: o.y }, { x: o.x + o.w, y: o.y }, { x: o.x + o.w, y: o.y + o.h }, { x: o.x, y: o.y + o.h }];
+    case 'circle': case 'arc': case 'ellipse': return [{ x: o.cx, y: o.cy }];
+    default: return 'x' in o && 'y' in o && typeof o.x === 'number' && typeof o.y === 'number' ? [{ x: o.x, y: o.y }] : [];
+  }
+}
+
 /** Sommets capturés (pour les signaler pendant l'étirement). */
 export function capturedVertices(objects: CadObject[], w: Window): { x: number; y: number }[] {
-  const out: { x: number; y: number }[] = [];
-  const push = (x: number, y: number) => { if (inside(w, x, y)) out.push({ x, y }); };
-  for (const o of objects) {
-    switch (o.kind) {
-      case 'line': case 'wall': case 'section': push(o.x1, o.y1); push(o.x2, o.y2); break;
-      case 'polyline': case 'spline': case 'pdim': for (let i = 0; i + 1 < o.points.length; i += 2) push(o.points[i], o.points[i + 1]); break;
-      case 'rect': push(o.x, o.y); push(o.x + o.w, o.y); push(o.x + o.w, o.y + o.h); push(o.x, o.y + o.h); break;
-      case 'circle': case 'arc': case 'ellipse': push(o.cx, o.cy); break;
-      default: if ('x' in o && 'y' in o && typeof o.x === 'number' && typeof o.y === 'number') push(o.x, o.y);
-    }
-  }
-  return out;
+  return objects.flatMap(o => vertices(o).filter(p => inside(w, p.x, p.y)));
+}
+
+/**
+ * Aperçu : position que prendra chaque sommet capturé, calculée par l'étirement lui-même (un côté
+ * de rectangle ne garde que la composante normale du déplacement). Un objet que l'étirement
+ * refuse (rectangle aplati) garde ses sommets en place.
+ */
+export function stretchPreview(objects: CadObject[], w: Window, dx: number, dy: number): { x: number; y: number }[] {
+  return objects.flatMap(o => {
+    const before = vertices(o);
+    const caught = before.map(p => inside(w, p.x, p.y));
+    if (!caught.some(Boolean)) return [];
+    const patch = dx === 0 && dy === 0 ? null : stretchObject(o, w, dx, dy);
+    if (!patch) return before.filter((_, i) => caught[i]);
+    const after = vertices({ ...o, ...patch } as CadObject);
+    // Rectangle retourné : ses coins sont réordonnés ; on associe chaque sommet capturé au plus proche déplacé.
+    return before.flatMap((p, i) => {
+      if (!caught[i]) return [];
+      if (o.kind !== 'rect') return [after[i] ?? p];
+      const target = { x: p.x + dx, y: p.y + dy };
+      return [after.reduce((best, q) => (Math.hypot(q.x - target.x, q.y - target.y) < Math.hypot(best.x - target.x, best.y - target.y) ? q : best), after[0])];
+    });
+  });
 }

@@ -25,3 +25,23 @@ test('lot 10.3 — étirer : le côté capturé s’allonge, la cote associée s
   await expect.poll(async () => (await currentObjects(page)).find(o => o.id === 'OBJ-0001')?.w).toBe(1000);
   expect(errors).toEqual([]);
 });
+
+test('lot 10.3 — étirer agit sur un calque déverrouillé même si le calque actif est verrouillé', async ({ page }) => {
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 1000, y2: 0, layerId: 'LAY-0001' }]);
+  // Calque actif « Dessin libre » verrouillé ; la ligne est sur « Bâtiment », déverrouillé.
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    const v = s.versions[s.pointer];
+    v.layers = v.layers.map((l: { id: string }) => (l.id === 'LAY-0004' ? { ...l, locked: true } : l));
+    s.activeLayerId = 'LAY-0004';
+    localStorage.setItem('drawall-projet-v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await expect(page.getByTestId('canvas')).toBeVisible();
+  await chooseTool(page, /^Étirer/);
+  const point = page.getByLabel('Point précis');
+  for (const p of ['900;-100', '1100;100', '1000;0', '@500;0']) { await point.fill(p); await point.press('Enter'); }
+  await expect.poll(async () => (await currentObjects(page))[0]).toMatchObject({ x1: 0, x2: 1500 });
+  expect(errors).toEqual([]);
+});

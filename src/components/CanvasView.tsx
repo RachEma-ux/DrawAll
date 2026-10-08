@@ -44,7 +44,7 @@ import { pointInText, textCorners, textLines, TEXT_LINE_SPACING, TEXT_FONT_SCALE
 import { arcFrom3Points, arcFromCenter, arcSvgPath, distanceToArc } from '@/lib/arc';
 import { distanceToEllipse, ellipseFrom3Points, ellipsePath } from '@/lib/ellipse';
 import { distanceToSpline, splinePath, withoutRepeatedPoints } from '@/lib/spline';
-import { capturedVertices, stretchAll, windowOf } from '@/lib/stretch';
+import { stretchAll, stretchPreview, windowOf } from '@/lib/stretch';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -379,8 +379,9 @@ export default function CanvasView({
   }, [activeLayer, onAdd, tool, draft, onMeasureArea, onAddPointDimension]);
 
   const startOrContinueDraft = useCallback((point: SnapPoint) => {
-    // Mesurer ne crée rien : l'outil Aire ignore le verrouillage du calque.
-    if ((!activeLayer || activeLayer.locked) && tool !== 'area') return;
+    // Mesurer ne crée rien : l'outil Aire ignore le verrouillage du calque. Étirer modifie les objets
+    // des calques déverrouillés, quel que soit le calque actif.
+    if ((!activeLayer || activeLayer.locked) && tool !== 'area' && tool !== 'stretch') return;
     lastPlaced.current = { x: point.x, y: point.y };
     if (tool === 'wall') {
       // Murs enchaînés : chaque nouveau point crée un mur depuis le précédent.
@@ -1123,13 +1124,13 @@ export default function CanvasView({
             const cur = { x: activeDraft.cx, y: activeDraft.cy };
             const dash = `${6 / tf.k} ${4 / tf.k}`;
             const win = windowOf({ x: p[0], y: p[1] }, p.length >= 4 ? { x: p[2], y: p[3] } : cur);
-            const caught = capturedVertices(editableObjects, win);
-            const d = p.length >= 6 ? { x: cur.x - p[4], y: cur.y - p[5] } : { x: 0, y: 0 };
+            // Sommets à la place que leur donnera l'étirement (contraintes du rectangle comprises).
+            const caught = stretchPreview(editableObjects, win, p.length >= 6 ? cur.x - p[4] : 0, p.length >= 6 ? cur.y - p[5] : 0);
             const h = 3 / tf.k;
             return (
               <g data-apercu-etirer>
                 <rect x={win.minX} y={win.minY} width={win.maxX - win.minX} height={win.maxY - win.minY} fill="#34d399" fillOpacity={0.06} stroke="#34d399" strokeWidth={1 / tf.k} strokeDasharray={dash} />
-                {caught.map((q, i) => <rect key={i} data-sommet-capture x={q.x + d.x - h} y={q.y + d.y - h} width={2 * h} height={2 * h} fill="none" stroke="#34d399" strokeWidth={1 / tf.k} />)}
+                {caught.map((q, i) => <rect key={i} data-sommet-capture data-x={q.x} data-y={q.y} x={q.x - h} y={q.y - h} width={2 * h} height={2 * h} fill="none" stroke="#34d399" strokeWidth={1 / tf.k} />)}
                 {p.length >= 6 && <line x1={p[4]} y1={p[5]} x2={cur.x} y2={cur.y} stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeDasharray={dash} />}
               </g>
             );

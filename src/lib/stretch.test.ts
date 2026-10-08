@@ -1,7 +1,7 @@
 // Étirer (lot 10.3) : fenêtre de capture, sommets intérieurs déplacés, les autres fixes.
 import { describe, expect, it } from 'vitest';
 import type { CadObject } from '@/types/cad';
-import { capturedVertices, stretchAll, stretchObject, windowOf } from './stretch';
+import { capturedVertices, stretchAll, stretchObject, stretchPreview, windowOf } from './stretch';
 
 const base = { name: 'o', classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const W = windowOf({ x: 900, y: -100 }, { x: 1100, y: 600 }); // capture la zone autour de x = 1 000
@@ -56,5 +56,16 @@ describe('étirer (lot 10.3)', () => {
     expect(stretchAll(objs, W, 100, 0).map(p => p.id)).toEqual(['A']);
     expect(stretchAll(objs, W, 0, 0)).toEqual([]);
     expect(capturedVertices(objs, W)).toEqual([{ x: 1000, y: 0 }]);
+  });
+});
+
+describe('aperçu de l’étirement', () => {
+  it('les sommets signalés vont où l’étirement les mettra (côté de rectangle : composante normale seule)', () => {
+    const r: CadObject = { ...base, id: 'R', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 };
+    expect(stretchPreview([r], W, 300, 40)).toEqual([{ x: 1300, y: 0 }, { x: 1300, y: 500 }]);
+    const l: CadObject = { ...base, id: 'L', kind: 'line', x1: 0, y1: 0, x2: 1000, y2: 0 };
+    expect(stretchPreview([l], W, 300, 40)).toEqual([{ x: 1300, y: 40 }]);
+    // Rectangle qui s'aplatirait : l'étirement est refusé, les sommets restent.
+    expect(stretchPreview([r], W, -1000, 0)).toEqual([{ x: 1000, y: 0 }, { x: 1000, y: 500 }]);
   });
 });
