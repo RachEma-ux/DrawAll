@@ -120,11 +120,11 @@ const SPECS: Record<string, Spec> = {
   levelMark: { nums: ['x', 'y', 'elevation'] },
   roughness: { nums: ['x', 'y', 'rotation'], enums: { process: ['quelconque', 'enlevement', 'sans-enlevement'] } },
   views: { nums: ['gap'], pos: ['depth'], strs: ['sourceId'], extra: o => (typeof o.top === 'boolean' && typeof o.side === 'boolean' && (o.top || o.side) ? null : 'vues : dessus et côté (booléens), l’un au moins demandé') },
-  cut: { nums: ['depth', 'gap'], strs: ['sourceId', 'markId'] },
+  cut: { nums: ['gap'], pos: ['depth'], strs: ['sourceId', 'markId'] },
   bom: { nums: ['x', 'y'] },
   balloon: { nums: ['x', 'y'], strs: ['targetId'] },
   underlay: { nums: ['x', 'y', 'opacity'], pos: ['w', 'h'], strs: ['assetId'] },
-  note: { nums: ['x', 'y', 'time'], extra: o => (typeof o.text === 'string' ? null : 'note : texte attendu') },
+  note: { nums: ['x', 'y', 'time'], extra: o => (typeof o.text !== 'string' ? 'note : texte attendu' : o.photoIds !== undefined && !strs(o.photoIds) ? 'note : photos (liste d’identifiants) attendues' : null) },
 };
 
 const HATCHES = ['none', 'diagonal', 'cross', 'solid'];

@@ -168,6 +168,11 @@ describe('comparaison et fusion (lot 14.2)', () => {
     if ('error' in out) throw new Error(out.error);
     const ids = new Set(out.layers!.map(l => l.id));
     expect(out.objects!.every(o => ids.has(o.layerId))).toBe(true);
+    // Notre objet retenu (sur L2) et la suppression de L1 retenue : l'objet, qui n'utilise plus L1, reste.
+    const kept = resolve(r, { 'objects:X': 'nôtre', 'layers:LAY-0101': 'leur' });
+    if ('error' in kept) throw new Error(kept.error);
+    expect(kept.layers!.some(l => l.id === 'LAY-0101')).toBe(false);
+    expect(kept.objects!.map(o => [o.id, o.layerId])).toEqual([['X', 'LAY-0102']]);
   });
 
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {

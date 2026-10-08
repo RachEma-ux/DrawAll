@@ -109,6 +109,10 @@ describe('API de commandes (lot 18.1)', () => {
     expect(add({ ...sp, knots: {} })).toBe('spline : nœuds (liste de nombres) attendus');
     expect(add({ ...sp, knots: [0, 0, 0, 1] })).toBe('spline : degré, nœuds ou poids incohérents');
     expect(add({ ...sp, weights: [1, -1, 1] })).toBe('spline : degré, nœuds ou poids incohérents');
+    // Note : photos en liste d'identifiants ; coupe : profondeur positive.
+    expect(add({ kind: 'note', x: 0, y: 0, time: 1, text: 'x', photoIds: {} })).toBe('note : photos (liste d’identifiants) attendues');
+    expect(add({ kind: 'note', x: 0, y: 0, time: 1, text: 'x', photoIds: ['PHO-0001'] })).toBeNull();
+    expect(add({ kind: 'cut', depth: 0, gap: 5, sourceId: 'OBJ-0001', markId: 'OBJ-0001' })).toBe('cut : depth positif attendu');
     // Trous : liste d'identifiants d'objets existants.
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: {} })).toBe('rect : trous (liste d’identifiants) attendus');
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0404'] })).toBe('rect : trou OBJ-0404 absent');

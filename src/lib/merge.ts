@@ -202,18 +202,23 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
     const list = (out[c.where] as WithId[] | undefined) ?? [];
     if (value === null) {
       out[c.where] = list.filter(x => x.id !== c.id);
+      // Dépendants recalculés sur les valeurs retenues (un objet en conflit peut avoir quitté ce calque).
+      const objs = (out.objects as CadObject[] | undefined) ?? [];
       // Zone supprimée : ses pièces restent, sans zone (comme la suppression d'une zone dans l'atelier).
       if (c.where === 'zones') {
-        const rooms = new Set(c.dependents);
-        out.objects = ((out.objects as CadObject[] | undefined) ?? []).map(o => {
-          if (!rooms.has(o.id) || o.kind !== 'room') return o;
+        out.objects = objs.map(o => {
+          if (o.kind !== 'room' || o.zoneId !== c.id) return o;
           const { zoneId: _z, ...rest } = o;
           void _z;
           return rest as CadObject;
         });
         continue;
       }
-      for (const d of c.dependents) gone.add(d);
+      const ref = REFS.find(x => x.where === c.where);
+      if (ref) { for (const o of objs) if (ref.of(o) === c.id) gone.add(o.id); continue; }
+      // Objet supprimé : ses dépendants (objets et contraintes) qui le désignent encore.
+      for (const o of objs) if (parentsOf(o).includes(c.id)) gone.add(o.id);
+      for (const k of (out.constraints as Parameters<typeof constraintObjects>[0][] | undefined) ?? []) if (constraintObjects(k).includes(c.id)) gone.add(k.id);
     }
   }
   // Dépendants des dépendants (une cote d'une ouverture d'un mur retiré…) : retirés à leur tour. Les choix

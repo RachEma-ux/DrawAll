@@ -749,7 +749,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - Sinon, la fusion est refusée et la raison est donnée.
 - **Comparaison** (palette, ou « Comparer et fusionner… » dans l'historique) : nombre d'éléments ajoutés, modifiés et supprimés de chaque côté depuis l'ancêtre commun. En surimpression sur le dessin, les changements de l'autre variante sont encadrés : ajouté en vert, modifié en ambre, supprimé en rouge pointillé.
 - **Fusion à trois voies**, par identifiant, sur les objets, calques, blocs, feuilles, niveaux, contraintes, paramètres et zones, ainsi que sur le profil de dessin et la règle de surface.
-- **Dépendances** : un élément supprimé d'un côté mais encore désigné dans le résultat est gardé provisoirement, et sa suppression devient un conflit qui nomme les objets dépendants. Pour un objet lui-même en conflit, ses deux valeurs possibles comptent. C'est le cas :
+- **Dépendances** : un élément supprimé d'un côté mais encore désigné dans le résultat est gardé provisoirement, et sa suppression devient un conflit qui nomme les objets dépendants. Pour un objet lui-même en conflit, ses deux valeurs possibles comptent. Une suppression retenue n'emporte que ce qui en dépend encore dans les valeurs retenues. C'est le cas :
   - d'un calque, d'un bloc ou d'un niveau ;
   - d'une pièce désignée par une occurrence ;
   - d'un mur désigné par une ouverture ;
