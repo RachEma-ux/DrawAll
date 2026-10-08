@@ -157,7 +157,7 @@ Format : **identifiant — titre** · *critères d'acceptation* · *preuve*.
 | 8.1 Historique compact | Fait | #42 |
 | 8.2 Paquet natif | Fait | #43 |
 | 8.3 Sécurité de la connexion | Fait | #44 |
-| 8.4 | À faire | — |
+| 8.4 Partage et commentaires | Fait (recette à deux comptes au niveau de l'API, base simulée ; essai avec deux vrais comptes dépendant de l'hébergement, §7 « Tunnel de démonstration ») | #45 |
 
 ## 6. Parcours de preuve final
 

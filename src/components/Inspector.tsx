@@ -1,5 +1,6 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
+import type { ReactNode } from 'react';
 import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj, Asset } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
@@ -58,9 +59,11 @@ interface Props {
   assets?: Record<string, Asset>;
   onAddNotePhoto?: (noteId: string, file: File) => void;
   onRemoveNotePhoto?: (noteId: string, assetId: string) => void;
+  /** Commentaires partagés de l'objet (lot 8.4), affichés avant la suppression. */
+  comments?: ReactNode;
 }
 
-export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto }: Props) {
+export default function Inspector({ obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -858,6 +861,8 @@ export default function Inspector({ obj, objects, layers, blocks, view, level, o
             </div>
           </div>
         )}
+
+        {comments}
 
         <button
           onClick={() => onRemove(obj.id)}

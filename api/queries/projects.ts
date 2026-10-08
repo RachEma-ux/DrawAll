@@ -55,10 +55,10 @@ export async function createProject(
  * la mise à jour ne s'applique que si la révision lue par le client est
  * encore la révision courante en base. Sinon, le serveur renvoie l'état
  * actuel pour permettre une résolution explicite côté atelier.
+ * Le droit d'enregistrer (propriétaire ou membre en écriture, lot 8.4) est vérifié par le routeur.
  */
 export async function saveProjectData(input: {
   id: number;
-  ownerId: number;
   data: unknown;
   expectedRevision: number;
 }): Promise<SaveProjectResult> {
@@ -66,7 +66,7 @@ export async function saveProjectData(input: {
     const currentRows = await tx
       .select()
       .from(projects)
-      .where(and(eq(projects.id, input.id), eq(projects.ownerId, input.ownerId)))
+      .where(eq(projects.id, input.id))
       .limit(1);
     const current = currentRows.at(0);
     if (!current) return { status: "not_found" };
@@ -86,7 +86,6 @@ export async function saveProjectData(input: {
       .where(
         and(
           eq(projects.id, input.id),
-          eq(projects.ownerId, input.ownerId),
           eq(projects.revision, input.expectedRevision),
         ),
       );
@@ -94,7 +93,7 @@ export async function saveProjectData(input: {
     const afterRows = await tx
       .select()
       .from(projects)
-      .where(and(eq(projects.id, input.id), eq(projects.ownerId, input.ownerId)))
+      .where(eq(projects.id, input.id))
       .limit(1);
     const after = afterRows.at(0);
     if (!after) return { status: "not_found" };
