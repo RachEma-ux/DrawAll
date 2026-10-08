@@ -259,7 +259,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 11.3 Références topologiques | Fait (compte rendu `docs/p0/11.3-references.md`) | #56 |
 | 11.4 Import de référence | Fait (compte rendu `docs/p0/11.4-import-step.md`) | #57 |
 | 11.5 Note de décision P0 | Fait (`docs/p0/11.5-note-decision-P0.md`, essai CRDT compris) | #58 |
-| 12.1 Contraintes dans l'atelier | À faire | — |
+| 12.1 Contraintes dans l'atelier | Fait (conventions §1.13) | #59 |
 | 12.2 Paramètres nommés et cotes pilotantes | À faire | — |
 | 12.3 Propriétés et classification | À faire | — |
 | 13.1 Dalles et planchers | À faire | — |

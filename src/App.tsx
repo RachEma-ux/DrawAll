@@ -25,6 +25,8 @@ import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
+import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
+import type { GeoConstraint, PolylineObj } from '@/types/cad';
 import { expandToGroups } from '@/lib/groups';
 import { kernelVolume } from '@/lib/kernel/client';
 import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
@@ -59,6 +61,7 @@ const TOOLS: { id: ToolId; label: string; short?: string; key: string; levels: D
   { id: 'spline', label: 'Spline', key: 'S', levels: ['contextuel', 'complet'], hint: 'Points de contrôle, puis Terminer (Entrée ou double-clic) : courbe lisse de degré 3' },
   { id: 'freehand', label: 'Main levée', key: '', levels: ['essentiel', 'contextuel', 'complet'], hint: 'Tracez librement à la souris, au stylet ou au doigt : polyligne simplifiée au relâcher' },
   { id: 'offset', label: 'Décaler', key: '', levels: ['contextuel', 'complet'], hint: 'Distance saisie, puis l’objet, puis un point du côté de la copie parallèle' },
+  { id: 'constraint', label: 'Contrainte', key: '', levels: ['contextuel', 'complet'], hint: 'Type de contrainte, puis les éléments à contraindre (sommet, segment, cercle) : la géométrie est re-résolue' },
   { id: 'stretch', label: 'Étirer', key: '', levels: ['contextuel', 'complet'], hint: 'Deux coins de la fenêtre de capture, puis point de base et point d’arrivée : les sommets capturés se déplacent' },
   { id: 'ellipse', label: 'Ellipse', key: 'Z', levels: ['contextuel', 'complet'], hint: 'Centre, extrémité du premier axe, puis le second demi-axe' },
   { id: 'arcCenter', label: 'Arc par le centre', key: 'E', levels: ['contextuel', 'complet'], hint: 'Centre, début (rayon), fin — sens antihoraire' },
@@ -680,6 +683,37 @@ function Workbench() {
     if (!project.ungroupObjects(selection)) flash('Dégrouper : aucun groupe dans la sélection.');
   }, [project, selection, flash]);
 
+  // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
+  const [constraintType, setConstraintType] = useState<GeoConstraint['type']>('horizontal');
+  const [constraintValue, setConstraintValue] = useState('');
+  const [constraintPicks, setConstraintPicks] = useState<Pick[]>([]);
+  const constraintPolylines = useRef(new Map<string, PolylineObj>());
+  useEffect(() => { setConstraintPicks([]); constraintPolylines.current = new Map(); }, [constraintType, tool]);
+  const constraintDiagnosis = useMemo(() => diagnose(project.allObjects, project.constraints), [project.allObjects, project.constraints]);
+  const constraintMarks = useMemo(() => project.constraints.map(k => ({
+    id: k.id, glyph: constraintGlyph(k), at: constraintAnchors(project.objects, k), state: constraintDiagnosis.states[k.id] ?? 'satisfaite',
+  })), [project.constraints, project.objects, constraintDiagnosis]);
+  const pickForConstraint = useCallback((pick: Pick, polylines: Map<string, PolylineObj>) => {
+    for (const [id, o] of polylines) constraintPolylines.current.set(id, o);
+    const picks = [...constraintPicks, pick];
+    const need = CONSTRAINT_PICKS[constraintType];
+    if (picks.length < need.length) {
+      if (pick.type !== need[picks.length - 1]) { flash(`${CONSTRAINT_LABEL[constraintType]} : ${need[picks.length - 1] === 'point' ? 'désignez un sommet ou une extrémité' : need[picks.length - 1] === 'seg' ? 'désignez un segment' : 'désignez un cercle ou un arc'}.`); return; }
+      setConstraintPicks(picks);
+      return;
+    }
+    setConstraintPicks([]);
+    const typed = constraintValue.trim() === '' ? undefined : Number(constraintValue.replace(',', '.'));
+    // Les objets à jour des identifiants de sommets servent à lire les mesures actuelles.
+    const objects = project.allObjects.map(o => constraintPolylines.current.get(o.id) ?? o);
+    if (typed !== undefined && !(typed > 0)) { flash(`${CONSTRAINT_LABEL[constraintType]} : valeur positive attendue.`); return; }
+    // L'identifiant est attribué par le projet.
+    const made = makeConstraint('', constraintType, picks, objects, typed);
+    if ('error' in made) { flash(made.error); return; }
+    project.addConstraint(made, CONSTRAINT_LABEL[constraintType], constraintPolylines.current);
+    constraintPolylines.current = new Map();
+  }, [constraintPicks, constraintType, constraintValue, project, flash]);
+
   // Décalage à distance saisie (lot 10.4) : copie parallèle, propriétés de trait conservées.
   const offsetPicked = useCallback((id: string, side: { x: number; y: number }) => {
     const source = project.objects.find(o => o.id === id);
@@ -887,6 +921,7 @@ function Workbench() {
         stretch: ['etirer', 'étirer', 'stretch', 'allonger', 'deformer'],
         freehand: ['main levee', 'main levée', 'croquis', 'esquisse', 'libre', 'freehand', 'crayon'],
         offset: ['decaler', 'décaler', 'offset', 'parallele', 'parallèle', 'copie parallele'],
+        constraint: ['contrainte', 'contraindre', 'parametrique', 'horizontal', 'vertical', 'parallele', 'perpendiculaire', 'tangent', 'coincident', 'fixe', 'solveur', 'esquisse'],
         trim: ['ajuster', 'couper', 'trim', 'ecourter', 'raccourcir'],
         room: ['piece', 'surface', 'local', 'room', 'sia', 'carrez'],
         note: ['note', 'photo', 'releve', 'terrain', 'chantier', 'commentaire', 'remarque'],
@@ -1231,6 +1266,7 @@ function Workbench() {
                  tool === 'arc' ? 'Arc : cliquez le début, un point de passage, puis la fin' :
                  tool === 'freehand' ? 'Main levée : tracez en maintenant appuyé ; la polyligne est simplifiée au relâcher' :
                  tool === 'offset' ? 'Décaler : touchez l’objet, puis un point du côté où poser la copie parallèle' :
+                 tool === 'constraint' ? `${CONSTRAINT_LABEL[constraintType]} : désignez ${CONSTRAINT_PICKS[constraintType].map(n => (n === 'point' ? 'un sommet' : n === 'seg' ? 'un segment' : 'un cercle')).join(' puis ')}` :
                  tool === 'stretch' ? 'Étirer : deux coins de la fenêtre de capture, puis le point de base et le point d’arrivée' :
                  tool === 'spline' ? 'Spline : cliquez les points de contrôle, puis Terminer (Entrée ou double-clic)' :
                  tool === 'ellipse' ? 'Ellipse : cliquez le centre, l’extrémité du premier axe, puis un point du second axe' :
@@ -1350,6 +1386,9 @@ function Workbench() {
                 onCorner={corner}
                 onStretch={patches => project.applyPatches(patches, [], 'Étirer')}
                 onOffset={offsetPicked}
+                onConstraintPick={pickForConstraint}
+                constraintMarks={constraintMarks}
+                constraintPicks={constraintPicks.map(p => p.at)}
                 onMeasureArea={measureArea}
                 onAddPointDimension={addPointDimension}
                 onAddWall={addWall}
@@ -1511,6 +1550,59 @@ function Workbench() {
                   )}
                 </div>
               )}
+              {tool === 'constraint' && (
+                <div data-testid="panneau-contraintes" className="absolute left-3 top-3 z-10 sm:top-12 flex max-h-[60%] w-72 max-w-[calc(100%-1.5rem)] flex-col gap-1.5 overflow-y-auto rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select aria-label="Type de contrainte" value={constraintType} onChange={e => setConstraintType(e.target.value as GeoConstraint['type'])}
+                      className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+                      {(Object.keys(CONSTRAINT_LABEL) as GeoConstraint['type'][]).map(t => <option key={t} value={t}>{CONSTRAINT_LABEL[t]}</option>)}
+                    </select>
+                    {(constraintType === 'distance' || constraintType === 'length' || constraintType === 'radius') && (
+                      <label className="flex items-center gap-1">Valeur
+                        <input aria-label="Valeur de la contrainte (mm)" inputMode="decimal" placeholder="actuelle" value={constraintValue}
+                          onChange={e => setConstraintValue(e.target.value)}
+                          className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                      </label>
+                    )}
+                    <span data-testid="contrainte-designes">{constraintPicks.length}/{CONSTRAINT_PICKS[constraintType].length}</span>
+                  </div>
+                  {constraintDiagnosis.conflicting.length > 0 && (
+                    <p data-testid="contraintes-conflit" className="text-red-300">
+                      Conflit : {constraintDiagnosis.conflicting.map(id => `${id} (${CONSTRAINT_LABEL[project.constraints.find(k => k.id === id)!.type].toLowerCase()})`).join(', ')} ne peuvent pas être satisfaites avec les autres contraintes. Retirez ou modifiez l’une d’elles ; le dessin reste tel quel en attendant.
+                    </p>
+                  )}
+                  {constraintDiagnosis.redundant.length > 0 && (
+                    <p data-testid="contraintes-redondantes" className="text-slate-400">
+                      Sur-contrainte : {constraintDiagnosis.redundant.join(', ')} {constraintDiagnosis.redundant.length > 1 ? 'n’ajoutent' : 'n’ajoute'} rien aux autres contraintes.
+                    </p>
+                  )}
+                  {constraintDiagnosis.unresolved.length > 0 && (
+                    <p data-testid="contraintes-a-reparer" className="text-orange-300">
+                      À réparer : {constraintDiagnosis.unresolved.join(', ')} (élément visé disparu ou renuméroté) : retirez la contrainte et recréez-la.
+                    </p>
+                  )}
+                  {project.constraints.length > 0 && (
+                    <>
+                      <p>Degrés de liberté restants : <span data-testid="contraintes-ddl">{constraintDiagnosis.dof}</span></p>
+                      <ul className="flex flex-col gap-0.5">
+                        {project.constraints.map(k => (
+                          <li key={k.id} data-contrainte-liste={k.id} data-etat={constraintDiagnosis.states[k.id]} className="flex items-center gap-1">
+                            <span className="w-16 shrink-0">{k.id}</span>
+                            <span className="flex-1 truncate" title={constraintDiagnosis.states[k.id]}>{CONSTRAINT_LABEL[k.type]}</span>
+                            {'value' in k && (
+                              <input aria-label={`Valeur de ${k.id} (mm)`} inputMode="decimal" defaultValue={String(k.value).replace('.', ',')} key={`${k.id}-${k.value}`}
+                                onBlur={e => { const v = Number(e.target.value.replace(',', '.')); if (v > 0) project.setConstraintValue(k.id, v); else e.target.value = String(k.value).replace('.', ','); }}
+                                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" />
+                            )}
+                            <button type="button" aria-label={`Retirer ${k.id}`} onClick={() => project.removeConstraint(k.id)} className="rounded-sm px-1 text-muted-foreground hover:text-red-300">×</button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
               {tool === 'offset' && (
                 <div className="absolute left-3 top-3 z-10 sm:top-12 flex items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg">
                   <label className="flex items-center gap-1">Distance
@@ -1569,6 +1661,12 @@ function Workbench() {
               {kernelResult && (
                 <span data-testid="noyau-3d" data-volume={kernelResult.volume} data-chargement={kernelResult.loadMs} title={`Noyau 3D OCCT chargé en ${kernelResult.loadMs} ms (${kernelResult.totalMs} ms avec le premier calcul)`} className="text-emerald-300">
                   noyau 3D prêt
+                </span>
+              )}
+              {project.constraints.length > 0 && (
+                <span data-testid="contraintes" className={constraintDiagnosis.conflicting.length || constraintDiagnosis.unresolved.length ? 'text-red-300' : ''}>
+                  {project.constraints.length} contrainte{project.constraints.length > 1 ? 's' : ''}
+                  {constraintDiagnosis.conflicting.length ? ` · conflit (${constraintDiagnosis.conflicting.join(', ')})` : constraintDiagnosis.unresolved.length ? ` · ${constraintDiagnosis.unresolved.length} à réparer` : ` · ${constraintDiagnosis.dof} ddl`}
                 </span>
               )}
               {project.storageWarning && <span data-testid="quota" className="text-red-300">{project.storageWarning}</span>}

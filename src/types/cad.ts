@@ -86,7 +86,12 @@ export interface EllipseObj extends Base { kind: 'ellipse'; cx: number; cy: numb
  * poids explicites conservés tels quels à l'import DXF (B-spline rationnelle, spline fermée).
  */
 export interface SplineObj extends Base { kind: 'spline'; points: number[]; degree: number; knots?: number[]; weights?: number[]; closed?: boolean }
-export interface PolylineObj extends Base { kind: 'polyline'; points: number[] }
+/**
+ * `vids` (lot 12.1) : identifiant permanent de chaque sommet, attribué quand une contrainte vise la
+ * polyligne. Une opération qui change le nombre de sommets sans les tenir à jour rend les références
+ * « à réparer » (jamais réattribuées).
+ */
+export interface PolylineObj extends Base { kind: 'polyline'; points: number[]; vids?: string[] }
 
 /** Cote associative : la géométrie affichée dérive de l'objet cible. */
 export interface DimensionObj extends Base {
@@ -399,6 +404,24 @@ export interface Sheet {
 /** Niveau (étage) : nom et altitude du plancher (mm, par rapport au ±0,00 du projet). */
 export interface Level { id: string; name: string; elevation: number }
 
+/**
+ * Contraintes géométriques de l'atelier (lot 12.1). Un point est une extrémité de ligne (`a`, `b`),
+ * un centre de cercle ou d'arc (`c`) ou un sommet de polyligne (`v:<identifiant>`) ; un segment est
+ * une ligne ou le côté d'une polyligne partant du sommet `v:<identifiant>`.
+ */
+export interface PointRef { obj: string; at: string }
+export interface SegRef { obj: string; from?: string }
+export interface CurveRef { obj: string }
+export type GeoConstraint =
+  | { id: string; type: 'coincident'; a: PointRef; b: PointRef }
+  | { id: string; type: 'horizontal' | 'vertical'; seg: SegRef }
+  | { id: string; type: 'parallel' | 'perpendicular' | 'equal'; s1: SegRef; s2: SegRef }
+  | { id: string; type: 'distance'; a: PointRef; b: PointRef; value: number }
+  | { id: string; type: 'length'; seg: SegRef; value: number }
+  | { id: string; type: 'radius'; curve: CurveRef; value: number }
+  | { id: string; type: 'tangent'; seg: SegRef; curve: CurveRef }
+  | { id: string; type: 'fixed'; p: PointRef; x: number; y: number };
+
 export interface MicroVersion {
   seq: number;
   label: string;
@@ -412,6 +435,7 @@ export interface MicroVersion {
   profileId?: string;      // profil de dessin (lot 3.1) ; absent = profil par défaut
   surfaceRule?: 'sia-416' | 'carrez'; // règle de surface des pièces (lot 4.3) ; absent = SIA 416
   levels?: Level[];        // niveaux (lot 4.4) ; absent = un seul niveau par défaut
+  constraints?: GeoConstraint[]; // contraintes géométriques (lot 12.1) ; absent = aucune
 }
 
 export interface ProjectState {
