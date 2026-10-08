@@ -3,6 +3,7 @@
 // est reprise, des modifications différentes d'un même élément sont un conflit, listé puis tranché
 // (garder l'une ou l'autre). Rien n'est tranché en silence. Fonctions pures.
 import { parentsOf, type CadObject, type MicroVersion, type ProjectState } from '@/types/cad';
+import { constraintObjects } from './constraints/model';
 import { activeBranch } from './branches';
 
 type WithId = { id: string };
@@ -24,7 +25,8 @@ export function diffById<T extends WithId>(from: T[], to: T[]): Change[] {
 export const MERGED_COLLECTIONS = ['objects', 'layers', 'blocks', 'sheets', 'levels', 'constraints', 'parameters', 'zones'] as const;
 export type Collection = (typeof MERGED_COLLECTIONS)[number];
 /** Réglages fusionnés comme valeurs simples. */
-export const MERGED_SETTINGS = ['profileId', 'surfaceRule'] as const;
+/** `georef` absent est écrit `null` dans le résultat : une suppression d'un côté est reprise. */
+export const MERGED_SETTINGS = ['profileId', 'surfaceRule', 'georef'] as const;
 
 export interface Conflict {
   /** Collection et identifiant de l'élément, ou réglage. */
@@ -83,10 +85,12 @@ export function merge3(base: MicroVersion, ours: MicroVersion, theirs: MicroVers
   }
   dependencyConflicts(base, ours, theirs, merged, conflicts);
   for (const k of MERGED_SETTINGS) {
-    const b = base[k], o = ours[k], t = theirs[k];
+    // Géoréférencement : l'absence est une valeur (null), pour qu'un retrait soit fusionné comme un changement.
+    const val = (v: MicroVersion) => (k === 'georef' ? v[k] ?? null : v[k]);
+    const b = val(base), o = val(ours), t = val(theirs);
     if (same(t, b) || same(o, t)) { if (o !== undefined) merged[k] = o; continue; }
-    if (same(o, b)) { if (t !== undefined) merged[k] = t; taken.push({ where: k, id: k, kind: 'modifié' }); continue; }
-    conflicts.push({ where: k, id: k, ours: 'modifié', theirs: 'modifié', oursValue: o, theirsValue: t });
+    if (same(o, b)) { if (t !== undefined) merged[k] = t; taken.push({ where: k, id: k, kind: t === null ? 'supprimé' : b === null ? 'ajouté' : 'modifié' }); continue; }
+    conflicts.push({ where: k, id: k, ours: o === null ? 'supprimé' : 'modifié', theirs: t === null ? 'supprimé' : 'modifié', oursValue: o, theirsValue: t });
     if (o !== undefined) merged[k] = o;
   }
   return { merged: merged as MergeResult['merged'], conflicts, taken };
@@ -133,6 +137,10 @@ function dependencyConflicts(base: MicroVersion, ours: MicroVersion, theirs: Mic
     const present = new Set(objs.map(o => o.id));
     const users = new Map<string, string[]>();
     for (const o of objs) for (const r of refsOf(o)) if (!present.has(r)) users.set(r, [...(users.get(r) ?? []), o.id]);
+    // Contraintes du résultat qui désignent des objets (sinon élaguées sans le dire à l'enregistrement).
+    for (const k of (merged.constraints as Parameters<typeof constraintObjects>[0][] | undefined) ?? []) {
+      for (const r of constraintObjects(k)) if (!present.has(r)) users.set(r, [...(users.get(r) ?? []), k.id]);
+    }
     let added = false;
     for (const [id, dependents] of users) {
       const find = (v: MicroVersion) => (v.objects.find(x => x.id === id) as CadObject | undefined) ?? null;
@@ -200,7 +208,13 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
       if (refs.some(r => gone.has(r))) { gone.add(o.id); grew = true; }
     }
   }
-  if (gone.size) out.objects = ((out.objects as WithId[] | undefined) ?? []).filter(o => !gone.has(o.id));
+  if (gone.size) {
+    out.objects = ((out.objects as WithId[] | undefined) ?? []).filter(o => !gone.has(o.id));
+    // Contraintes dépendantes : nommées, ou visant un objet retiré.
+    if (out.constraints) {
+      out.constraints = (out.constraints as Parameters<typeof constraintObjects>[0][]).filter(k => !gone.has(k.id) && !constraintObjects(k).some(r => gone.has(r)));
+    }
+  }
   return out as MergeResult['merged'];
 }
 

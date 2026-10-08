@@ -756,7 +756,10 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - d'une source de vue ;
   - de la cible d'une cote, d'une note ou d'une liaison.
 
-  Retenir la suppression retire aussi, de proche en proche, ce qui en dépend : aucune référence orpheline.
+  - d'un objet désigné par une contrainte.
+
+  Retenir la suppression retire aussi, de proche en proche, ce qui en dépend (objets et contraintes) : aucune référence orpheline.
+- **Géoréférencement** : il est fusionné comme un réglage. Son ajout, son retrait (valeur absente) et sa modification sont repris d'un côté, ou mis en conflit s'ils sont faits des deux côtés.
   - Un changement fait d'un seul côté est repris.
   - Un même changement fait des deux côtés est accepté.
   - Des changements différents d'un même élément (modifié des deux côtés, supprimé d'un côté et modifié de l'autre) sont un **conflit**. Le panneau les liste, et chacun doit être tranché (« garder » l'une ou l'autre variante) avant de fusionner. Rien n'est tranché en silence.
@@ -815,7 +818,7 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - Le Worker est créé, depuis un Blob, dans un cadre isolé (`sandbox`, origine opaque). La politique de sécurité de ce cadre (`default-src 'none'`) n'autorise aucune source réseau, et le Worker en hérite. `import()` d'une adresse, `fetch`, `XMLHttpRequest` et `WebSocket` sont ainsi bloqués avant toute requête. La recette le vérifie : un script qui tente d'envoyer le projet par `import()` n'obtient aucune réponse.
   - En outre, `indexedDB`, `localStorage`, `sessionStorage`, `caches`, `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `BroadcastChannel`, `importScripts`, `navigator`, les Workers et la messagerie brute sont retirés de l'objet global et de toute sa chaîne de prototypes.
   - Le script ne lit et n'écrit les données du projet que par l'API. Retirer le cadre arrête le Worker.
-- **Objets créés complets** : `addObject` exige la forme complète de l'objet selon son type (champs numériques finis, points, recette d'un solide, désignations), en plus d'un type connu et d'un calque existant.
+- **Objets complets** : chaque type d'objet a sa fiche (champs numériques finis, points, recette d'un solide, désignations, valeurs permises). `addObject` l'exige en plus d'un type connu et d'un calque existant. `updateObject` valide l'objet résultant : le type et l'identifiant ne changent pas, et un objet complet ne peut pas le devenir moins.
 - **Tout ou rien** : un script qui échoue est annulé en entier. Les cas d'échec sont une exception, une commande refusée, un délai dépassé ou un arrêt à la main. Le projet revient à son état d'avant le script, journal compris.
   - Délai réglable de 1 à 120 s, 10 s par défaut. Au-delà, le Worker est arrêté.
   - Un script réussi laisse ses commandes au journal et ses versions dans l'historique.

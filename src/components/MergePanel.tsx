@@ -16,7 +16,7 @@ interface Props {
 
 const WHERE: Record<string, string> = {
   objects: 'Objet', layers: 'Calque', blocks: 'Bloc', sheets: 'Feuille', levels: 'Niveau', constraints: 'Contrainte', parameters: 'Paramètre', zones: 'Zone',
-  profileId: 'Profil de dessin', surfaceRule: 'Règle de surface',
+  profileId: 'Profil de dessin', surfaceRule: 'Règle de surface', georef: 'Géoréférencement',
 };
 
 export default function MergePanel({ state, branches, onOverlay, onMerge, onClose }: Props) {

@@ -60,31 +60,62 @@ function transformError(op: unknown): string | null {
  * Forme complète d'un objet à créer (scripts, assistant) : champs numériques finis, champs texte et
  * listes de points requis par son type. Un objet incomplet serait enregistré puis casserait le rendu.
  */
-const NUMS: Partial<Record<string, string[]>> = {
-  line: ['x1', 'y1', 'x2', 'y2'], rect: ['x', 'y', 'w', 'h'], circle: ['cx', 'cy', 'r'], arc: ['cx', 'cy', 'r', 'start', 'end'],
-  ellipse: ['cx', 'cy', 'rx', 'ry', 'rotation'], text: ['x', 'y', 'height', 'rotation'], wall: ['x1', 'y1', 'x2', 'y2', 'thickness'],
-  opening: ['position', 'width'], room: ['x', 'y'], slab: ['thickness'], roof: ['x', 'y', 'w', 'h', 'pitch', 'overhang'],
-  column: ['x', 'y'], beam: ['x1', 'y1', 'x2', 'y2', 'b', 'h'], occurrence: ['x', 'y', 'z', 'angle'], spline: ['degree'],
+type Spec = { nums?: string[]; strs?: string[]; /** Nombre minimal de points (x, y). */ points?: number; enums?: Record<string, readonly unknown[]>; extra?: (o: Record<string, unknown>) => string | null };
+/** Champs requis de chaque type d'objet (tous les types de KIND_LABEL : un type sans fiche est refusé). */
+const SPECS: Record<string, Spec> = {
+  line: { nums: ['x1', 'y1', 'x2', 'y2'] },
+  rect: { nums: ['x', 'y', 'w', 'h'] },
+  circle: { nums: ['cx', 'cy', 'r'] },
+  arc: { nums: ['cx', 'cy', 'r', 'start', 'end'] },
+  ellipse: { nums: ['cx', 'cy', 'rx', 'ry', 'rotation'] },
+  spline: { nums: ['degree'], points: 2 },
+  polyline: { points: 2 },
+  dimension: { nums: ['offset'], strs: ['targetId'], enums: { style: ['horizontal', 'vertical', 'aligned', 'radial'] } },
+  pdim: { nums: ['offset'], points: 1, enums: { mode: ['chain', 'baseline', 'angular', 'level'], axis: ['horizontal', 'vertical', 'aligned'] } },
+  blockRef: { nums: ['x', 'y', 'scale'], strs: ['blockId'] },
+  text: { nums: ['x', 'y', 'height', 'rotation'], strs: ['content'] },
+  wall: { nums: ['x1', 'y1', 'x2', 'y2', 'thickness'], enums: { justification: ['axe', 'gauche', 'droite'] } },
+  opening: { nums: ['position', 'width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] } },
+  room: { nums: ['x', 'y'] },
+  slab: { nums: ['thickness'], points: 3 },
+  roof: { nums: ['x', 'y', 'w', 'h', 'pitch', 'overhang'] },
+  column: { nums: ['x', 'y'], enums: { section: ['rect', 'circle'] } },
+  beam: { nums: ['x1', 'y1', 'x2', 'y2', 'b', 'h'] },
+  solid: { extra: o => (isRecipe(o.recipe) ? null : 'solide : recette attendue') },
+  occurrence: { nums: ['x', 'y', 'z', 'angle'], strs: ['sourceId'] },
+  projection: { nums: ['x', 'y'], strs: ['sourceId'], enums: { view: ['dessus', 'face', 'cote'] } },
+  elevation: { nums: ['x', 'y'], enums: { view: ['nord', 'sud', 'est', 'ouest', 'coupe'] }, extra: o => (o.view === 'coupe' && !str(o.markId) ? 'façade : repère de coupe attendu' : null) },
+  north: { nums: ['x', 'y', 'rotation'] },
+  section: { nums: ['x1', 'y1', 'x2', 'y2'], strs: ['label'] },
+  levelMark: { nums: ['x', 'y', 'elevation'] },
+  roughness: { nums: ['x', 'y', 'rotation'], enums: { process: ['quelconque', 'enlevement', 'sans-enlevement'] } },
+  views: { nums: ['depth', 'gap'], strs: ['sourceId'] },
+  cut: { nums: ['depth', 'gap'], strs: ['sourceId', 'markId'] },
+  bom: { nums: ['x', 'y'] },
+  balloon: { nums: ['x', 'y'], strs: ['targetId'] },
+  underlay: { nums: ['x', 'y', 'w', 'h', 'opacity'], strs: ['assetId'] },
+  note: { nums: ['x', 'y', 'time'], extra: o => (typeof o.text === 'string' ? null : 'note : texte attendu') },
 };
-const STRS: Partial<Record<string, string[]>> = { text: ['content'], opening: ['hostId'], occurrence: ['sourceId'] };
-const POINTS = new Set(['polyline', 'slab', 'spline']);
 
 export function objectShapeError(o: Record<string, unknown>): string | null {
   const kind = o.kind as string;
-  for (const k of NUMS[kind] ?? []) if (!finite(o[k])) return `${kind} : ${k} numérique fini attendu`;
-  for (const k of STRS[kind] ?? []) if (!str(o[k])) return `${kind} : ${k} attendu`;
-  if (POINTS.has(kind)) {
+  const spec = SPECS[kind];
+  if (!spec) return `type d’objet inconnu « ${String(kind)} »`;
+  for (const k of spec.nums ?? []) if (!finite(o[k])) return `${kind} : ${k} numérique fini attendu`;
+  for (const k of spec.strs ?? []) if (!str(o[k])) return `${kind} : ${k} attendu`;
+  for (const [k, values] of Object.entries(spec.enums ?? {})) if (!values.includes(o[k])) return `${kind} : ${k} parmi ${values.join(', ')} attendu`;
+  if (spec.points) {
     const p = o.points;
-    if (!Array.isArray(p) || p.length < 4 || p.length % 2 !== 0 || !p.every(finite)) return `${kind} : liste de points (x, y) finie attendue`;
+    if (!Array.isArray(p) || p.length < 2 * spec.points || p.length % 2 !== 0 || !p.every(finite)) return `${kind} : liste de points (x, y) finie attendue`;
   }
-  if (kind === 'wall' && !['axe', 'gauche', 'droite'].includes(o.justification as string)) return 'mur : justification axe, gauche ou droite attendue';
-  if (kind === 'column' && o.section !== 'rect' && o.section !== 'circle') return 'poteau : section rect ou circle attendue';
-  if (kind === 'solid' && !isRecipe(o.recipe)) return 'solide : recette attendue';
-  return null;
+  return spec.extra?.(o) ?? null;
 }
 
+/** Toutes les fiches existent (vérifié par les tests) : chaque type connu est validé. */
+export const OBJECT_SPEC_KINDS = Object.keys(SPECS);
+
 /** Validateurs propres à certaines commandes (les autres : arguments sérialisables). */
-const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; layerIds?: Set<string> }) => string | null> = {
+const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string> }) => string | null> = {
   addObject: ([o], { layerIds }) => {
     const n = o as { kind?: unknown; layerId?: unknown } | null;
     if (!n || typeof n !== 'object' || !str(n.kind)) return 'objet à créer : type attendu';
@@ -92,7 +123,20 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: { ids: Set<string>; laye
     if (layerIds && !(str(n.layerId) && layerIds.has(n.layerId as string))) return `objet à créer : calque ${String(n.layerId)} absent`;
     return objectShapeError(n as Record<string, unknown>);
   },
-  updateObject: ([id, patch], { ids }) => (!str(id) ? 'identifiant attendu' : !ids.has(id as string) ? `objet ${String(id)} absent` : patch && typeof patch === 'object' ? null : 'modification attendue'),
+  updateObject: ([id, patch], { ids, objects, layerIds }) => {
+    if (!str(id)) return 'identifiant attendu';
+    if (!ids.has(id as string)) return `objet ${String(id)} absent`;
+    if (!patch || typeof patch !== 'object') return 'modification attendue';
+    // L'objet résultant doit rester complet et de même type (identifiant inchangé).
+    const p = patch as Record<string, unknown>;
+    const current = objects.find(o => o.id === id) as unknown as Record<string, unknown>;
+    if ('kind' in p && p.kind !== current.kind) return 'modification : le type d’un objet ne change pas';
+    if ('id' in p && p.id !== id) return 'modification : l’identifiant ne change pas';
+    const next = { ...current, ...p };
+    if (layerIds && !(str(next.layerId) && layerIds.has(next.layerId as string))) return `modification : calque ${String(next.layerId)} absent`;
+    // Un objet déjà incomplet (projet ancien) reste modifiable ; un objet complet ne peut pas le devenir moins.
+    return objectShapeError(current) ? null : objectShapeError(next);
+  },
   removeObject: ([id], { ids }) => (str(id) && ids.has(id as string) ? null : `objet ${String(id)} absent`),
   removeObjects: ([list], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : null),
   transform: ([list, op], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : transformError(op)),
@@ -136,7 +180,7 @@ export function decodeArgs(v: unknown): unknown {
 export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: Pick<Layer, 'id'>[]): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];
-  return v ? v(args, { ids: new Set(objects.map(o => o.id)), ...(layers ? { layerIds: new Set(layers.map(l => l.id)) } : {}) }) : null;
+  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, ...(layers ? { layerIds: new Set(layers.map(l => l.id)) } : {}) }) : null;
 }
 
 /** Empreinte comparable d'une version : contenu du projet, sans horodatage ni libellé. */

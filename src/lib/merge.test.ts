@@ -118,4 +118,29 @@ describe('comparaison et fusion (lot 14.2)', () => {
     if ('error' in keep) throw new Error(keep.error);
     expect(keep.objects!.map(o => o.id).sort()).toEqual(['D', 'O', 'P']);
   });
+
+  it('contrainte ajoutée d’un côté sur un objet supprimé de l’autre → conflit, pas d’élagage silencieux', () => {
+    const k = { id: 'CTR-0001', type: 'horizontal', seg: { obj: 'A', i: 0 } } as unknown as NonNullable<MicroVersion['constraints']>[number];
+    const r = merge3(v(0, [line('A', 100)]), v(1, []), v(1, [line('A', 100)], { constraints: [k] }));
+    const c = r.conflicts.find(x => x.where === 'objects' && x.id === 'A')!;
+    expect(c).toMatchObject({ ours: 'supprimé', dependents: ['CTR-0001'] });
+    const del = resolve(r, { [conflictKey(c)]: 'nôtre' });
+    if ('error' in del) throw new Error(del.error);
+    expect([del.objects, del.constraints]).toEqual([[], []]);
+    const keep = resolve(r, { [conflictKey(c)]: 'leur' });
+    if ('error' in keep) throw new Error(keep.error);
+    expect(keep.constraints!.map(x => x.id)).toEqual(['CTR-0001']);
+  });
+
+  it('géoréférencement fusionné : ajout, retrait et conflit', () => {
+    const g = { crs: 'EPSG:2056', e: 2600000, n: 1200000, h: 400, north: 0 };
+    const added = merge3(v(0, []), v(1, []), v(1, [], { georef: g }));
+    expect(added.merged.georef).toEqual(g);
+    expect(added.taken).toContainEqual({ where: 'georef', id: 'georef', kind: 'ajouté' });
+    const removed = merge3(v(0, [], { georef: g }), v(1, [], { georef: g }), v(1, []));
+    expect(removed.merged.georef).toBeNull();
+    const both = merge3(v(0, [], { georef: g }), v(1, [], { georef: { ...g, north: 10 } }), v(1, []));
+    expect(both.conflicts).toEqual([expect.objectContaining({ where: 'georef', ours: 'modifié', theirs: 'supprimé' })]);
+    expect(versionDiff(v(0, []), v(1, [], { georef: g }))).toEqual([{ id: 'georef', kind: 'modifié', where: 'georef' }]);
+  });
 });

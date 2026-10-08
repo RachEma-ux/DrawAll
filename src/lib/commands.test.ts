@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject, MicroVersion } from '@/types/cad';
 import { polarArray, rectangularArray } from './array';
-import { applyTransform, decodeArgs, encodeArgs, validateCommand, versionDigest } from './commands';
+import { KIND_LABEL } from '@/types/cad';
+import { applyTransform, OBJECT_SPEC_KINDS, decodeArgs, encodeArgs, validateCommand, versionDigest } from './commands';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const line = { ...base, id: 'OBJ-0001', name: 'L', kind: 'line', x1: 0, y1: 0, x2: 100, y2: 0 } as CadObject;
@@ -44,6 +45,18 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('addObject', [{ kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } }], [])).toBeNull();
     expect(validateCommand('addLevel', ['R+1', 'haut'], [])).toBe('nom et altitude attendus');
     expect(validateCommand('transformObjects', [['OBJ-0001'], (o: CadObject) => o], [line])).toBe('fonction en argument : utiliser une commande déclarative');
+  });
+
+  it('chaque type d’objet a sa fiche de validation ; mise à jour validée sur l’objet résultant', () => {
+    expect([...OBJECT_SPEC_KINDS].sort()).toEqual(Object.keys(KIND_LABEL).sort());
+    expect(validateCommand('addObject', [{ kind: 'pdim', mode: 'chain', axis: 'horizontal', offset: 1 }], [])).toBe('pdim : liste de points (x, y) finie attendue');
+    const solid = { ...line, id: 'S', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['S', { recipe: undefined }], [solid])).toBe('solide : recette attendue');
+    expect(validateCommand('updateObject', ['S', { kind: 'line' }], [solid])).toBe('modification : le type d’un objet ne change pas');
+    expect(validateCommand('updateObject', ['S', { recipe: { op: 'box', x: 2, y: 1, z: 1 } }], [solid])).toBeNull();
+    // Objet ancien déjà incomplet : il reste modifiable.
+    const legacy = { ...line, id: 'L', x2: undefined } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['L', { name: 'x' }], [legacy])).toBeNull();
   });
 
   it('poses de copie déclaratives : réseaux et collage journalisables', () => {
