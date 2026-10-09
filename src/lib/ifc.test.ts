@@ -118,6 +118,9 @@ describe('baies dans le mur : volume net et géométrie (relecture #68)', () => 
     expect(report.notExported).toContain('B : baie hors de la hauteur du mur M (allège 2600 mm, mur 2500 mm), exportée sans évider le mur');
     expect(report.exported.IfcOpeningElement).toBe(1);
     expect(content).not.toContain("'Baie B'");
+    // Hauteur hors tout : celle du corps écrêté (500 mm), pas celle saisie ; B, sans corps, garde la sienne.
+    expect(content).toMatch(/=IFC(?:DOOR|WINDOW)\([^\n]*,'A',500\.,900\.,/);
+    expect(content).toMatch(/=IFC(?:DOOR|WINDOW)\([^\n]*,\$,'B',500\.,/);
   });
 });
 

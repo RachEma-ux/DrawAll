@@ -113,3 +113,15 @@ describe('relecture 52e passe : journal endommagé', () => {
     expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [version], pointer: 0 }, entries } }).journal?.entries).toHaveLength(1);
   });
 });
+
+describe('relecture 53e passe : journal endommagé (suite)', () => {
+  const layers = [{ id: 'LAY-0001', name: 'A', color: '#fff', visible: true, locked: false }];
+  const version = { seq: 0, label: 'v0', time: 1, layers, objects: [], blocks: [] };
+  it('base dont aucune version ne se relit : journal écarté (jamais un projet neuf au rejeu)', () => {
+    expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [{}] }, entries: [{ n: 1, type: 'addLayer', args: ['B'] }] } }).journal).toBeUndefined();
+  });
+  it('entrée aux arguments indécodables : écartée', () => {
+    const j = normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [version], pointer: 0 }, entries: [{ n: 1, type: 'addLayer', args: [{ $map: [1] }] }, { n: 2, type: 'addLayer', args: ['B'] }] } }).journal;
+    expect(j?.entries.map(e => e.n)).toEqual([2]);
+  });
+});

@@ -251,7 +251,7 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
     const sill = o.sill ?? (o.type === 'porte' ? 0 : undefined);
     const st = storeys.get(levelIdOf(host.wall))!;
     const pl = s.add(`IFCLOCALPLACEMENT(${st.pl},${axis3([0, 0, 0])})`);
-    let filled: string | null = null, body = '$';
+    let filled: string | null = null, body = '$', bodyHeight: number | undefined;
     const span = openingSpan(o);
     if (o.height !== undefined && sill !== undefined && geom && !span) {
       report.notExported.push(`${o.id} : baie hors de la hauteur du mur ${host.wall.id} (allège ${sill} mm, mur ${Math.round(host.h)} mm), exportée sans évider le mur`);
@@ -264,9 +264,11 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
       // Corps de la porte ou de la fenêtre : le bloc de la baie, à l'épaisseur du mur (représentation
       // simplifiée ; ni cadre, ni ouvrant, ni vitrage, qui ne sont pas modélisés).
       const ring = openingBox(o, host.wall, 0);
-      if (ring) body = extruded(ring.map(toIfc), host.z0 + span.z0, span.z1 - span.z0);
+      if (ring) { body = extruded(ring.map(toIfc), host.z0 + span.z0, span.z1 - span.z0); bodyHeight = span.z1 - span.z0; }
     } else report.notExported.push(`${o.id} : ${o.type === 'porte' ? 'porte' : 'fenêtre'} sans ${o.height === undefined ? 'hauteur de baie' : 'allège'} saisie, exportée sans volume et sans évider le mur`);
-    const height = o.height === undefined ? '$' : stepReal(o.height);
+    // Hauteur hors tout : celle du corps exporté (baie écrêtée comprise), sinon celle saisie.
+    const h = bodyHeight ?? o.height;
+    const height = h === undefined ? '$' : stepReal(h);
     const pre = o.type === 'porte' ? '.DOOR.' : '.WINDOW.';
     const door = s.add(`${cls.toUpperCase()}(${guid(o.id)},$,${stepString(o.name)},$,$,${pl},${body},${stepString(o.id)},${height},${stepReal(o.width)},${pre},$,$)`);
     st.contents.push(door);

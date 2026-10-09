@@ -283,8 +283,14 @@ function normalizeJournal(raw: unknown): Journal | undefined {
   // Base : un historique de projet relisible (au moins une version), sinon le rejeu échouerait.
   const versions = (j.base as { versions?: unknown }).versions;
   if (!Array.isArray(versions) || !versions.length) return undefined;
-  try { decodeHistory(j.base as { versions: unknown[] }); } catch { return undefined; }
-  const entries = j.entries.filter(e => e && typeof e.type === 'string' && Array.isArray(e.args) && Number.isInteger(e.n));
+  // … et dont une version au moins se relit (sinon le rejeu repartirait d'un projet neuf).
+  try {
+    const decoded = decodeHistory(j.base as { versions: unknown[] }).versions as Partial<MicroVersion>[];
+    if (!decoded.some(v => !!v && typeof v.seq === 'number' && typeof v.label === 'string' && Array.isArray(v.objects))) return undefined;
+  } catch { return undefined; }
+  // Entrées dont les arguments se décodent (sinon le rejeu échouerait sur elles).
+  const decodable = (args: unknown[]) => { try { decodeArgs(args); return true; } catch { return false; } };
+  const entries = j.entries.filter(e => e && typeof e.type === 'string' && Array.isArray(e.args) && Number.isInteger(e.n) && decodable(e.args));
   return { base: j.base, entries };
 }
 
