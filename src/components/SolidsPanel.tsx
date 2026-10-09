@@ -1,6 +1,6 @@
 // Solides (lot 15.2) : extrusion et révolution d'un contour fermé, booléens de deux solides,
 // perçage. Chaque recette est contrôlée par le noyau OCCT (volume non nul) avant d'entrer au projet.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CadObject, SolidObj } from '@/types/cad';
 import type { FaceRef, ProjView, SolidRecipe } from '@/lib/kernel/recipe';
 import { VIEW_LABEL } from '@/lib/projection';
@@ -79,15 +79,24 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   }, [one]);
   const shownVolume = one && volume && volume.id === one.id && volume.recipe === one.recipe ? volume : null;
 
-  /** Contrôle par le noyau, puis application. `check` : contrôle supplémentaire (texte, ou erreur). */
-  const run = async (res: SolidResult, apply: (r: SolidRecipe) => void, done: string, check?: (r: SolidRecipe) => Promise<{ ok: boolean; text: string }>) => {
+  // Objets du projet tels qu'au dernier rendu : le calcul du noyau est asynchrone, l'atelier reste utilisable.
+  const latest = useRef(objects);
+  useEffect(() => { latest.current = objects; }, [objects]);
+  /**
+   * Contrôle par le noyau, puis application. `operands` : objets dont part l'opération ; s'ils ont changé
+   * (ou disparu) pendant le calcul, rien n'est appliqué. `check` : contrôle supplémentaire (texte, ou erreur).
+   */
+  const run = async (res: SolidResult, operands: CadObject[], apply: (r: SolidRecipe) => void, done: string, check?: (r: SolidRecipe) => Promise<{ ok: boolean; text: string }>) => {
     if ('error' in res) { setMessage({ error: true, text: res.error }); return; }
+    const before = operands.map(o => JSON.stringify(o));
     setBusy(true);
     try {
       const { volume: v } = await kernelVolume(res.recipe);
       if (!(v > 1e-9)) { setMessage({ error: true, text: 'Résultat vide : le solide n’a aucun volume (rien n’est créé).' }); return; }
       const extra = check ? await check(res.recipe) : null;
       if (extra && !extra.ok) { setMessage({ error: true, text: extra.text }); return; }
+      const changed = operands.find((o, i) => JSON.stringify(latest.current.find(x => x.id === o.id)) !== before[i]);
+      if (changed) { setMessage({ error: true, text: `${changed.id} a changé pendant le calcul : rien n’est appliqué, recommencez.` }); return; }
       apply(res.recipe);
       setMessage({ error: false, text: `${done}${extra ? ` — ${extra.text}` : ''} — volume ${m3(v)}.` });
     } catch (e) {
@@ -99,12 +108,12 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
     const src = contours[0], c = contourOf(src);
     if ('error' in c) return;
     // La fonction porte le nom de l'objet source : ses faces deviennent désignables (coque).
-    void run(extrudeRecipe(c, parse(extr.height), parse(extr.z || '0'), src.id), r => onCreate(src, r, 'Extruder'), 'Extrusion créée');
+    void run(extrudeRecipe(c, parse(extr.height), parse(extr.z || '0'), src.id), [src], r => onCreate(src, r, 'Extruder'), 'Extrusion créée');
   };
   const revolve = () => {
     const src = contours[0], c = contourOf(src), ax = lines.find(l => l.id !== src.id);
     if ('error' in c || ax?.kind !== 'line') return;
-    void run(revolveRecipe(c, { x: ax.x1, y: ax.y1 }, { x: ax.x2, y: ax.y2 }, parse(angle)), r => onCreate(src, r, 'Révolution'), 'Révolution créée');
+    void run(revolveRecipe(c, { x: ax.x1, y: ax.y1 }, { x: ax.x2, y: ax.y2 }, parse(angle)), [src, ax], r => onCreate(src, r, 'Révolution'), 'Révolution créée');
   };
   // Balayage : le premier désigné est le profil (contour fermé), le second le trajet.
   const [first, second] = selected;
@@ -114,14 +123,14 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const sweep = () => {
     if (!sweepProfile || 'error' in sweepProfile || !sweepPath || 'error' in sweepPath) return;
     const len = sweepPath.length.toLocaleString('fr-FR', { maximumFractionDigits: 3 });
-    void run(sweepRecipe(sweepProfile, sweepPath.path, parse(sweepZ || '0')), r => onCreate(first, r, 'Balayer'), `Balayage créé (trajet de ${len} mm)`);
+    void run(sweepRecipe(sweepProfile, sweepPath.path, parse(sweepZ || '0')), [first, second], r => onCreate(first, r, 'Balayer'), `Balayage créé (trajet de ${len} mm)`);
   };
   // Lissage : toutes les sections sélectionnées sont des contours fermés, dans l'ordre de désignation.
   const loftContours = selected.map(o => (o.kind === 'solid' ? null : contourOf(o)));
   const canLoft = selected.length >= 2 && loftContours.every(c => c && !('error' in c));
   const doLoft = () => {
     const cs = loftContours.filter((c): c is Contour => !!c && !('error' in c));
-    void run(loftRecipe(cs, parseLevels(loft.levels), loft.ruled), r => onCreate(selected[0], r, 'Lisser'), `Lissage créé par ${cs.length} sections`, async r => {
+    void run(loftRecipe(cs, parseLevels(loft.levels), loft.ruled), selected, r => onCreate(selected[0], r, 'Lisser'), `Lissage créé par ${cs.length} sections`, async r => {
       if (r.op !== 'loft') return { ok: true, text: '' };
       // Les sections doivent être retrouvées sur le bord du solide (10⁻⁶ mm).
       const dev = await kernelDeviation(r, loftCheckPoints(r.sections));
@@ -133,22 +142,22 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const doShell = () => {
     if (!one) return;
     const open = faces.filter(f => shell.open.includes(key(f.ref))).map(f => f.ref);
-    void run(shellRecipe(one.recipe, parse(shell.thickness), open), r => onUpdate(one.id, r, 'Coque'), `Coque faite (${open.length} face${open.length > 1 ? 's' : ''} ouverte${open.length > 1 ? 's' : ''})`);
+    void run(shellRecipe(one.recipe, parse(shell.thickness), open), [one], r => onUpdate(one.id, r, 'Coque'), `Coque faite (${open.length} face${open.length > 1 ? 's' : ''} ouverte${open.length > 1 ? 's' : ''})`);
   };
   const doPush = () => {
     const f = faces.find(c => key(c.ref) === push.face);
     if (!one) return;
     if (!f) { setMessage({ error: true, text: 'Pousser / tirer : désignez une face.' }); return; }
     const d = parse(push.distance);
-    void run(pushPullRecipe(one.recipe, f.ref, d), r => onUpdate(one.id, r, d > 0 ? 'Tirer' : 'Pousser'), `${d > 0 ? 'Face tirée' : 'Face poussée'} (${f.label})`);
+    void run(pushPullRecipe(one.recipe, f.ref, d), [one], r => onUpdate(one.id, r, d > 0 ? 'Tirer' : 'Pousser'), `${d > 0 ? 'Face tirée' : 'Face poussée'} (${f.label})`);
   };
   const combine = (op: BooleanOp) => {
     const [a, b] = solids;
-    void run({ recipe: { op, a: a.recipe, b: b.recipe } }, () => onCombine(a.id, b.id, op), `${BOOLEAN_LABEL[op]} faite`);
+    void run({ recipe: { op, a: a.recipe, b: b.recipe } }, [a, b], () => onCombine(a.id, b.id, op), `${BOOLEAN_LABEL[op]} faite`);
   };
   const drill = () => {
     const s = solids[0], depth = hole.depth.trim() === '' ? undefined : parse(hole.depth);
-    void run(holeRecipe(s.recipe, parse(hole.x), parse(hole.y), parse(hole.d), depth), r => onUpdate(s.id, r, 'Percer'), 'Perçage fait');
+    void run(holeRecipe(s.recipe, parse(hole.x), parse(hole.y), parse(hole.d), depth), [s], r => onUpdate(s.id, r, 'Percer'), 'Perçage fait');
   };
 
   const canExtrude = contours.length === 1 && selected.length === 1;

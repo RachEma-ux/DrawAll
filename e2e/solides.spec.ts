@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { currentObjects, isPhone, loadObjects, openAtelier, tapModel } from './helpers';
+import { chooseTool, currentObjects, isPhone, loadObjects, openAtelier, tapModel } from './helpers';
 
 /** Volume affiché par le panneau (mm³, calculé par le noyau OCCT). */
 const shownVolume = async (page: Page) => {
@@ -368,5 +368,28 @@ test('lot 16.3 — repères de pièce attribués sur toutes les variantes : deux
   panel = await extrudeAt(page, info, 3500, 0, '300');
   await panel.getByRole('button', { name: 'Définir comme pièce' }).click();
   await expect(panel.getByTestId('solides-message')).toHaveText(/devient la pièce n° 2\.$/);
+  expect(errors).toEqual([]);
+});
+
+test('relecture 50e passe — import STEP appliqué à l’état courant : une modification faite pendant la lecture est gardée', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'saisie au clavier');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  let report = '';
+  page.on('dialog', d => { report = d.message(); d.accept().catch(() => {}); });
+  // Lecture lancée (chargement du noyau compris), puis une ligne tracée sans attendre.
+  await page.getByLabel('Fichier STEP à importer').setInputFiles('e2e/fixtures/cube.step');
+  await chooseTool(page, /^Ligne/);
+  const point = page.getByLabel('Point précis');
+  await point.fill('0;2000'); await point.press('Enter');
+  await point.fill('3000;2000'); await point.press('Enter');
+  await expect.poll(async () => (await currentObjects(page)).some(o => o.kind === 'line')).toBe(true);
+  expect(report).toBe('');
+  await expect.poll(() => report, { timeout: 90_000 }).toContain('Import STEP : importé');
+  const kinds = (await currentObjects(page)).map(o => o.kind);
+  expect(kinds).toContain('line');
+  expect(kinds).toContain('solid');
+  expect(kinds).toContain('rect');
   expect(errors).toEqual([]);
 });

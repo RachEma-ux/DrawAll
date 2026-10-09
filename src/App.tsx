@@ -128,6 +128,10 @@ export default function App() {
 
 function Workbench() {
   const project = useProject();
+  // Projet du dernier rendu : les opérations asynchrones (noyau, import STEP) appliquent leur
+  // résultat à l'état courant, jamais à celui du moment où elles ont commencé.
+  const latestProject = useRef(project);
+  useEffect(() => { latestProject.current = project; }, [project]);
   const auth = useAuth();
   const utils = trpc.useUtils();
   const createCloudProject = trpc.projects.create.useMutation();
@@ -411,17 +415,16 @@ function Workbench() {
     try {
       const r = await kernelImportStep(await file.text());
       const items = r.solids.flatMap((s, i) => (s.recipe ? [{ name: `${file.name.replace(/\.[^.]+$/, '')} ${i + 1}`, recipe: s.recipe as SolidRecipe }] : []));
-      if (items.length) project.addSolids(items, 'Importer STEP');
+      // État du projet au retour du noyau (l'atelier est resté utilisable pendant la lecture).
+      if (items.length) latestProject.current.addSolids(items, 'Importer STEP');
       const lines = [`Import STEP : ${r.status}${r.error ? ` — ${r.error}` : ''}`, `${items.length} solide(s) importé(s).`, ...r.losses.map(l => `– ${l}`)];
       window.alert(lines.join('\n'));
     } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
-  }, [project]);
+  }, []);
 
   // Publication (lot 14.4) : les vues projetées, façades et coupes sont calculées avant que les PDF
   // ne soient figés. L'atelier est gelé pendant ce calcul (panneau des publications) ; si les objets
   // ont tout de même changé entre-temps, le calcul est repris sur les nouveaux avant de publier.
-  const latestProject = useRef(project);
-  useEffect(() => { latestProject.current = project; }, [project]);
   const publishDossier = useCallback(async (name: string) => {
     let prepared: CadObject[];
     do {
@@ -2212,9 +2215,9 @@ function Workbench() {
       )}
       {solidsOpen && (
         <SolidsPanel objects={project.allObjects} selectedIds={project.selectedIds}
-          onCreate={(from, recipe, label) => project.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe }, undefined, label)}
-          onUpdate={(id, recipe, label) => project.updateObject(id, { recipe }, label)}
-          onCombine={project.combineSolids} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onSetMate={project.setMate} onClose={() => setSolidsOpen(false)} />
+          onCreate={(from, recipe, label) => latestProject.current.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe }, undefined, label)}
+          onUpdate={(id, recipe, label) => latestProject.current.updateObject(id, { recipe }, label)}
+          onCombine={(a, b, op) => latestProject.current.combineSolids(a, b, op)} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onSetMate={project.setMate} onClose={() => setSolidsOpen(false)} />
       )}
       {view3dOpen && (
         <Suspense fallback={(
