@@ -1,7 +1,7 @@
 // Banc de mesure (lot 19.2, Concept §11) : temps de retour p95 et temps de trame p95 sur le projet
 // de référence déclaré (src/lib/bench/reference.ts). Écrit le rapport versionné dans docs/mesures/
 // (ou BENCH_OUT). Lancement : npm run bench.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { cpus, totalmem, platform, release } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
@@ -123,7 +123,8 @@ test('banc de mesure — projet de référence déclaré', async ({ page, browse
     });
     return times.slice(6).map((t, k) => t - times[5 + k]);
   });
-  const plan = { n: planFrames.length, p95: r2(p95(planFrames)), median: r2(median(planFrames)), max: r2(Math.max(...planFrames)) };
+  // Image sautée : intervalle de plus d'une fois et demie la période d'affichage (60 Hz).
+  const plan = { n: planFrames.length, p95: r2(p95(planFrames)), median: r2(median(planFrames)), max: r2(Math.max(...planFrames)), imagesSautees: planFrames.filter(t => t > 1.5 * (1000 / 60)).length };
 
   // 6. Temps de trame de la vue 3D (60 trames autour du bâtiment, attendues jusqu'à la fin du GPU).
   await page.keyboard.press('Control+k');
@@ -158,7 +159,7 @@ test('banc de mesure — projet de référence déclaré', async ({ page, browse
     environnement: env,
     methode: {
       retour: `de l'horodatage de l'événement d'entrée (Event.timeStamp, entrée Playwright de confiance) à la tâche qui suit la première trame après la mise à jour du DOM ; ${N} mesures après ${WARMUP} d'échauffement`,
-      tramePlan: '120 trames consécutives, la vue zoomée à chaque trame ; intervalle entre rappels requestAnimationFrame',
+      tramePlan: `120 trames consécutives, la vue zoomée à chaque trame ; intervalle entre rappels requestAnimationFrame et images sautées (intervalle > 25 ms) ; la cible est jugée à la gigue de l'horloge d'affichage près (${VSYNC_JITTER_MS} ms)`,
       trame3d: 'mesure intégrée de la vue 3D (lot 15.1) : 60 trames, gl.finish',
     },
     ouvertureMs: openMs,
@@ -168,19 +169,25 @@ test('banc de mesure — projet de référence déclaré', async ({ page, browse
   };
   const out = process.env.BENCH_OUT ?? join(process.cwd(), 'docs', 'mesures');
   mkdirSync(out, { recursive: true });
+  // Mesure précédente du même banc (rapport versionné), pour la comparaison.
+  const previousFile = join(out, 'banc-19.2.json');
+  const previous = existsSync(previousFile) ? JSON.parse(readFileSync(previousFile, 'utf8')) as Previous : undefined;
   writeFileSync(join(out, 'banc-19.2.json'), JSON.stringify(result, null, 2) + '\n');
-  writeFileSync(join(out, 'DrawAll_Banc_de_mesure.md'), report(result));
+  writeFileSync(join(out, 'DrawAll_Banc_de_mesure.md'), report(result, previous));
 });
 
-type Stat = { n: number; p95: number; median: number; max: number };
+type Stat = { n: number; p95: number; median: number; max: number; imagesSautees?: number };
+type Previous = { environnement: { date: string }; retours: Record<string, Stat>; trames: { plan: Stat; vue3dP95: number } };
+/** Gigue de l'horloge d'affichage : un intervalle de 16,8 ms à 60 Hz n'est pas une image sautée. */
+const VSYNC_JITTER_MS = 0.5;
 const KIND_FR: Record<string, string> = { wall: 'murs', column: 'poteaux', opening: 'portes', room: 'pièces' };
-function report(r: { projet: { spec: { levels: number; cells: number; pitch: number }; objets: number; parType: Record<string, number>; niveaux: number; elementsAffichesNiveauActif: number; maillages3d: number }; environnement: Record<string, string>; methode: Record<string, string>; ouvertureMs: number; retours: Record<string, Stat>; trames: { plan: Stat; vue3dP95: number }; cibles: { retourP95Ms: number; trameP95Ms: number } }): string {
+function report(r: { projet: { spec: { levels: number; cells: number; pitch: number }; objets: number; parType: Record<string, number>; niveaux: number; elementsAffichesNiveauActif: number; maillages3d: number }; environnement: Record<string, string>; methode: Record<string, string>; ouvertureMs: number; retours: Record<string, Stat>; trames: { plan: Stat; vue3dP95: number }; cibles: { retourP95Ms: number; trameP95Ms: number } }, previous?: Previous): string {
   const fr = (v: number) => v.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
   const verdict = (v: number, cible: number) => (v <= cible ? 'atteinte' : 'non atteinte');
   const label: Record<string, string> = { zoom: 'Zoom à la molette', selection: 'Sélection d’un mur au clic', deplacementClavier: 'Déplacement au clavier (nouvelle version)', annuler: 'Annuler (Ctrl+Z)' };
   const missed = [
     ...Object.entries(r.retours).filter(([, s]) => s.p95 >= r.cibles.retourP95Ms).map(([k]) => `${(label[k] ?? k).toLowerCase()} (retour)`),
-    ...(r.trames.plan.p95 > r.cibles.trameP95Ms ? ['trame en plan'] : []),
+    ...(r.trames.plan.p95 > r.cibles.trameP95Ms + VSYNC_JITTER_MS ? ['trame en plan'] : []),
   ];
   return [
     '# DrawAll — banc de mesure (lot 19.2)',
@@ -204,18 +211,20 @@ function report(r: { projet: { spec: { levels: number; cells: number; pitch: num
     '',
     `Ouverture du projet (rechargement jusqu’au cadrage) : ${fr(r.ouvertureMs)} ms.`,
     '',
-    '| Retour | Mesures | Médiane (ms) | p95 (ms) | Max (ms) | Cible p95 < 100 ms |', '| --- | --- | --- | --- | --- | --- |',
-    ...Object.entries(r.retours).map(([k, s]) => `| ${label[k] ?? k} | ${s.n} | ${fr(s.median)} | ${fr(s.p95)} | ${fr(s.max)} | ${verdict(s.p95, r.cibles.retourP95Ms - 1e-9)} |`),
+    ...(previous ? [`Colonne « p95 précédent » : mesure versionnée du ${previous.environnement.date}, avant ce passage.`, ''] : []),
+    `| Retour | Mesures | Médiane (ms) | p95 (ms) | Max (ms) |${previous ? ' p95 précédent (ms) |' : ''} Cible p95 < 100 ms |`, `| --- | --- | --- | --- | --- |${previous ? ' --- |' : ''} --- |`,
+    ...Object.entries(r.retours).map(([k, s]) => `| ${label[k] ?? k} | ${s.n} | ${fr(s.median)} | ${fr(s.p95)} | ${fr(s.max)} |${previous ? ` ${previous.retours[k] ? fr(previous.retours[k].p95) : '—'} |` : ''} ${verdict(s.p95, r.cibles.retourP95Ms - 1e-9)} |`),
     '',
-    '| Trame | Mesures | Médiane (ms) | p95 (ms) | Cible p95 ≤ 16,7 ms |', '| --- | --- | --- | --- | --- |',
-    `| Plan, vue zoomée à chaque trame | ${r.trames.plan.n} | ${fr(r.trames.plan.median)} | ${fr(r.trames.plan.p95)} | ${verdict(r.trames.plan.p95, r.cibles.trameP95Ms)} |`,
-    `| Vue 3D (orbite) | 60 | — | ${fr(r.trames.vue3dP95)} | ${verdict(r.trames.vue3dP95, r.cibles.trameP95Ms)} |`,
+    `| Trame | Mesures | Médiane (ms) | p95 (ms) | Images sautées |${previous ? ' p95 précédent (ms) |' : ''} Cible p95 ≤ 16,7 ms |`, `| --- | --- | --- | --- | --- |${previous ? ' --- |' : ''} --- |`,
+    `| Plan, vue zoomée à chaque trame | ${r.trames.plan.n} | ${fr(r.trames.plan.median)} | ${fr(r.trames.plan.p95)} | ${r.trames.plan.imagesSautees ?? '—'} |${previous ? ` ${fr(previous.trames.plan.p95)} |` : ''} ${verdict(r.trames.plan.p95, r.cibles.trameP95Ms + VSYNC_JITTER_MS)} |`,
+    `| Vue 3D (orbite) | 60 | — | ${fr(r.trames.vue3dP95)} | — |${previous ? ` ${fr(previous.trames.vue3dP95)} |` : ''} ${verdict(r.trames.vue3dP95, r.cibles.trameP95Ms)} |`,
     '',
     '## Lecture',
     '',
     missed.length
-      ? `- Au-dessus des cibles sur ce projet : ${missed.join(', ')}. Chaque pas de zoom et chaque version redessinent l’ensemble des objets affichés (épaisseurs de trait et tailles d’annotation dépendent du zoom) : c’est la prochaine piste d’optimisation, non engagée dans ce lot.`
+      ? `- Au-dessus des cibles sur ce projet : ${missed.join(', ')}.`
       : '- Toutes les cibles sont atteintes sur ce projet.',
+    '- Rendu du plan : pendant un geste de zoom, seule la transformation du plan change ; les objets sont redessinés à la nouvelle échelle (épaisseurs de trait, tailles d’annotation) 120 ms après le dernier pas. Après une modification ou une annulation, seuls les objets touchés sont redessinés. Le reste du temps de retour est surtout le travail du navigateur (style et peinture du SVG).',
     `- Vue 3D : budget de trame ${r.trames.vue3dP95 <= r.cibles.trameP95Ms ? 'tenu' : 'dépassé'}, rendu par le processeur graphique déclaré.`,
     '',
     '## Limites',

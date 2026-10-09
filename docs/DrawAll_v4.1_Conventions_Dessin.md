@@ -862,7 +862,13 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Rapport versionné** : `docs/mesures/DrawAll_Banc_de_mesure.md` et `docs/mesures/banc-19.2.json`. Ils déclarent :
   - l'environnement : navigateur, processeur, mémoire, rendu graphique, fenêtre, réseau, état du cache ;
   - les valeurs ;
-  - l'écart aux cibles du Concept (retour p95 < 100 ms, trame p95 ≤ 16,7 ms).
+  - l'écart aux cibles du Concept (retour p95 < 100 ms, trame p95 ≤ 16,7 ms) ;
+  - les images sautées en plan (intervalle > 25 ms). La cible de trame est jugée à la gigue de l'horloge d'affichage près (0,5 ms) : un intervalle de 16,8 ms à 60 Hz n'est pas une image sautée ;
+  - la comparaison avec la mesure versionnée précédente (colonne « p95 précédent »).
+- **Rendu du plan** (règle issue du banc) :
+  - Pendant un geste continu de zoom (molette, pincement), l'échelle de dessin des objets (épaisseurs de trait, tailles d'annotation) reste figée et seule la transformation du plan change. Les objets sont redessinés à la nouvelle échelle 120 ms après le dernier pas.
+  - Un changement de vue ponctuel (Cadrer, zoom par bouton) redessine aussitôt.
+  - Après une modification, une annulation ou un changement de désignation, seuls les objets dont le dessin change sont redessinés. Un objet qui lit d'autres objets (cote, ouverture, vues liées, îlots…) est redessiné à chaque modification du projet. Une vue projetée se redessine quand son calcul aboutit.
 
   Une cible non atteinte est un résultat déclaré, jamais masqué.
 - **Corrections issues du banc** :

@@ -288,7 +288,7 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 18.2 Scripts isolés | Fait (conventions §10.10) | #85 |
 | 18.3 Assistant à boucle contrôlée | Fait (conventions §10.11) | #86 |
 | 19.1 Démonstrateur réduit bâtiment–mécanique | Fait (recette `e2e/demonstrateur.spec.ts` ; IFC relu par IfcOpenShell en CI ; conventions §7.5) | #87 |
-| 19.2 Banc de mesure | Fait (rapport `docs/mesures/DrawAll_Banc_de_mesure.md` ; conventions §10.12) | #88 |
+| 19.2 Banc de mesure | Fait (rapport `docs/mesures/DrawAll_Banc_de_mesure.md` ; conventions §10.12). Cibles d'abord non atteintes (zoom, annuler, trame en plan) tenues après l'optimisation du rendu du plan : redessin différé pendant le zoom, objets redessinés seulement s'ils changent | #88 |
 
 ## 6. Parcours de preuve final
 

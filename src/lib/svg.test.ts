@@ -61,3 +61,12 @@ describe('export SVG (lot 6.4)', () => {
     expect(sheetToSvg(args)).not.toContain('data-zone-couleur');
   });
 });
+
+describe('export SVG d’une vue projetée', () => {
+  it('une feuille montrant une vue projetée s’exporte (rendu statique, sans calcul en cours)', () => {
+    const solid = { ...base, id: 'OBJ-0010', kind: 'solid', recipe: { op: 'box', size: [100, 100, 100] }, outline: [[0, 0, 100, 0, 100, 100, 0, 100]] } as unknown as CadObject;
+    const view = { ...base, id: 'OBJ-0011', kind: 'projection', sourceId: 'OBJ-0010', view: 'face', x: 300, y: 0 } as unknown as CadObject;
+    const out = sheetToSvg({ sheet, objects: [solid, view], levels: [DEFAULT_LEVEL], layers, blocks: [], profile: profileById(undefined), view: 'batiment', versions, pointer: 0 });
+    expect(out).toContain('data-projection="OBJ-0011"');
+  });
+});
