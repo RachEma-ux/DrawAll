@@ -78,8 +78,13 @@ describe('API de commandes (lot 18.1)', () => {
     // Porte : charnière et côté requis.
     expect(add({ kind: 'opening', position: 100, width: 900, type: 'porte', hostId: 'OBJ-0001' })).toBe('porte : charnière (debut, fin) et côté (gauche, droite) attendus');
     // Ouverture : hauteur positive et allège positive ou nulle, si présentes.
-    const wallW = { ...line, id: 'WW', kind: 'wall', thickness: 200, justification: 'axe' } as unknown as CadObject;
-    const op = { kind: 'opening', position: 100, width: 900, type: 'fenetre', hostId: 'WW' };
+    const wallW = { ...line, id: 'WW', kind: 'wall', x2: 2000, thickness: 200, justification: 'axe' } as unknown as CadObject;
+    const op = { kind: 'opening', position: 1000, width: 900, type: 'fenetre', hostId: 'WW' };
+    // L'ouverture tient dans son mur (2 000 mm), à la création comme en modification.
+    expect(add({ ...op, position: 100 }, [wallW])).toBe('ouverture : L’ouverture (900 mm) dépasse du mur (2000 mm).');
+    const placed = { ...line, ...op, id: 'OP' } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['OP', { position: 1800 }], [wallW, placed], L, P)).toBe('ouverture : L’ouverture (900 mm) dépasse du mur (2000 mm).');
+    expect(validateCommand('updateObject', ['OP', { position: 1500 }], [wallW, placed], L, P)).toBeNull();
     expect(add({ ...op, height: 'bad' }, [wallW])).toBe('ouverture : hauteur positive attendue');
     expect(add({ ...op, sill: -1 }, [wallW])).toBe('ouverture : allège positive ou nulle attendue');
     expect(add({ ...op, height: 1200, sill: 900 }, [wallW])).toBeNull();
@@ -179,6 +184,25 @@ describe('API de commandes (lot 18.1)', () => {
     // Création sur un calque verrouillé : refusée ; mur de hauteur invalide : refusé.
     expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'line', layerId: 'LAY-0002', x1: 0, y1: 0, x2: 1, y2: 0 }], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBe('objet à créer : calque LAY-0002 verrouillé');
     expect(validateCommand('addObject', [{ classification: 'architecture', kind: 'wall', x1: 0, y1: 0, x2: 1, y2: 0, thickness: 200, justification: 'axe', height: 'bad' }], [])).toBe('mur : hauteur positive attendue');
+    // Suppression d'un objet d'un calque verrouillé : refusée, seule ou dans une liste.
+    const LK = [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }];
+    expect(validateCommand('removeObject', ['K'], [line, onLocked], LK)).toBe('suppression : K sur le calque LAY-0002 verrouillé');
+    expect(validateCommand('removeObjects', [['OBJ-0001', 'K']], [line, onLocked], LK)).toBe('suppression : K sur le calque LAY-0002 verrouillé');
+    expect(validateCommand('removeObjects', [['OBJ-0001']], [line, onLocked], LK)).toBeNull();
+    // Fond de plan verrouillé : ni déplacé ni modifié ; seul son déverrouillage passe.
+    const under = { ...line, id: 'U', kind: 'underlay', assetId: 'A', x: 0, y: 0, w: 10, h: 10, opacity: 0.5, locked: true } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['U', { x: 50 }], [under], LK)).toBe('modification : fond de plan U verrouillé');
+    expect(validateCommand('updateObject', ['U', { locked: false, x: 50 }], [under], LK)).toBe('modification : fond de plan U verrouillé');
+    expect(validateCommand('updateObject', ['U', { locked: false }], [under], LK)).toBeNull();
+    expect(validateCommand('updateObject', ['U', { x: 50 }], [{ ...under, locked: false } as CadObject], LK)).toBeNull();
+    // Cote : cible cotable et style pris en charge par la cible.
+    const dim = { classification: 'non-classifie', layerId: 'LAY-0001', kind: 'dimension', offset: 5, style: 'aligned', targetId: 'OBJ-0001' };
+    const circ = { ...line, id: 'C', kind: 'circle', cx: 0, cy: 0, r: 10 } as unknown as CadObject;
+    const wallD = { ...line, id: 'W', kind: 'wall', thickness: 200, justification: 'axe' } as unknown as CadObject;
+    expect(validateCommand('addObject', [dim], [line], LK)).toBeNull();
+    expect(validateCommand('addObject', [{ ...dim, targetId: 'C' }], [circ], LK)).toBe('cote : style aligned non pris en charge par C (radial)');
+    expect(validateCommand('addObject', [{ ...dim, targetId: 'C', style: 'radial' }], [circ], LK)).toBeNull();
+    expect(validateCommand('addObject', [{ ...dim, targetId: 'W' }], [wallD], LK)).toBe('cote : W ne se cote pas');
     expect(validateCommand('setActiveLevelId', ['NIV-0009'], [], [], { levels: [{ id: 'NIV-0001' }] })).toBe('niveau NIV-0009 absent');
     expect(validateCommand('setActiveLevelId', ['NIV-0001'], [], [], { levels: [{ id: 'NIV-0001' }] })).toBeNull();
     expect(scriptCommandError('addObject')).toBeNull();

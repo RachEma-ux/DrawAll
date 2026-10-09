@@ -67,7 +67,7 @@ export function impactOf(ids: string[], mode: 'suppression' | 'modification', ct
   }
   // Tableaux de quantités et nomenclature recalculés (même niveau).
   const kinds = new Set(touched.map(o => o.kind));
-  const parts = touched.some(o => o.kind === 'blockRef' || !!o.part?.trim());
+  const parts = touched.some(o => o.kind === 'blockRef' || o.kind === 'occurrence' || (o.kind === 'solid' && !!o.partDef) || !!o.part?.trim());
   for (const o of objects) {
     if (o.kind !== 'bom' || !touched.some(t => levelIdOf(t) === levelIdOf(o))) continue;
     const hit = o.table === 'murs' ? kinds.has('wall')

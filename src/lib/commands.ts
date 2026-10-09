@@ -2,7 +2,7 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import { CLASSIFICATION_META, KIND_LABEL, parentsOf, type CadObject, type CutObj, type Layer, type MicroVersion, type RoofObj } from '@/types/cad';
+import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OpeningObj, type RoofObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isMate } from './assembly';
 import { isIfcClass, normalizePsets } from './properties';
@@ -11,6 +11,7 @@ import { isValidSpline, type SplineGeom } from './spline';
 import { faceOf } from './views';
 import { cutView } from './cuts';
 import { roofError, roofInput } from './roof';
+import { openingFits } from './opening';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
 export type TransformOp =
@@ -211,6 +212,15 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
   if (kind === 'cut') { const r = cutView(o as unknown as CutObj, byId.get(o.sourceId as string), byId.get(o.markId as string), objects, 1, 1); if (!r.ok) return `coupe : ${r.error}`; }
   // Vues liées : la source doit offrir une face fermée.
   if (kind === 'views') { const src = byId.get(o.sourceId as string); if (src && !faceOf(src, objects)) return `vues : ${src.id} n’offre pas de face fermée`; }
+  // Ouverture : elle tient dans son mur, comme à la pose dans l'atelier.
+  if (kind === 'opening') { const w = byId.get(o.hostId as string); const e = w?.kind === 'wall' ? openingFits(o as unknown as OpeningObj, w) : null; if (e) return `ouverture : ${e}`; }
+  // Cote : la cible accepte ce style (ligne, rectangle, polyligne, cercle ou arc).
+  if (kind === 'dimension') {
+    const t = byId.get(o.targetId as string);
+    const styles = t ? supportedDimensionStyles(t) : [];
+    if (t && !styles.length) return `cote : ${t.id} ne se cote pas`;
+    if (t && !styles.includes(o.style as DimensionStyle)) return `cote : style ${String(o.style)} non pris en charge par ${t.id} (${styles.join(', ')})`;
+  }
   const mate = (o as { mate?: unknown }).mate as { to?: unknown } | undefined;
   if (kind === 'occurrence' && mate !== undefined) {
     // Liaison complète (type, faces, cible) avant de la résoudre.
@@ -230,6 +240,12 @@ export const OBJECT_SPEC_KINDS = Object.keys(SPECS);
  * commandes validées ici sont ouvertes aux scripts et à l'assistant (`scriptCommandError`) :
  * l'interface ne passe que des arguments bien formés, un script peut passer n'importe quoi.
  */
+/** Suppression : un objet d'un calque verrouillé est intouchable, comme dans l'atelier. */
+function lockedError(id: string, { objects, lockedLayerIds }: Ctx): string | null {
+  const o = objects.find(x => x.id === id);
+  return o && lockedLayerIds?.has(o.layerId) ? `suppression : ${id} sur le calque ${o.layerId} verrouillé` : null;
+}
+
 const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> = {
   addObject: ([o], ctx) => {
     const { layerIds } = ctx;
@@ -252,6 +268,8 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     if ('id' in p && p.id !== id) return 'modification : l’identifiant ne change pas';
     // Objet d'un calque verrouillé : intouchable, comme dans l'atelier.
     if (ctx.lockedLayerIds?.has(current.layerId as string)) return `modification : calque ${String(current.layerId)} verrouillé`;
+    // Fond de plan verrouillé : seul son déverrouillage est permis.
+    if (current.kind === 'underlay' && current.locked === true && Object.keys(p).some(k => k !== 'locked')) return `modification : fond de plan ${String(id)} verrouillé`;
     const next = { ...current, ...p };
     if (layerIds && !(str(next.layerId) && layerIds.has(next.layerId as string))) return `modification : calque ${String(next.layerId)} absent`;
     if (ctx.lockedLayerIds?.has(next.layerId as string)) return `modification : calque ${String(next.layerId)} verrouillé`;
@@ -259,8 +277,15 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     if (objectShapeError(current)) return null;
     return objectShapeError(next) ?? (referenceError(current, ctx) ? null : referenceError(next, ctx));
   },
-  removeObject: ([id], { ids }) => (str(id) && ids.has(id as string) ? null : `objet ${String(id)} absent`),
-  removeObjects: ([list], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : null),
+  removeObject: ([id], ctx) => (str(id) && ctx.ids.has(id as string) ? lockedError(id as string, ctx) : `objet ${String(id)} absent`),
+  removeObjects: ([list], ctx) => {
+    if (!strs(list)) return 'liste d’identifiants attendue';
+    const ids = list as string[];
+    const missing = ids.find(i => !ctx.ids.has(i));
+    if (missing) return `objet ${missing} absent`;
+    for (const i of ids) { const e = lockedError(i, ctx); if (e) return e; }
+    return null;
+  },
   transform: ([list, op], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : transformError(op)),
   duplicateObjects: ([list, dx, dy], { ids }) => (!strs(list) || (list as string[]).some(i => !ids.has(i)) ? 'objets à dupliquer absents' : (dx !== undefined && !finite(dx)) || (dy !== undefined && !finite(dy)) ? 'décalage fini attendu' : null),
   addLayer: ([name]) => (str(name) ? null : 'nom de calque attendu'),

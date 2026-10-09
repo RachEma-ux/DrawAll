@@ -31,6 +31,17 @@ describe('analyse d’impact (lot 14.3)', () => {
     expect(impactSummary(i)).toBe('2 objet(s) associé(s) supprimé(s) avec : O1, D1 ; 3 objet(s) recalculé(s) : R1, T1, T2 ; feuille(s) à recalculer : Feuille FEU-0001');
   });
 
+  it('nomenclature : une pièce ou une occurrence modifiée la recalcule', () => {
+    const part = { ...base, id: 'P1', name: 'Pièce', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const occ = { ...base, id: 'Q1', name: 'Occ', kind: 'occurrence', sourceId: 'P1', x: 0, y: 0, z: 0, angle: 0 } as unknown as CadObject;
+    const plain = { ...base, id: 'S1', name: 'Solide', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 } } as unknown as CadObject;
+    const nom = { ...base, id: 'N1', name: 'Nomenclature', kind: 'bom', x: 0, y: 0 } as CadObject;
+    const c = { ...ctx, objects: [part, occ, plain, nom] };
+    expect(impactOf(['Q1'], 'modification', c).affected.map(x => [x.id, x.reason])).toContainEqual(['N1', 'nomenclature recalculée']);
+    expect(impactOf(['P1'], 'modification', c).affected.map(x => [x.id, x.reason])).toContainEqual(['N1', 'nomenclature recalculée']);
+    expect(impactOf(['S1'], 'modification', c).affected.map(x => x.id)).not.toContain('N1');
+  });
+
   it('suppression d’un repère de coupe : la coupe qui en dépend est annoncée, comme la suppression l’emporte', () => {
     const mark = { ...base, id: 'M1', name: 'A', kind: 'section', x1: 0, y1: 0, x2: 10, y2: 0, label: 'A' } as CadObject;
     const cut = { ...base, id: 'C1', name: 'Coupe', kind: 'cut', sourceId: 'W1', markId: 'M1', depth: 10, gap: 5 } as unknown as CadObject;
