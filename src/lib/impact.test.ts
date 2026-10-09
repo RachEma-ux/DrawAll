@@ -87,3 +87,13 @@ describe('analyse d’impact : contours de pièces par niveau (relecture #68)', 
   });
 });
 
+
+describe('relecture 54e passe : contour dont un îlot est touché', () => {
+  it('îlot modifié ou supprimé : le contour qui le hachure est recalculé', () => {
+    const outer = { ...base, id: 'C1', name: 'Contour', kind: 'circle', cx: 0, cy: 0, r: 100, hatch: 'solid', holes: ['C2'] } as unknown as CadObject;
+    const island = { ...base, id: 'C2', name: 'Îlot', kind: 'circle', cx: 0, cy: 0, r: 10 } as unknown as CadObject;
+    const c = { ...ctx, objects: [outer, island] };
+    expect(impactOf(['C2'], 'modification', c).affected.map(x => [x.id, x.reason])).toContainEqual(['C1', 'hachure autour de l’îlot C2']);
+    expect(impactOf(['C2'], 'suppression', c).affected.map(x => x.id)).toContain('C1');
+  });
+});

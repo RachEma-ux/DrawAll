@@ -13,6 +13,8 @@ interface Props {
   /** Sélection, dans l'ordre où elle a été faite (le premier solide est celui que l'on garde). */
   selectedIds: string[];
   /** Crée un solide à partir d'un objet source (calque, classification et niveau repris). */
+  /** Variante active : un calcul lancé dans une variante ne s'applique jamais à une autre. */
+  branchId: string;
   onCreate: (from: CadObject, recipe: SolidRecipe, label: string) => void;
   onUpdate: (id: string, recipe: SolidRecipe, label: string) => void;
   onCombine: (aId: string, bId: string, op: BooleanOp) => void;
@@ -31,7 +33,7 @@ const button = 'rounded-sm border border-border px-2 py-1 text-foreground hover:
 const parse = (s: string) => Number(s.trim().replace(',', '.'));
 const m3 = (mm3: number) => `${(mm3 / 1e9).toLocaleString('fr-FR', { maximumFractionDigits: 6 })} m³`;
 
-export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, onCombine, onProject, onMakePart, onAddOccurrence, onSetMate, onClose }: Props) {
+export default function SolidsPanel({ objects, branchId, selectedIds, onCreate, onUpdate, onCombine, onProject, onMakePart, onAddOccurrence, onSetMate, onClose }: Props) {
   const selected = selectedIds.map(id => objects.find(o => o.id === id)).filter((o): o is CadObject => !!o);
   const solids = selected.filter((o): o is SolidObj => o.kind === 'solid');
   const contours = selected.filter(o => o.kind !== 'solid' && !('error' in contourOf(o)));
@@ -80,8 +82,8 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   const shownVolume = one && volume && volume.id === one.id && volume.recipe === one.recipe ? volume : null;
 
   // Objets du projet tels qu'au dernier rendu : le calcul du noyau est asynchrone, l'atelier reste utilisable.
-  const latest = useRef(objects);
-  useEffect(() => { latest.current = objects; }, [objects]);
+  const latest = useRef(objects), latestBranch = useRef(branchId);
+  useEffect(() => { latest.current = objects; latestBranch.current = branchId; }, [objects, branchId]);
   // Panneau fermé pendant un calcul : le résultat est abandonné (l'état suivi n'est plus tenu à jour).
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -91,7 +93,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
    */
   const run = async (res: SolidResult, operands: CadObject[], apply: (r: SolidRecipe) => void, done: string, check?: (r: SolidRecipe) => Promise<{ ok: boolean; text: string }>) => {
     if ('error' in res) { setMessage({ error: true, text: res.error }); return; }
-    const before = operands.map(o => JSON.stringify(o));
+    const before = operands.map(o => JSON.stringify(o)), branch = branchId;
     setBusy(true);
     try {
       const { volume: v } = await kernelVolume(res.recipe);
@@ -99,6 +101,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
       const extra = check ? await check(res.recipe) : null;
       if (extra && !extra.ok) { setMessage({ error: true, text: extra.text }); return; }
       if (!mounted.current) return;
+      if (latestBranch.current !== branch) { setMessage({ error: true, text: 'Variante changée pendant le calcul : rien n’est appliqué, recommencez dans la variante voulue.' }); return; }
       const changed = operands.find((o, i) => JSON.stringify(latest.current.find(x => x.id === o.id)) !== before[i]);
       if (changed) { setMessage({ error: true, text: `${changed.id} a changé pendant le calcul : rien n’est appliqué, recommencez.` }); return; }
       apply(res.recipe);

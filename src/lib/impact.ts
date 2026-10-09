@@ -54,6 +54,12 @@ export function impactOf(ids: string[], mode: 'suppression' | 'modification', ct
   const affected: ImpactItem[] = mode === 'modification' ? associated.map(a => ({ ...a, reason: `suit ${a.reason.replace('associé à ', '')}` })) : [];
   const add = (o: CadObject, reason: string) => { if (!seen.has(o.id)) { seen.add(o.id); affected.push(item(o, reason)); } };
 
+  // Contours dont un îlot (trou de hachure) est touché : leur hachure change.
+  const touchedIds = new Set(touched.map(o => o.id));
+  for (const o of objects) {
+    const h = o.holes?.find(x => touchedIds.has(x));
+    if (h) add(o, `hachure autour de l’îlot ${h}`);
+  }
   // Pièces dont le contour s'appuie sur un mur touché (même niveau).
   const walls = touched.filter((o): o is WallObj => o.kind === 'wall');
   if (walls.length) {

@@ -410,3 +410,19 @@ test('relecture 51e passe — panneau des solides fermé pendant le calcul : le 
   expect((await currentObjects(page)).filter(o => o.kind === 'solid')).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('relecture 54e passe — variante changée pendant un import STEP : rien n’est importé dans l’autre variante', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'panneau d’historique en colonne : recette bureau');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  let report = '';
+  page.on('dialog', d => { report = d.message(); d.accept().catch(() => {}); });
+  // Lecture lancée, puis nouvelle variante (active) avant la fin.
+  await page.getByLabel('Fichier STEP à importer').setInputFiles('e2e/fixtures/cube.step');
+  await page.getByLabel('Nom de la nouvelle variante').fill('B');
+  await page.getByRole('button', { name: 'Créer la variante' }).click();
+  await expect.poll(() => report, { timeout: 90_000 }).toContain('Import STEP abandonné');
+  expect((await currentObjects(page)).filter(o => o.kind === 'solid')).toEqual([]);
+  expect(errors).toEqual([]);
+});

@@ -74,6 +74,8 @@ import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPo
 const View3D = lazy(() => import('@/components/View3D'));
 
 /** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
+/** Identifiant de la variante active. */
+const activeBranchId = (p: { branches: { id: string; active: boolean }[] }) => p.branches.find(b => b.active)?.id ?? '';
 const COMPACT_BREAKPOINT = 1024;
 
 /** Outils toujours visibles sur petit écran ; les autres sont regroupés dans « Plus ». */
@@ -413,7 +415,10 @@ function Workbench() {
   }, [project.allObjects, project.levels, cloudName]);
   const importStepFile = useCallback(async (file: File) => {
     try {
+      // Variante où l'import a été lancé : les solides n'iront jamais dans une autre.
+      const branch = activeBranchId(latestProject.current);
       const r = await kernelImportStep(await file.text());
+      if (activeBranchId(latestProject.current) !== branch) { window.alert('Import STEP abandonné : la variante active a changé pendant la lecture.'); return; }
       const items = r.solids.flatMap((s, i) => (s.recipe ? [{ name: `${file.name.replace(/\.[^.]+$/, '')} ${i + 1}`, recipe: s.recipe as SolidRecipe }] : []));
       // État du projet au retour du noyau (l'atelier est resté utilisable pendant la lecture).
       if (items.length) latestProject.current.addSolids(items, 'Importer STEP');
@@ -2214,7 +2219,7 @@ function Workbench() {
           onClose={() => setFacadesOpen(false)} />
       )}
       {solidsOpen && (
-        <SolidsPanel objects={project.allObjects} selectedIds={project.selectedIds}
+        <SolidsPanel objects={project.allObjects} branchId={activeBranchId(project)} selectedIds={project.selectedIds}
           onCreate={(from, recipe, label) => latestProject.current.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe }, undefined, label)}
           onUpdate={(id, recipe, label) => latestProject.current.updateObject(id, { recipe }, label)}
           onCombine={(a, b, op) => latestProject.current.combineSolids(a, b, op)} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onSetMate={project.setMate} onClose={() => setSolidsOpen(false)} />
