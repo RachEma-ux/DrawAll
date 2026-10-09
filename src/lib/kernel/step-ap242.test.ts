@@ -12,4 +12,10 @@ describe('chaînes STEP réencodées (ISO 10303-21, sans noyau)', () => {
     expect(out.content).not.toMatch(/D83D|DD29/);
     expect(out.content).toMatch(/^[\x20-\x7e\n]*$/);
   });
+
+  it('barre oblique inverse doublée dans les chaînes d’en-tête (elle ouvre une directive)', () => {
+    const out = toAp242Ed3(text, 'A\\B.step', new Date('2026-10-09T00:00:00Z'));
+    if ('error' in out) throw new Error(out.error);
+    expect(out.content).toContain("FILE_NAME('A\\\\B.step'");
+  });
 });

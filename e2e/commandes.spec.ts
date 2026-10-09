@@ -69,3 +69,26 @@ test('lot 18.1 — rejeu du journal : un dossier publié est repris figé, jamai
   await expect.poll(pubs).toBe(published);
   expect(errors).toEqual([]);
 });
+
+test('lot 18.1 — rejeu du journal : une note garde sa date, le projet est reproduit à l’identique', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 4000, h: 3000 }]);
+  await chooseTool(page, /^Note/);
+  page.once('dialog', d => d.accept('Regard'));
+  await tapModel(page, info, 2000, 1500);
+  await expect.poll(async () => (await currentObjects(page)).find(o => o.kind === 'note')).toMatchObject({ text: 'Regard' });
+  const before = await currentObjects(page);
+  // Le rejeu a lieu plus tard : une date refaite à l'exécution différerait.
+  await page.waitForTimeout(50);
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('journal');
+  await page.getByText('Journal des commandes', { exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Journal des commandes' });
+  await expect(panel).toContainText('addNote');
+  await panel.getByRole('button', { name: 'Rejouer le journal (vérification)' }).click();
+  await expect(panel.getByTestId('rejeu')).toHaveAttribute('data-identique', 'true', { timeout: 30_000 });
+  expect(await currentObjects(page)).toEqual(before);
+  expect(errors).toEqual([]);
+});
+

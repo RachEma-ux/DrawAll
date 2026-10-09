@@ -692,7 +692,14 @@ export function useProject() {
       .filter(o => !layers.find(l => l.id === o.layerId)?.locked);
     if (usable.length === 0 || placements.length === 0) return [];
     const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks, taken => nextGroupId(allObjects, taken), allObjects);
-    const clones = cloned.map(stampLevel);
+    // Pièce copiée : nouvelle pièce, nouveau repère (sur toutes les variantes), pour une nomenclature sans doublon.
+    let seen = allVersions(state).flatMap(v => v.objects);
+    const clones = cloned.map(stampLevel).map(o => {
+      if (o.kind !== 'solid' || !o.partDef) return o;
+      const c = { ...o, partDef: { ...o.partDef, no: nextPartNo(seen) } } as CadObject;
+      seen = [...seen, c];
+      return c;
+    });
     if (clones.length === 0) return [];
     commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
       objects: [...allObjects, ...clones],
@@ -700,7 +707,7 @@ export function useProject() {
     });
     setSelectedIds(clones.map(c => c.id));
     return clones.map(c => c.id);
-  }, [allObjects, layers, blocks, activeLayerId, state.counter, current.seq, commit, setSelectedIds, stampLevel]);
+  }, [allObjects, layers, blocks, activeLayerId, state, current.seq, commit, setSelectedIds, stampLevel]);
 
   /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
   const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
@@ -875,10 +882,11 @@ export function useProject() {
   const makePart = useCallback((id: string) => {
     const o = allObjects.find(x => x.id === id);
     if (o?.kind !== 'solid' || o.partDef) return null;
-    const no = nextPartNo(allObjects), b = recipeBounds(o.recipe);
+    // Repère attribué sur toutes les variantes : deux variantes ne numérotent pas deux pièces pareil.
+    const no = nextPartNo(allVersions(state).flatMap(v => v.objects)), b = recipeBounds(o.recipe);
     commit(`Pièce n° ${no} ${id}`, { objects: allObjects.map(x => (x.id === id ? ({ ...x, partDef: { no, origin: [b.min[0], b.min[1], b.min[2]], angle: 0 } } as CadObject) : x)) });
     return no;
-  }, [allObjects, commit]);
+  }, [allObjects, state, commit]);
 
   /** Occurrence d'une pièce posée en (x, y, z), tournée de `angle` degrés. */
   const addOccurrence = useCallback((defId: string, x: number, y: number, z: number, angle: number) => {
@@ -987,14 +995,15 @@ export function useProject() {
    * Note de terrain (lot 7.3) au point (x, y) : jointe à `targetId` (position relative au coin de son
    * emprise, elle le suit) ou au point. Datée de l'instant de sa création.
    */
-  const addNote = useCallback((x: number, y: number, text: string, targetId?: string) => {
+  /** `time` : date de la note, fixée à l'appel et journalisée (le rejeu la reprend telle quelle). */
+  const addNote = useCallback((x: number, y: number, text: string, targetId?: string, time = Date.now()) => {
     const target = targetId ? allObjects.find(o => o.id === targetId && o.kind !== 'note') : undefined;
     const b = target ? objectBounds(target, blocks, allObjects) : null;
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
     const count = allObjects.filter(o => o.kind === 'note').length + 1;
     const note = stampLevel({
       id, name: `Note ${count}`, kind: 'note', classification: target?.classification ?? 'non-classifie', layerId: target?.layerId ?? activeLayerId, hatch: 'none', createdSeq: current.seq,
-      x: round3(b ? x - b.minX : x), y: round3(b ? y - b.minY : y), ...(b && target ? { targetId: target.id } : {}), text, time: Date.now(),
+      x: round3(b ? x - b.minX : x), y: round3(b ? y - b.minY : y), ...(b && target ? { targetId: target.id } : {}), text, time,
     } as CadObject);
     commit(`Note ${target ? `sur ${target.id}` : 'sur un point'}`, { objects: [...allObjects, note], counter: state.counter + 1 });
     setSelectedId(id);
@@ -1620,7 +1629,8 @@ export function useProject() {
     applyEdit: cmd('applyEdit', applyEdit), applyPatches: cmd('applyPatches', applyPatches), groupObjects: cmd('groupObjects', groupObjects), ungroupObjects: cmd('ungroupObjects', ungroupObjects),
     addLayer: cmd('addLayer', addLayer), updateLayer: cmd('updateLayer', updateLayer), removeLayer: cmd('removeLayer', removeLayer), setActiveLayerId: cmd('setActiveLayerId', setActiveLayerId),
     addDimension: cmd('addDimension', addDimension), addViews: cmd('addViews', addViews), addCut: cmd('addCut', addCut), addBalloon: cmd('addBalloon', addBalloon),
-    addBom: cmd('addBom', addBom), addUnderlay: cmd('addUnderlay', addUnderlay), addNote: cmd('addNote', addNote), addNotePhoto: cmd('addNotePhoto', addNotePhoto),
+    addBom: cmd('addBom', addBom), addUnderlay: cmd('addUnderlay', addUnderlay), // Date fixée avant la journalisation : le rejeu redonne la même note, date comprise.
+    addNote: (x: number, y: number, text: string, targetId?: string, time?: number) => cmd('addNote', addNote)(x, y, text, targetId, time ?? Date.now()), addNotePhoto: cmd('addNotePhoto', addNotePhoto),
     removeNotePhoto: cmd('removeNotePhoto', removeNotePhoto), createBlockFromObject: cmd('createBlockFromObject', createBlockFromObject), insertBlock: cmd('insertBlock', insertBlock),
     importObjects: cmd('importObjects', importObjects), removeBlock: cmd('removeBlock', removeBlock), addLibraryBlock: cmd('addLibraryBlock', addLibraryBlock),
     // Sans argument : un bouton qui passe son événement ne fait pas refuser la commande.

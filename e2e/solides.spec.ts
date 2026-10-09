@@ -350,3 +350,23 @@ test('lot 17.2 — export STEP AP242 édition 3 puis réimport : mêmes solides'
   expect(Math.abs((await shownVolume(page)) - 1.5e8) / 1.5e8).toBeLessThan(1e-6);
   expect(errors).toEqual([]);
 });
+
+test('lot 16.3 — repères de pièce attribués sur toutes les variantes : deux variantes ne numérotent pas pareil', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'panneau d’historique en colonne : recette bureau');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }, { id: 'OBJ-0002', kind: 'rect', x: 3000, y: 0, w: 1000, h: 500 }]);
+  // Variante B : la première extrusion devient la pièce n° 1.
+  await page.getByLabel('Nom de la nouvelle variante').fill('B');
+  await page.getByRole('button', { name: 'Créer la variante' }).click();
+  let panel = await extrudeAt(page, info, 500, 0, '300');
+  await panel.getByRole('button', { name: 'Définir comme pièce' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText(/devient la pièce n° 1\.$/);
+  await panel.getByRole('button', { name: /Fermer/ }).first().click();
+  // Principale : une autre pièce, définie après, reçoit le repère suivant.
+  await page.getByLabel('Variante active').selectOption('BR-0000');
+  panel = await extrudeAt(page, info, 3500, 0, '300');
+  await panel.getByRole('button', { name: 'Définir comme pièce' }).click();
+  await expect(panel.getByTestId('solides-message')).toHaveText(/devient la pièce n° 2\.$/);
+  expect(errors).toEqual([]);
+});

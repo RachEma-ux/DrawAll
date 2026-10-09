@@ -53,7 +53,8 @@ const encodeText = (s: string) => s.replace(/[^\x20-\x7e]+/gu, run => [...run].m
     return acc;
   }, [])
   .map(g => `\\${g.wide ? 'X4' : 'X2'}\\${g.codes.join('')}\\X0\\`).join(''));
-const q = (s: string) => `'${encodeText(s.replace(/'/g, "''"))}'`;
+// Chaîne d'en-tête : barre oblique inverse doublée (elle ouvre une directive \X2\…), apostrophe doublée.
+const q = (s: string) => `'${encodeText(s.replace(/\\/g, '\\\\').replace(/'/g, "''"))}'`;
 
 /**
  * En-tête et protocole d'application de l'édition 3. Refuse (renvoie l'erreur) un fichier qui
