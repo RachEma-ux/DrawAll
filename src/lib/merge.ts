@@ -327,6 +327,9 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
       if (gone) return { error: `Choix incompatibles : le paramètre ${gone} est supprimé mais ${u.id} le cite encore.` };
     }
   }
+  // Un projet garde toujours au moins un calque : deux suppressions disjointes (chaque variante retire
+  // un calque différent) videraient la liste sans conflit et l'atelier ne saurait plus où dessiner.
+  if (Array.isArray(out.layers) && out.layers.length === 0) return { error: 'Fusion refusée : aucun calque ne resterait (chaque variante en supprime un) ; gardez-en un avant de fusionner.' };
   return out as MergeResult['merged'];
 }
 

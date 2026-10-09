@@ -53,3 +53,16 @@ describe('fusion : liaisons revalidées', () => {
   });
 });
 
+describe('fusion : au moins un calque', () => {
+  it('chaque variante supprime un calque différent : refus, jamais un projet sans calque', () => {
+    const L1 = { id: 'LAY-0001', name: 'A', visible: true, locked: false, color: '#000' };
+    const L2 = { id: 'LAY-0002', name: 'B', visible: true, locked: false, color: '#000' };
+    const ver = (seq: number, ls: typeof L1[]) => ({ ...v(seq, []), layers: ls as unknown as MicroVersion['layers'] });
+    const r = merge3(ver(0, [L1, L2]), ver(1, [L2]), ver(2, [L1]));
+    expect(r.conflicts).toEqual([]);
+    expect(resolve(r, {})).toEqual({ error: 'Fusion refusée : aucun calque ne resterait (chaque variante en supprime un) ; gardez-en un avant de fusionner.' });
+    // Une seule suppression : fusion acceptée.
+    expect('error' in resolve(merge3(ver(0, [L1, L2]), ver(1, [L2]), ver(2, [L1, L2])), {})).toBe(false);
+  });
+});
+
