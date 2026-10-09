@@ -120,7 +120,7 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
       // Comme la commande : un objet non modifiable (calque verrouillé, cote associative, fond de plan
       // verrouillé) ou qui n'accepte pas l'opération ne bougerait pas ; la proposition est refusée
       // plutôt que de montrer un faux aperçu.
-      const blocked = transformTargetsError(list, s.args[1] as TransformOp, objects, ctx.layers);
+      const blocked = transformTargetsError(list, s.args[1] as TransformOp, objects, ctx.layers, bindConstraintValues(ctx.constraints, ctx.parameters));
       if (blocked) { errors.push(`${at} : ${blocked}`); return; }
       const ids = new Set(list);
       const f = applyTransform(s.args[1] as TransformOp);

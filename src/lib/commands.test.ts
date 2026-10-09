@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CadObject, MicroVersion } from '@/types/cad';
+import type { CadObject, GeoConstraint, MicroVersion } from '@/types/cad';
 import { polarArray, rectangularArray } from './array';
 import { KIND_LABEL } from '@/types/cad';
 import { applyTransform, mergedReferenceError, OBJECT_SPEC_KINDS, SCRIPT_COMMANDS, decodeArgs, scriptCommandError, transformTargetsError, encodeArgs, validateCommand, versionDigest } from './commands';
@@ -549,6 +549,18 @@ describe('relecture 40e passe : différence vide', () => {
     const solid = (recipe: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe }], []);
     expect(solid({ op: 'cut', a: { op: 'box', x: 10, y: 10, z: 10 }, b: { op: 'box', x: 20, y: 20, z: 20, at: [-5, -5, -5] } })).toBe('solide : différence vide (le pavé retiré contient tout le solide)');
     expect(solid({ op: 'cut', a: { op: 'box', x: 10, y: 10, z: 10 }, b: { op: 'box', x: 5, y: 20, z: 20, at: [-5, -5, -5] } })).toBeNull();
+  });
+});
+
+describe('relecture 41e passe : transformation remise en place par les contraintes', () => {
+  it('ligne aux deux extrémités fixées, déplacée : refusée ; ligne libre : acceptée', () => {
+    const L = { ...line, id: 'L1' } as CadObject;
+    const fixed = [
+      { id: 'A', type: 'fixed', p: { obj: 'L1', at: 'a' }, x: 0, y: 0 },
+      { id: 'B', type: 'fixed', p: { obj: 'L1', at: 'b' }, x: 100, y: 0 },
+    ] as GeoConstraint[];
+    expect(transformTargetsError(['L1'], { kind: 'move', dx: 50, dy: 50 }, [L], [], fixed)).toBe('L1 non transformable (ses contraintes géométriques le remettent en place)');
+    expect(transformTargetsError(['L1'], { kind: 'move', dx: 50, dy: 50 }, [L], [], [])).toBeNull();
   });
 });
 

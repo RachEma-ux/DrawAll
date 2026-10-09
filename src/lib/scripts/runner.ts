@@ -52,11 +52,13 @@ export function runScript(code: string, h: ScriptHandlers, timeoutMs = 10_000): 
   const timer = setTimeout(() => end({ ok: false, error: `délai de ${timeoutMs / 1000} s dépassé : script arrêté` }), timeoutMs);
   const post = (m: unknown) => frame.contentWindow?.postMessage(m, '*');
   let chain = Promise.resolve();
+  // Première commande refusée : le script échoue même s'il n'a pas attendu (await) la réponse.
+  let refused: string | null = null;
   const onMessage = (e: MessageEvent) => {
     if (e.source !== frame.contentWindow) return; // seul le cadre du script parle ici
     const m = e.data as ScriptMessage | { ready: true };
     if ('ready' in m) { post({ boot: WORKER_SOURCE, code }); return; }
-    if (m.op === 'done') { chain.then(() => end({ ok: true })); return; }
+    if (m.op === 'done') { chain.then(() => end(refused ? { ok: false, error: refused } : { ok: true })); return; }
     if (m.op === 'error') { chain.then(() => end({ ok: false, error: m.message })); return; }
     if (m.op === 'log') { h.onLog(m.text); return; }
     if (m.op !== 'execute' && m.op !== 'objects' && m.op !== 'context') return;
@@ -64,7 +66,10 @@ export function runScript(code: string, h: ScriptHandlers, timeoutMs = 10_000): 
     chain = chain.then(async () => {
       if (settled) return;
       let reply: ScriptReply;
-      try { reply = { id: m.id, ok: true, result: await h.onRequest(m) }; } catch (err) { reply = { id: m.id, ok: false, error: err instanceof Error ? err.message : String(err) }; }
+      try { reply = { id: m.id, ok: true, result: await h.onRequest(m) }; } catch (err) {
+        reply = { id: m.id, ok: false, error: err instanceof Error ? err.message : String(err) };
+        if (m.op === 'execute') refused ??= reply.error;
+      }
       if (!settled) post(reply);
     });
   };

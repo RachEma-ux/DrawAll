@@ -76,6 +76,11 @@ test('lot 18.2 — un script fautif n’abîme rien ; le script n’a accès ni 
   await expect(dlg.getByRole('log', { name: 'Sortie du script' })).not.toContainText('après la commande vide');
   await expect.poll(() => currentObjects(page)).toEqual(before);
 
+  // Commande refusée dont la réponse n'est pas attendue (sans await) : le script échoue quand même, annulation.
+  dlg = await runCode(page, `${add(0)}\ndrawall.execute('removeObjects', []);`, 'annule');
+  await expect(dlg.getByRole('log', { name: 'Sortie du script' })).toContainText('liste d’identifiants (non vide) attendue');
+  await expect.poll(() => currentObjects(page)).toEqual(before);
+
   // Argument facultatif mal typé (nom d'objet non textuel) : refusé, annulation, pas d'attente sans fin.
   dlg = await runCode(page, `${add(0)}\nawait drawall.execute('addObject', { kind: 'column', classification: 'structure', layerId: (await drawall.context()).activeLayerId, hatch: 'none', x: 0, y: 0, section: 'circle', d: 400 }, {});`, 'annule');
   await expect(dlg).toContainText('addObject : argument 2 texte attendu');

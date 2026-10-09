@@ -78,3 +78,13 @@ describe('copie de niveau : liaisons d’occurrences (relecture #68)', () => {
   });
 });
 
+describe('copie de niveau : occurrence d’une pièce d’un autre niveau (relecture #68)', () => {
+  it('l’occurrence est copiée et reste une occurrence de cette pièce', () => {
+    const part = { ...base, id: 'P', name: 'P', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 }, levelId: 'NIV-0003' } as unknown as CadObject;
+    const occ = { ...base, id: 'O', name: 'O', kind: 'occurrence', sourceId: 'P', x: 5, y: 0, z: 0, angle: 0, levelId: 'NIV-0001' } as unknown as CadObject;
+    const { objects: out } = copyLevelObjects([part, occ], 'NIV-0001', 'NIV-0002', 10, 1);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ kind: 'occurrence', sourceId: 'P', levelId: 'NIV-0002' });
+  });
+});
+

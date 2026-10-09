@@ -1656,7 +1656,7 @@ export function useProject() {
     if (closed) return { ok: false, error: closed, journaled: false };
     const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks(), activeLevelId });
     // Transformation : chaque objet désigné doit l'accepter, sinon le script la croirait faite.
-    const blocked = !err && type === 'transform' ? transformTargetsError(args[0] as string[], args[1] as TransformOp, allObjects, layers) : null;
+    const blocked = !err && type === 'transform' ? transformTargetsError(args[0] as string[], args[1] as TransformOp, allObjects, layers, bindConstraintValues(constraints, parameters)) : null;
     if (err || blocked) { record(type, [], (err ?? blocked)!); return { ok: false, error: `${type} : ${err ?? blocked}`, journaled: true }; }
     return { ok: true, result: (commands[type as CommandName] as (...a: unknown[]) => unknown)(...args) };
   };

@@ -2,9 +2,10 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OccurrenceObj, type OpeningObj, type RoofObj, type WallObj } from '@/types/cad';
+import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type GeoConstraint, type Layer, type MicroVersion, type OccurrenceObj, type OpeningObj, type RoofObj, type WallObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isMate, mateLoop, placeMate, resolveMates, type Mate } from './assembly';
+import { enforceConstraints, pruneConstraints } from './constraints/model';
 import { isIfcClass, normalizePsets } from './properties';
 import { isRecipe, recipeProfileError } from './solids';
 import { isValidSpline, type SplineGeom } from './spline';
@@ -41,7 +42,8 @@ export function applyTransform(op: TransformOp): (o: CadObject) => Partial<CadOb
  * l'opération (un rectangle ne tourne que d'un quart de tour…). Sinon la commande ne ferait rien
  * pour lui, en silence. Une note jointe à un objet transformé le suit : elle n'est pas examinée.
  */
-export function transformTargetsError(list: string[], op: TransformOp, objects: CadObject[], layers: (Pick<Layer, 'id'> & { locked?: boolean })[]): string | null {
+/** `constraints` : contraintes actives, valeurs liées aux paramètres (comme à l'enregistrement). */
+export function transformTargetsError(list: string[], op: TransformOp, objects: CadObject[], layers: (Pick<Layer, 'id'> & { locked?: boolean })[], constraints?: GeoConstraint[]): string | null {
   const f = applyTransform(op);
   const ids = new Set(list);
   for (const id of list) {
@@ -74,6 +76,15 @@ export function transformTargetsError(list: string[], op: TransformOp, objects: 
     if (o.kind !== 'occurrence' || !o.mate || !ids.has(o.id)) continue;
     const r = settled.find(x => x.id === o.id) as OccurrenceObj | undefined;
     if (r && r.x === o.x && r.y === o.y && r.z === o.z && r.angle === o.angle) return `${o.id} non transformable (sa liaison à ${o.mate.to} la remet en place ; transformer aussi ${o.mate.to} ou la délier)`;
+  }
+  // Contraintes géométriques : l'enregistrement les fait respecter. Un objet qu'elles ramèneraient
+  // exactement à son état d'avant ne serait pas transformé (le dégager de ses contraintes d'abord).
+  if (constraints?.length) {
+    const enforced = enforceConstraints(objects, objects.map(moved), pruneConstraints(objects, constraints)).objects;
+    for (const id of list) {
+      const o = objects.find(x => x.id === id), r = enforced.find(x => x.id === id);
+      if (o && r && o.kind !== 'note' && o.kind !== 'occurrence' && JSON.stringify(r) === JSON.stringify(o)) return `${id} non transformable (ses contraintes géométriques le remettent en place)`;
+    }
   }
   // Îlots de hachure : chaque îlot reste contenu dans son contour transformé (s'il l'était avant).
   const after = objects.map(moved);
