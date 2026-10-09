@@ -31,6 +31,27 @@ export function applyTransform(op: TransformOp): (o: CadObject) => Partial<CadOb
   }
 }
 
+/**
+ * Transformation demandée par un script ou l'assistant : chaque objet désigné doit être modifiable
+ * (calque non verrouillé, pas une cote associative ni un fond de plan verrouillé) et accepter
+ * l'opération (un rectangle ne tourne que d'un quart de tour…). Sinon la commande ne ferait rien
+ * pour lui, en silence. Une note jointe à un objet transformé le suit : elle n'est pas examinée.
+ */
+export function transformTargetsError(list: string[], op: TransformOp, objects: CadObject[], layers: (Pick<Layer, 'id'> & { locked?: boolean })[]): string | null {
+  const f = applyTransform(op);
+  const ids = new Set(list);
+  for (const id of list) {
+    const o = objects.find(x => x.id === id);
+    if (!o || (o.kind === 'note' && o.targetId && ids.has(o.targetId))) continue;
+    const why = layers.find(l => l.id === o.layerId)?.locked ? 'calque verrouillé'
+      : o.kind === 'dimension' ? 'cote associative, elle suit sa cible'
+      : o.kind === 'underlay' && o.locked ? 'fond de plan verrouillé'
+      : f(o) ? null : 'opération impossible pour ce type d’objet';
+    if (why) return `${id} non transformable (${why})`;
+  }
+  return null;
+}
+
 export interface JournalEntry {
   /** Rang dans le journal (1, 2, 3…). */
   n: number;

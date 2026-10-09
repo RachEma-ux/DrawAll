@@ -80,6 +80,11 @@ test('lot 18.2 — un script fautif n’abîme rien ; le script n’a accès ni 
   await expect(dlg).toContainText('addObject : argument 2 texte attendu');
   await expect.poll(() => currentObjects(page)).toEqual(before);
 
+  // Transformation qu'un objet n'accepte pas (rectangle tourné de 45°) : refusée, pas de faux succès.
+  dlg = await runCode(page, "const r = await drawall.execute('addObject', { kind: 'rect', classification: 'non-classifie', layerId: (await drawall.context()).activeLayerId, hatch: 'none', x: 0, y: 0, w: 100, h: 50 });\nawait drawall.execute('transform', [r], { kind: 'rotate', cx: 0, cy: 0, deg: 45 });", 'annule');
+  await expect(dlg).toContainText('non transformable (opération impossible pour ce type d’objet)');
+  await expect.poll(() => currentObjects(page)).toEqual(before);
+
   // Arrêt à la main ; pendant l'exécution l'atelier est gelé : ni raccourci ni clic ne le modifient,
   // et l'annulation ne peut rien perdre d'autre que l'œuvre du script.
   await dlg.getByLabel('Délai (s)').fill('30');

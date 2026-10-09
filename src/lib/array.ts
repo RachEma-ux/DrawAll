@@ -25,7 +25,8 @@ export function withDependencies(objects: CadObject[], selected: Iterable<string
     for (const o of objects) {
       if (!ids.has(o.id)) continue;
       // Îlots de hachure : copiés avec le contour qui les désigne.
-      for (const p of [...parentsOf(o), ...(o.holes ?? [])]) if (!ids.has(p)) { ids.add(p); changed = true; }
+      // Une occurrence copiée reste une occurrence de la même pièce : sa pièce n'est pas copiée avec elle.
+      for (const p of [...(o.kind === 'occurrence' ? [] : parentsOf(o)), ...(o.holes ?? [])]) if (!ids.has(p)) { ids.add(p); changed = true; }
     }
     return changed;
   };
@@ -121,7 +122,13 @@ export function polarArray(count: number, total: number, cx: number, cy: number,
  * `newGroupId` (lot 10.5) : identifiant de groupe libre ; les copies d'un groupe forment un groupe
  * neuf par pose (elles ne rejoignent jamais le groupe d'origine). Absent : les copies sont isolées.
  */
-export function cloneAll(sources: CadObject[], placements: (Placement | PlacementSpec)[], counter: number, seq: number, blocks: BlockDef[] = [], newGroupId?: (taken: string[]) => string): { objects: CadObject[]; counter: number } {
+/**
+ * `existing` : objets présents où les copies sont posées. Une occurrence copiée sans sa pièce reste
+ * rattachée à la pièce existante ; sa liaison d'assemblage suit la copie de sa cible, sinon elle est
+ * retirée (la copie, posée ailleurs, serait ramenée sur l'original).
+ */
+export function cloneAll(sources: CadObject[], placements: (Placement | PlacementSpec)[], counter: number, seq: number, blocks: BlockDef[] = [], newGroupId?: (taken: string[]) => string, existing: CadObject[] = []): { objects: CadObject[]; counter: number } {
+  const part = (id: string) => existing.some(o => o.id === id && o.kind === 'solid' && !!o.partDef);
   const out: CadObject[] = [];
   // Objets associatifs (cote, ouverture, vues) : copiés après leur parent, rattachés à sa copie.
   const shapes = sources.filter(o => parentsOf(o).length === 0);
@@ -159,7 +166,7 @@ export function cloneAll(sources: CadObject[], placements: (Placement | Placemen
       progress = false;
       const next: CadObject[] = [];
       for (const d of pending) {
-        let attached = withParents(d, p => ids.get(p));
+        let attached = withParents(d, p => ids.get(p) ?? (d.kind === 'occurrence' && part(p) ? p : undefined));
         if (!attached) { next.push(d); continue; }
         if (attached.kind === 'note' && d.kind === 'note' && d.targetId) {
           // Note jointe : le point noté subit la pose (rotation d'un réseau polaire…), puis est
@@ -171,6 +178,8 @@ export function cloneAll(sources: CadObject[], placements: (Placement | Placemen
           const b = copy ? objectBounds(copy, blocks, out) : null;
           if (patch && b) attached = { ...attached, x: Math.round(((patch.x ?? abs.x) - b.minX) * 1e6) / 1e6, y: Math.round(((patch.y ?? abs.y) - b.minY) * 1e6) / 1e6 };
         }
+        // Occurrence : placée à son propre point d'insertion, elle subit la pose comme une forme.
+        if (attached.kind === 'occurrence') { const patch = place(d); if (!patch) { progress = true; continue; } attached = { ...attached, ...patch } as typeof attached; }
         counter += 1;
         const id = `OBJ-${String(counter).padStart(4, '0')}`;
         ids.set(d.id, id);
@@ -178,6 +187,14 @@ export function cloneAll(sources: CadObject[], placements: (Placement | Placemen
         progress = true;
       }
       pending = next;
+    }
+    // Liaisons des occurrences copiées : vers la copie de leur cible, ou retirées.
+    for (let i = start; i < out.length; i++) {
+      const c = out[i];
+      if (c.kind !== 'occurrence' || !c.mate) continue;
+      const to = ids.get(c.mate.to);
+      if (to) out[i] = { ...c, mate: { ...c.mate, to } };
+      else { const { mate: _m, ...rest } = c; void _m; out[i] = rest as CadObject; }
     }
   }
   return { objects: out, counter };

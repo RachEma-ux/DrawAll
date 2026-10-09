@@ -10,7 +10,7 @@ import { resolveMates } from '@/lib/assembly';
 import { enforceConstraints, pruneConstraints } from '@/lib/constraints/model';
 import { bindConstraintValues } from '@/lib/params/bind';
 import { onLevel } from '@/lib/levels';
-import { applyTransform, scriptCommandError, validateCommand, type TransformOp } from '@/lib/commands';
+import { applyTransform, scriptCommandError, transformTargetsError, validateCommand, type TransformOp } from '@/lib/commands';
 import { beamError, columnError } from '@/lib/structure';
 
 export interface ProposedStep {
@@ -118,10 +118,10 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
     } else if (s.type === 'transform') {
       const list = s.args[0] as string[];
       // Comme la commande : un objet non modifiable (calque verrouillé, cote associative, fond de plan
-      // verrouillé) ne bougerait pas ; la proposition est refusée plutôt que de montrer un faux aperçu.
-      const why = (o: CadObject) => (ctx.layers.find(l => l.id === o.layerId)?.locked ? 'calque verrouillé' : o.kind === 'dimension' ? 'cote associative, elle suit sa cible' : o.kind === 'underlay' && o.locked ? 'fond de plan verrouillé' : null);
-      const blocked = list.map(id => objects.find(o => o.id === id)).find(o => o && why(o));
-      if (blocked) { errors.push(`${at} : ${blocked.id} non transformable (${why(blocked)})`); return; }
+      // verrouillé) ou qui n'accepte pas l'opération ne bougerait pas ; la proposition est refusée
+      // plutôt que de montrer un faux aperçu.
+      const blocked = transformTargetsError(list, s.args[1] as TransformOp, objects, ctx.layers);
+      if (blocked) { errors.push(`${at} : ${blocked}`); return; }
       const ids = new Set(list);
       const f = applyTransform(s.args[1] as TransformOp);
       // Une note jointe suit son objet : la commande ne la transforme pas deux fois.

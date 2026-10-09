@@ -177,3 +177,34 @@ describe('coupe copiée avec sa face et son repère (lot 5.3)', () => {
     expect(cloneAll([objs[0], objs[2]], [translation(0, 200)], 10, 1).objects.map(o => o.kind)).toEqual(['rect']);
   });
 });
+
+describe('copie d’occurrences d’assemblage', () => {
+  const part = { ...base, id: 'P', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+  const occ = (id: string, extra: object = {}) => ({ ...base, id, kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0, ...extra }) as unknown as CadObject;
+  const objects = [part, occ('Q1'), occ('Q2'), occ('Q3', { mate: { type: 'fixe', to: 'Q1', rel: [0, 0, 0, 0] } })];
+
+  it('une occurrence copiée reste une occurrence de la pièce existante : ni pièce ni sœurs copiées', () => {
+    expect(withDependencies(objects, ['Q2']).map(o => o.id)).toEqual(['Q2']);
+    const { objects: out } = cloneAll(withDependencies(objects, ['Q2']), [translation(100, 0)], 10, 1, [], undefined, objects);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ kind: 'occurrence', sourceId: 'P', x: 100 });
+    // Sans la pièce dans le projet (collage ailleurs), l'occurrence n'est pas collée.
+    expect(cloneAll([occ('Q2')], [translation(100, 0)], 10, 1).objects).toEqual([]);
+  });
+
+  it('liaison d’une occurrence copiée : vers la copie de sa cible, sinon retirée', () => {
+    const alone = cloneAll(withDependencies(objects, ['Q3']), [translation(100, 0)], 10, 1, [], undefined, objects).objects;
+    expect(alone).toHaveLength(1);
+    expect(alone[0]).not.toHaveProperty('mate');
+    const both = cloneAll(withDependencies(objects, ['Q1', 'Q3']), [translation(100, 0)], 10, 1, [], undefined, objects).objects;
+    const q1 = both.find(o => o.kind === 'occurrence' && !o.mate)!;
+    expect(both.find(o => o.kind === 'occurrence' && o.mate)).toMatchObject({ mate: { to: q1.id } });
+  });
+
+  it('la pièce copiée emporte toujours ses occurrences, rattachées à la copie', () => {
+    const out = cloneAll(withDependencies(objects, ['P']), [translation(100, 0)], 10, 1, [], undefined, objects).objects;
+    const copy = out.find(o => o.kind === 'solid')!;
+    expect(out.filter(o => o.kind === 'occurrence').every(o => o.kind === 'occurrence' && o.sourceId === copy.id)).toBe(true);
+  });
+});
+

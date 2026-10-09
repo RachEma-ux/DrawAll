@@ -58,7 +58,7 @@ import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
 import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications, type Publication } from '@/lib/publication';
-import { applyTransform, decodeArgs, encodeArgs, scriptCommandError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
+import { applyTransform, decodeArgs, encodeArgs, scriptCommandError, transformTargetsError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
 import { MATE_LABEL, isMate, placeMate, resolveMates, type Mate } from '@/lib/assembly';
 import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
 import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
@@ -691,7 +691,7 @@ export function useProject() {
       .map(o => (layers.some(l => l.id === o.layerId) || !active ? o : ({ ...o, layerId: active.id } as CadObject)))
       .filter(o => !layers.find(l => l.id === o.layerId)?.locked);
     if (usable.length === 0 || placements.length === 0) return [];
-    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks, taken => nextGroupId(allObjects, taken));
+    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks, taken => nextGroupId(allObjects, taken), allObjects);
     const clones = cloned.map(stampLevel);
     if (clones.length === 0) return [];
     commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
@@ -1635,7 +1635,9 @@ export function useProject() {
     const closed = scriptCommandError(type, args);
     if (closed) return { ok: false, error: closed, journaled: false };
     const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones });
-    if (err) { record(type, [], err); return { ok: false, error: `${type} : ${err}`, journaled: true }; }
+    // Transformation : chaque objet désigné doit l'accepter, sinon le script la croirait faite.
+    const blocked = !err && type === 'transform' ? transformTargetsError(args[0] as string[], args[1] as TransformOp, allObjects, layers) : null;
+    if (err || blocked) { record(type, [], (err ?? blocked)!); return { ok: false, error: `${type} : ${err ?? blocked}`, journaled: true }; }
     return { ok: true, result: (commands[type as CommandName] as (...a: unknown[]) => unknown)(...args) };
   };
 

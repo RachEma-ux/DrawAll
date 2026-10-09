@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CadObject, MicroVersion } from '@/types/cad';
 import { polarArray, rectangularArray } from './array';
 import { KIND_LABEL } from '@/types/cad';
-import { applyTransform, OBJECT_SPEC_KINDS, SCRIPT_COMMANDS, decodeArgs, scriptCommandError, encodeArgs, validateCommand, versionDigest } from './commands';
+import { applyTransform, OBJECT_SPEC_KINDS, SCRIPT_COMMANDS, decodeArgs, scriptCommandError, transformTargetsError, encodeArgs, validateCommand, versionDigest } from './commands';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const line = { ...base, id: 'OBJ-0001', name: 'L', kind: 'line', x1: 0, y1: 0, x2: 100, y2: 0 } as CadObject;
@@ -259,3 +259,16 @@ describe('API de commandes (lot 18.1)', () => {
     expect(versionDigest(v)).not.toBe(versionDigest({ ...v, objects: [] }));
   });
 });
+
+describe('transformation demandée par un script ou l’assistant (lot 18.2)', () => {
+  const L = [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }];
+  const r = { ...line, id: 'R', kind: 'rect', x: 0, y: 0, w: 10, h: 5 } as unknown as CadObject;
+  it('chaque objet doit être modifiable et accepter l’opération', () => {
+    expect(transformTargetsError(['OBJ-0001', 'R'], { kind: 'rotate', cx: 0, cy: 0, deg: 90 }, [line, r], L)).toBeNull();
+    expect(transformTargetsError(['OBJ-0001', 'R'], { kind: 'rotate', cx: 0, cy: 0, deg: 45 }, [line, r], L)).toBe('R non transformable (opération impossible pour ce type d’objet)');
+    expect(transformTargetsError(['K'], { kind: 'move', dx: 1, dy: 0 }, [{ ...line, id: 'K', layerId: 'LAY-0002' } as CadObject], L)).toBe('K non transformable (calque verrouillé)');
+    const u = { ...line, id: 'U', kind: 'underlay', assetId: 'A', x: 0, y: 0, w: 1, h: 1, opacity: 1, locked: true } as unknown as CadObject;
+    expect(transformTargetsError(['U'], { kind: 'move', dx: 1, dy: 0 }, [u], L)).toBe('U non transformable (fond de plan verrouillé)');
+  });
+});
+

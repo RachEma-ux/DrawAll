@@ -51,6 +51,17 @@ describe('branches (lot 14.1)', () => {
     expect(ok(removeBranch(s, 'BR-0000')).branches).toBeUndefined();
   });
 
+  it('identifiant de variante jamais repris : une variante supprimée mais citée par un dossier publié garde le sien', () => {
+    // B (BR-0001) puis C (BR-0002), dossier publié sur C ; retour sur B, suppression de C.
+    let s = ok(createBranch(state(), 'B', 0));
+    s = ok(createBranch(s, 'C'));
+    expect(activeBranch(s).id).toBe('BR-0002');
+    s = { ...s, publications: [{ id: 'PUB-0001', name: 'P', branchId: 'BR-0002', branchName: 'C', seq: 0, time: 0 } as NonNullable<ProjectState['publications']>[number]] };
+    s = ok(removeBranch(ok(switchBranch(s, 'BR-0001')), 'BR-0002'));
+    // La variante suivante ne reprend pas BR-0002 : le dossier de C ne passe pas pour le sien.
+    expect(activeBranch(ok(createBranch(s, 'D'))).id).toBe('BR-0003');
+  });
+
   it('identifiants : le compteur couvre toutes les branches', () => {
     let s = ok(createBranch(state(), 'B', 0));
     // Dans la variante, un objet OBJ-0007 ; de retour sur la principale, le compteur relu le dépasse.
