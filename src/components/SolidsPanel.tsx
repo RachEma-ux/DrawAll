@@ -20,7 +20,7 @@ interface Props {
   onUpdate: (id: string, recipe: SolidRecipe, label: string) => unknown;
   onCombine: (aId: string, bId: string, op: BooleanOp) => unknown;
   /** Pose des vues projetées du solide (lot 16.1). */
-  onProject?: (sourceId: string, views: ProjView[]) => void;
+  onProject?: (sourceId: string, views: ProjView[]) => unknown;
   /** Pièces et occurrences (lot 16.3). */
   onMakePart?: (id: string) => number | null;
   onAddOccurrence?: (defId: string, x: number, y: number, z: number, angle: number) => string | null;
@@ -313,7 +313,7 @@ export default function SolidsPanel({ objects, branchId, selectedIds, onCreate, 
               <input type="checkbox" checked={views.includes(v)} onChange={e => setViews(vs => (e.target.checked ? [...vs, v] : vs.filter(x => x !== v)))} /> {VIEW_LABEL[v]}
             </label>
           ))}
-          <button type="button" className={button} disabled={!one || !views.length || busy} onClick={() => { if (one) { onProject(one.id, (['dessus', 'face', 'cote'] as const).filter(v => views.includes(v))); setMessage({ error: false, text: `${views.length} vue${views.length > 1 ? 's' : ''} posée${views.length > 1 ? 's' : ''} à droite du solide.` }); } }}>Poser les vues</button>
+          <button type="button" className={button} disabled={!one || !views.length || busy} onClick={() => { if (one) { const made = onProject(one.id, (['dessus', 'face', 'cote'] as const).filter(v => views.includes(v))); setMessage(made === undefined ? { error: true, text: 'Vues refusées : le calque du solide est verrouillé.' } : { error: false, text: `${views.length} vue${views.length > 1 ? 's' : ''} posée${views.length > 1 ? 's' : ''} à droite du solide.` }); } }}>Poser les vues</button>
         </section>
       )}
 

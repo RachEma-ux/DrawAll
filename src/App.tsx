@@ -292,6 +292,16 @@ function Workbench() {
     noticeTimer.current = window.setTimeout(() => setNotice(null), 3500);
   }, []);
 
+  // Commande refusée (calque verrouillé…) : annoncée sur le canevas, jamais passée sous silence.
+  const seenJournal = useRef(project.journal?.entries.length ?? 0);
+  useEffect(() => {
+    const entries = project.journal?.entries ?? [];
+    const fresh = entries.slice(Math.min(seenJournal.current, entries.length));
+    seenJournal.current = entries.length;
+    const last = [...fresh].reverse().find(e => e.refused);
+    if (last) flash(`Commande ${last.type} refusée : ${last.refused}.`);
+  }, [project.journal, flash]);
+
   // Presse-papiers interne : instantané des objets copiés (et des cotes qui les suivent).
   const [clipboard, setClipboard] = useState<CadObject[] | null>(null);
   const pasteCount = useRef(0);

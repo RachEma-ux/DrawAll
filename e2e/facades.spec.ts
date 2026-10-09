@@ -113,3 +113,20 @@ test('lot 17.3 — géoréférencement saisi, affiché et transmis à l’IFC', 
   expect(ifc).toMatch(/IFCMAPCONVERSION\(#\d+,#\d+,2600000\.,1200000\.,432\.5,/);
   expect(errors).toEqual([]);
 });
+
+test('relecture 63e passe — calques tous verrouillés : génération des façades refusée, annoncée', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [wall('OBJ-0001', 0, 0, 5000, 0), wall('OBJ-0002', 5000, 0, 5000, 4000)]);
+  const lock = page.getByTitle('Verrouiller', { exact: true });
+  while (await lock.count()) await lock.first().click();
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('façades');
+  await page.getByText('Façades et coupes', { exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Façades et coupes' });
+  await panel.getByLabel('Façade sud').check();
+  await panel.getByRole('button', { name: 'Générer' }).click();
+  await expect(panel.getByTestId('facades-message')).toHaveText('Génération refusée : le calque actif est verrouillé (déverrouillez-le ou choisissez-en un autre).');
+  expect((await currentObjects(page)).filter(o => o.kind === 'elevation')).toEqual([]);
+  expect(errors).toEqual([]);
+});

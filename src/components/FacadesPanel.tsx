@@ -8,7 +8,8 @@ import { STANDARD_SCALES, formatScale } from '@/lib/sheet';
 interface Props {
   objects: CadObject[];
   sheets: Sheet[];
-  onGenerate: (views: { view: ElevationView; markId?: string }[]) => string[];
+  /** Identifiants des vues créées ; undefined : commande refusée (calque actif verrouillé…). */
+  onGenerate: (views: { view: ElevationView; markId?: string }[]) => string[] | undefined;
   onPlace: (sheetId: string, elevation: ElevationObj, center: { x: number; y: number }, scale: DrawingScale, name: string) => void;
   onClose: () => void;
 }
@@ -28,6 +29,7 @@ export default function FacadesPanel({ objects, sheets, onGenerate, onPlace, onC
   const generate = () => {
     const views = chosen.map(k => (k.startsWith('coupe:') ? { view: 'coupe' as const, markId: k.slice(6) } : { view: k as ElevationView }));
     const made = onGenerate(views);
+    if (!made) { setMessage({ error: true, text: 'Génération refusée : le calque actif est verrouillé (déverrouillez-le ou choisissez-en un autre).' }); return; }
     setMessage(made.length
       ? { error: false, text: `${made.length} vue${made.length > 1 ? 's' : ''} générée${made.length > 1 ? 's' : ''} sous le bâtiment.` }
       : { error: true, text: 'Rien à générer : aucun élément en volume (murs, dalles, toitures… ou solides), ou aucune vue choisie.' });

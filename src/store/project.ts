@@ -1624,8 +1624,25 @@ export function useProject() {
     for (const v of allVersions(state)) for (const o of v.objects) if (o.kind === 'solid' && o.partDef && !m.get(o.partDef.no)?.includes(o.id)) m.set(o.partDef.no, [...(m.get(o.partDef.no) ?? []), o.id]);
     return m;
   };
+  /**
+   * Création sur un calque verrouillé : refusée, comme `addObject`. Calque actif pour les créations
+   * qui s'y posent (façades, fond de plan, tableau, bloc, note libre) ; calque de l'objet désigné pour
+   * celles qui le reprennent (cote, repère, vues liées, vues projetées, coupe, occurrence, note jointe).
+   */
+  const lockedDestinationError = (type: string, args: unknown[]): string | null => {
+    const ON_ACTIVE = ['addElevations', 'addUnderlay', 'addBom', 'insertBlock', 'addLibraryBlock'];
+    const FROM_FIRST: Record<string, number> = { addDimension: 0, addBalloon: 0, addViews: 0, addProjections: 0, addCut: 0, addOccurrence: 0, addNote: 3 };
+    let layerId: string | undefined;
+    if (ON_ACTIVE.includes(type)) layerId = activeLayerId;
+    else if (type in FROM_FIRST) {
+      const ref = args[FROM_FIRST[type]];
+      layerId = typeof ref === 'string' ? allObjects.find(o => o.id === ref)?.layerId : type === 'addNote' ? activeLayerId : undefined;
+    }
+    const layer = layerId ? layers.find(l => l.id === layerId) : undefined;
+    return layer?.locked ? `calque ${layer.name} verrouillé : déverrouillez-le d’abord` : null;
+  };
   const cmd = <A extends unknown[], R>(type: string, fn: (...a: A) => R) => (...args: A): R => {
-    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks(), activeLevelId });
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks(), activeLevelId }) ?? lockedDestinationError(type, args);
     if (err) {
       let safe: unknown[] = [];
       try { encodeArgs(args); safe = args; } catch { /* arguments non journalisables : non gardés */ }
@@ -1692,7 +1709,7 @@ export function useProject() {
     // Une commande dont les arguments ne sont pas entièrement validés reste réservée à l'interface.
     const closed = scriptCommandError(type, args);
     if (closed) return { ok: false, error: closed, journaled: false };
-    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks(), activeLevelId });
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks(), activeLevelId }) ?? lockedDestinationError(type, args);
     // Transformation : chaque objet désigné doit l'accepter, sinon le script la croirait faite.
     const bound = bindConstraintValues(constraints, parameters);
     const blocked = err ? null
