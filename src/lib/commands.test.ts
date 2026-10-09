@@ -384,3 +384,31 @@ describe('relecture 30e passe : faces désignées, liaisons réalisables', () =>
   });
 });
 
+describe('relecture 31e passe : mur hôte, pousser / tirer plan, trajet continu, liaisons en boucle', () => {
+  it('mur raccourci sous son ouverture : refusé', () => {
+    const w = { ...line, id: 'W', kind: 'wall', x2: 3000, thickness: 200, justification: 'axe' } as unknown as CadObject;
+    const op = { ...line, id: 'O', kind: 'opening', hostId: 'W', type: 'fenetre', position: 2000, width: 900 } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['W', { x2: 2200 }], [w, op])).toBe('modification : O ne tiendrait plus dans W (L’ouverture (900 mm) dépasse du mur (2200 mm).)');
+    expect(validateCommand('updateObject', ['W', { x2: 2500 }], [w, op])).toBeNull();
+  });
+  it('pousser / tirer : face plane exigée', () => {
+    const cyl = { op: 'cylinder', r: 10, h: 50, name: 'C' };
+    const solid = (face: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'pushpull', of: cyl, face, distance: 5 } }], []);
+    expect(solid({ feature: 'C', role: 'wall' })).toBe('solide : pousser / tirer : face C.wall non plane');
+  });
+  it('balayage : trajet d’un seul tenant', () => {
+    const sq = [[0, 0], [10, 0], [10, 10], [0, 10]];
+    const sweep = (path: unknown[]) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'sweep', profile: sq, path } }], []);
+    expect(sweep([{ kind: 'line', from: [0, 0], to: [0, 100] }, { kind: 'line', from: [0, 100], to: [100, 100] }])).toBeNull();
+    expect(sweep([{ kind: 'line', from: [0, 0], to: [0, 100] }, { kind: 'line', from: [50, 100], to: [100, 100] }])).toBe('solide : balayage : trajet discontinu (segment 2)');
+  });
+  it('liaison sur soi-même ou en boucle : refusée', () => {
+    const part = { ...line, id: 'P', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const occ = (id: string, mate?: unknown) => ({ ...line, id, kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0, ...(mate ? { mate } : {}) }) as unknown as CadObject;
+    const fixe = (to: string) => ({ type: 'fixe', to, rel: [0, 0, 0, 0] });
+    expect(validateCommand('updateObject', ['A', { mate: fixe('A') }], [part, occ('A')])).toBe('occurrence : liaison en boucle (A dépend de lui-même)');
+    expect(validateCommand('updateObject', ['A', { mate: fixe('B') }], [part, occ('A'), occ('B', fixe('A'))])).toBe('occurrence : liaison en boucle (A dépend de lui-même)');
+    expect(validateCommand('updateObject', ['A', { mate: fixe('B') }], [part, occ('A'), occ('B', fixe('P'))])).toBeNull();
+  });
+});
+

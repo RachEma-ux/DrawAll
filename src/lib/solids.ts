@@ -298,9 +298,13 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
       const e = Array.isArray(r.profile) ? profileError(r.profile) : null;
       if (e) return `balayage : ${e}`;
       // Trajet : chaque segment de longueur non nulle, chaque arc défini par trois points non alignés.
-      for (const seg of r.path) {
+      const ends = (g: PathSeg): [P2, P2] => (g.kind === 'curve' ? [g.points[0], g.points[g.points.length - 1]] : [g.from, g.to]);
+      for (let i = 0; i < r.path.length; i++) {
+        const seg = r.path[i];
         if (!(pathLength([seg]) > 0)) return 'balayage : segment de trajet de longueur nulle';
         if (seg.kind === 'arc' && !arc3(seg)) return 'balayage : arc de trajet aux trois points alignés';
+        // Trajet d'un seul tenant : chaque segment part de la fin du précédent.
+        if (i > 0) { const a = ends(r.path[i - 1])[1], b = ends(seg)[0]; if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 1e-6) return `balayage : trajet discontinu (segment ${i + 1})`; }
       }
       return null;
     }
@@ -319,7 +323,12 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
       const faces = r.op === 'pushpull' ? [r.face] : r.op === 'shell' ? (r.open === undefined ? [] : Array.isArray(r.open) ? r.open : [r.open]) : (r.edges ?? []).flatMap(e => e.faces);
       if (faces.length) {
         const supports = featureSupports(r.of);
-        for (const f of faces) { const s = supportOf(supports, f); if ('reason' in s) return `${label} : face ${f.feature}.${f.role} introuvable (${s.reason})`; }
+        for (const f of faces) {
+          const s = supportOf(supports, f);
+          if ('reason' in s) return `${label} : face ${f.feature}.${f.role} introuvable (${s.reason})`;
+          // Pousser / tirer : une face plane seulement (le noyau la déplace le long de sa normale).
+          if (r.op === 'pushpull' && s.support.kind !== 'plane') return `pousser / tirer : face ${f.feature}.${f.role} non plane`;
+        }
       }
       return recipeProfileError(r.of, depth + 1);
     }

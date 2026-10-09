@@ -2,7 +2,7 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OccurrenceObj, type OpeningObj, type RoofObj } from '@/types/cad';
+import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OccurrenceObj, type OpeningObj, type RoofObj, type WallObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isMate, placeMate, type Mate } from './assembly';
 import { isIfcClass, normalizePsets } from './properties';
@@ -266,7 +266,16 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
     // Liaison réalisable (faces existantes et compatibles), comme dans l'atelier : sinon elle serait
     // enregistrée sans jamais placer l'occurrence.
     const self = { ...c, id: (o.id as string | undefined) ?? '__nouvelle__' } as CadObject;
-    const placed = placeMate(self as OccurrenceObj, mate as Mate, [...objects.filter(x => x.id !== self.id), self]);
+    // Pas de liaison sur soi-même ni de cycle (A → B → A) : aucune ne pourrait être résolue.
+    const after = [...objects.filter(x => x.id !== self.id), self];
+    for (let at: string | undefined = mate.to as string, seen = new Set<string>(); at; ) {
+      if (at === self.id) return `occurrence : liaison en boucle (${self.id} dépend de lui-même)`;
+      if (seen.has(at)) break;
+      seen.add(at);
+      const next = after.find(x => x.id === at);
+      at = next?.kind === 'occurrence' ? next.mate?.to : undefined;
+    }
+    const placed = placeMate(self as OccurrenceObj, mate as Mate, after);
     if ('error' in placed) return `occurrence : liaison impossible (${placed.error})`;
   }
   return null;
@@ -321,6 +330,14 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     const next = { ...current, ...p };
     if (layerIds && !(str(next.layerId) && layerIds.has(next.layerId as string))) return `modification : calque ${String(next.layerId)} absent`;
     if (ctx.lockedLayerIds?.has(next.layerId as string)) return `modification : calque ${String(next.layerId)} verrouillé`;
+    // Mur hôte modifié (raccourci…) : ses ouvertures doivent y tenir encore.
+    if (current.kind === 'wall' && next.kind === 'wall') {
+      for (const op of objects) {
+        if (op.kind !== 'opening' || op.hostId !== id) continue;
+        const e = openingFits(op, next as unknown as WallObj);
+        if (e) return `modification : ${op.id} ne tiendrait plus dans ${String(id)} (${e})`;
+      }
+    }
     // Pièce dont dépendent des occurrences (source ou cible de liaison) : elle reste une pièce.
     if (current.kind === 'solid' && current.partDef && !next.partDef) {
       const user = objects.find(o => o.kind === 'occurrence' && (o.sourceId === id || o.mate?.to === id));
