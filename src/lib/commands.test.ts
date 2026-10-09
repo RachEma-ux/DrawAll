@@ -625,3 +625,13 @@ describe('relecture 47e passe : objets associatifs sur le niveau de leur cible, 
     expect(solid({ op: 'shell', of: { op: 'box', x: 100, y: 100, z: 4, name: 'B' }, thickness: 3 })).toBeNull();
   });
 });
+
+describe('relecture 48e passe : îlots sur le niveau de leur contour', () => {
+  it('îlot d’un autre niveau : refusé', () => {
+    const P2 = { levels: [{ id: 'NIV-0001' }, { id: 'NIV-0002' }] };
+    const circle = (id: string, r: number, levelId: string) => ({ ...line, id, kind: 'circle', cx: 0, cy: 0, r, levelId }) as unknown as CadObject;
+    const outer = { classification: 'non-classifie', layerId: 'LAY-0001', kind: 'circle', cx: 0, cy: 0, r: 100, hatch: 'solid', holes: ['I'], levelId: 'NIV-0001' };
+    expect(validateCommand('addObject', [outer], [circle('I', 10, 'NIV-0002')], undefined, P2)).toBe('circle : niveau NIV-0001 différent de celui de I (NIV-0002)');
+    expect(validateCommand('addObject', [outer], [circle('I', 10, 'NIV-0001')], undefined, P2)).toBeNull();
+  });
+});

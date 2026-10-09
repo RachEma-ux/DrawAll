@@ -4,7 +4,7 @@ import { createDefaultLayers, dimensionOf, parentOf } from '@/types/cad';
 import type { ProjLines, SolidRecipe } from './kernel/recipe';
 import { exportDxf, exportToDxf } from './dxf';
 import { moveObject, objectBounds } from './geometry';
-import { ELEVATION_LABEL, cachedProjection, defaultPlacement, elevationLabel, elevationPlacement, elevationSetup, ensureProjections, placedElevation, prepareProjections, setProjectionLevels, viewPrimitives, placedView, projectionPrimitives, projectionsVersion, requestProjection, subscribeProjections, viewFrame } from './projection';
+import { ELEVATION_LABEL, cachedProjection, defaultPlacement, elevationLabel, elevationPlacement, elevationSetup, ensureProjections, placedElevation, prepareProjections, setProjectionLevels, setProjectionModel, viewPrimitives, placedView, projectionPrimitives, projectionsVersion, requestProjection, subscribeProjections, viewFrame } from './projection';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const recipe: SolidRecipe = { op: 'box', x: 100, y: 50, z: 20, at: [10, 20, 5] };
@@ -139,5 +139,24 @@ describe('vues projetées : cadre, cache, placement (lot 16.1)', () => {
     // Murs bruts (sans jonction) : X de 0 à 5 100, Y jusqu'à 4 000 ; écart = 5 100 / 5.
     expect(placed).toEqual([{ view: 'sud', x: 0, y: 5020 }, { view: 'est', x: 5100 + 1020, y: 5020 }]);
     expect(elevationPlacement([mark], [{ view: 'sud' }])).toEqual([]);
+  });
+
+  it('façade d’un projet à plusieurs niveaux : tout le bâtiment, même depuis le dessin d’un niveau', async () => {
+    const wall = (id: string, levelId: string) => ({ ...base, id, name: id, kind: 'wall', x1: 0, y1: 0, x2: 5000, y2: 0, thickness: 200, justification: 'axe', height: 2500, levelId }) as CadObject;
+    const levels = [{ id: 'NIV-0001', name: 'RDC', elevation: 0 }, { id: 'NIV-0002', name: 'R+1', elevation: 2700 }];
+    const f = { ...base, id: 'OBJ-0061', name: 'F', kind: 'elevation', view: 'sud', x: 0, y: 6000, levelId: 'NIV-0001' } as ElevationObj;
+    const all = [wall('M1', 'NIV-0001'), wall('M2', 'NIV-0002'), f];
+    const level = all.filter(o => o.levelId === 'NIV-0001');
+    setProjectionLevels(levels);
+    setProjectionModel(all);
+    try {
+      const lines: ProjLines = { visible: [[0, 0, 5000, 0]], hidden: [] };
+      await ensureProjections(all, async () => lines, async () => lines);
+      // Le dessin du niveau actif retrouve la vue calculée sur la maquette entière.
+      expect(placedElevation(f, level)).toMatchObject({ state: 'prête', frame: { h: 5200 } });
+    } finally {
+      setProjectionModel(undefined);
+      setProjectionLevels(undefined);
+    }
   });
 });

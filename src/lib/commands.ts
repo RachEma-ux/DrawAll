@@ -321,11 +321,12 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
     const level = (o.levelId as string | undefined) ?? (o.id === undefined ? activeLevelId : undefined);
     if (w && levelIdOf({ levelId: level }) !== levelIdOf(w)) return `ouverture : niveau ${levelIdOf({ levelId: level })} différent de celui du mur ${w.id} (${levelIdOf(w)})`;
   }
-  // Objet associatif (cote, bulle, note, vue, coupe…) : sur le niveau de ce qu'il désigne, seul dessiné
+  // Objet associatif (cote, bulle, note, vue, coupe, îlot…) : sur le niveau de ce qu'il désigne, seul dessiné
   // avec lui. L'occurrence d'une pièce d'un autre niveau reste permise ; l'ouverture a son message.
   if (kind !== 'occurrence' && kind !== 'opening') {
     const level = levelIdOf({ levelId: (o.levelId as string | undefined) ?? (o.id === undefined ? activeLevelId : undefined) });
-    for (const r of refs) {
+    // Îlots d'une hachure compris : le dessin et l'export d'un niveau ne voient que ses objets.
+    for (const r of [...refs, ...((o.holes as string[] | undefined) ?? [])]) {
       const t = byId.get(r);
       if (t && levelIdOf(t) !== level) return `${kind} : niveau ${level} différent de celui de ${r} (${levelIdOf(t)})`;
     }

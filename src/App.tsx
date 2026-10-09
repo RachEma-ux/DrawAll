@@ -51,7 +51,7 @@ import { expandToGroups } from '@/lib/groups';
 import { kernelExportStep, kernelImportStep, kernelProject, kernelProjectCamera, kernelVolume } from '@/lib/kernel/client';
 import { effectiveSolid } from '@/lib/solids';
 import type { SolidRecipe } from '@/lib/kernel/recipe';
-import { ensureProjections, prepareProjections, projectionsVersion, setProjectionLevels, subscribeProjections } from '@/lib/projection';
+import { ensureProjections, prepareProjections, projectionsVersion, setProjectionLevels, setProjectionModel, subscribeProjections } from '@/lib/projection';
 import { polarArray, rectangularArray, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
@@ -362,6 +362,8 @@ function Workbench() {
   useSyncExternalStore(subscribeProjections, projectionsVersion);
   // Façades et coupes (lot 16.2) : hauteurs d'étage tirées des niveaux du projet.
   setProjectionLevels(project.levels);
+  // Façades et coupes : tout le bâtiment, quel que soit le niveau affiché (même clé que le calcul).
+  setProjectionModel(project.allObjects);
   useEffect(() => {
     if (project.allObjects.some(o => o.kind === 'projection' || o.kind === 'elevation')) void ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
   }, [project.allObjects, project.levels]);

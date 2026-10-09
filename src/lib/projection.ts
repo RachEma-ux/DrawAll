@@ -125,6 +125,12 @@ export function defaultPlacement(source: SolidObj, views: ProjView[]): { view: P
 /** Niveaux du projet pour les hauteurs d'étage (fixés par l'application à chaque rendu). */
 let currentLevels: Level[] | undefined;
 export function setProjectionLevels(levels: Level[] | undefined) { currentLevels = levels; }
+/**
+ * Maquette entière (tous les niveaux), fixée par l'application à chaque rendu : une façade ou une
+ * coupe montre tout le bâtiment, même quand le dessin ne reçoit que les objets du niveau actif.
+ */
+let currentModel: CadObject[] | undefined;
+export function setProjectionModel(objects: CadObject[] | undefined) { currentModel = objects; }
 
 export const ELEVATION_LABEL: Record<Exclude<ElevationView, 'coupe'>, string> = { nord: 'Façade nord', sud: 'Façade sud', est: 'Façade est', ouest: 'Façade ouest' };
 /** Sens du regard (plan, Y vers le bas : le nord en haut) : la façade sud se regarde depuis le sud. */
@@ -137,7 +143,9 @@ export const elevationLabel = (o: ElevationObj, objects: CadObject[]) => {
 };
 
 /** Caméra, coupe éventuelle et recette du bâtiment d'une façade, ou la raison de son absence. */
-export function elevationSetup(o: ElevationObj, objects: CadObject[]): { recipe: SolidRecipe; camera: Camera; clip?: Clip; key: string } | { error: string } {
+export function elevationSetup(o: ElevationObj, levelObjects: CadObject[]): { recipe: SolidRecipe; camera: Camera; clip?: Clip; key: string } | { error: string } {
+  // La maquette entière si elle contient la vue (sinon, appel hors de l'application : la liste donnée).
+  const objects = currentModel?.some(x => x.id === o.id) ? currentModel : levelObjects;
   const { recipe } = buildingRecipe(objects.filter(x => x.kind !== 'elevation'), currentLevels);
   if (!recipe) return { error: 'aucun élément en volume (murs, dalles, toitures… ou solides)' };
   let look: [number, number], clip: Clip | undefined;
