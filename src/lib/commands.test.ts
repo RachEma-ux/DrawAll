@@ -590,3 +590,22 @@ describe('relecture 44e passe : ligne de longueur nulle', () => {
   });
 });
 
+
+describe('relecture 46e passe : dalle refermée, congé et coque irréalisables', () => {
+  it('dalle dont le dernier sommet répète le premier : refusée', () => {
+    const slab = (points: number[]) => validateCommand('addObject', [{ classification: 'structure', kind: 'slab', thickness: 200, points }], []);
+    expect(slab([0, 0, 4, 0, 4, 4, 0, 4, 0, 0])).toBe('dalle : le dernier sommet répète le premier (le contour se ferme seul)');
+    expect(slab([0, 0, 4, 0, 4, 4, 0, 4])).toBeNull();
+  });
+  it('congé ou coque plus grands que le solide : refusés', () => {
+    const solid = (recipe: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe }], []);
+    const box = { op: 'box', x: 1, y: 1, z: 1, name: 'B' };
+    expect(solid({ op: 'fillet', of: box, r: 100 })).toBe('solide : congé : rayon 100 mm ≥ moitié de la plus petite dimension du solide (0.5 mm)');
+    expect(solid({ op: 'fillet', of: box, r: 0.2 })).toBeNull();
+    const edge = [{ faces: [{ feature: 'B', role: 'zmax' }, { feature: 'B', role: 'xmax' }] }];
+    expect(solid({ op: 'fillet', of: box, r: 1, edges: edge })).toBe('solide : congé : rayon 1 mm ≥ plus grande dimension du solide (1 mm)');
+    expect(solid({ op: 'fillet', of: box, r: 0.4, edges: edge })).toBeNull();
+    expect(solid({ op: 'shell', of: box, thickness: 2 })).toBe('solide : coque : épaisseur 2 mm ≥ plus petite dimension du solide (1 mm), aucune cavité possible');
+    expect(solid({ op: 'shell', of: box, thickness: 0.1 })).toBeNull();
+  });
+});

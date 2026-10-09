@@ -289,6 +289,9 @@ export function profileError(pts: readonly (readonly [number, number])[]): strin
   return null;
 }
 
+/** Nombre lisible dans un message (trois décimales au plus). */
+const fmt = (v: number) => String(+v.toFixed(3));
+
 /** Premier contour inconstructible d'une recette (extrusion, révolution, balayage, lissage), ou null. */
 export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
   if (depth > 200) return null;
@@ -340,7 +343,19 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
           if (r.op === 'pushpull' && s.support.kind !== 'plane') return `pousser / tirer : face ${f.feature}.${f.role} non plane`;
         }
       }
-      return recipeProfileError(r.of, depth + 1);
+      const inner = recipeProfileError(r.of, depth + 1);
+      if (inner || r.op === 'pushpull') return inner;
+      // Bornes sûres, tirées de l'encombrement de la recette d'entrée (le reste est vérifié par le
+      // noyau, au rendu et à l'export) : une coque dont l'épaisseur atteint la plus petite dimension
+      // ne laisse aucune cavité ; un congé sur toutes les arêtes de rayon au moins la moitié de la plus
+      // petite dimension consomme les faces opposées ; un congé d'arêtes désignées de rayon au moins
+      // la plus grande dimension dépasse toute face adjacente.
+      const b = recipeBounds(r.of), ext = [0, 1, 2].map(i => b.max[i] - b.min[i]);
+      const lo = Math.min(...ext), hi = Math.max(...ext);
+      if (r.op === 'shell' && r.thickness >= lo) return `coque : épaisseur ${fmt(r.thickness)} mm ≥ plus petite dimension du solide (${fmt(lo)} mm), aucune cavité possible`;
+      if (r.op === 'fillet' && !r.edges && r.r >= lo / 2) return `congé : rayon ${fmt(r.r)} mm ≥ moitié de la plus petite dimension du solide (${fmt(lo / 2)} mm)`;
+      if (r.op === 'fillet' && r.edges && r.r >= hi) return `congé : rayon ${fmt(r.r)} mm ≥ plus grande dimension du solide (${fmt(hi)} mm)`;
+      return null;
     }
     case 'cut': {
       const e = recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);

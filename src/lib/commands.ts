@@ -184,7 +184,11 @@ const SPECS: Record<string, Spec> = {
   room: { nums: ['x', 'y'], opt: { zoneId: 'str' } },
   // Contour d'aire non nulle, comme dans l'atelier (sinon volume vide et profil IFC nul).
   slab: { opt: { roomId: 'str' }, pos: ['thickness'], points: 3, extra: o => {
-    if (!slabContour(o.points as number[])) return 'dalle : contour d’aire nulle (au moins trois sommets non alignés)';
+    const ring = slabContour(o.points as number[]);
+    if (!ring) return 'dalle : contour d’aire nulle (au moins trois sommets non alignés)';
+    // Le contour se ferme seul : un dernier sommet qui répète le premier serait gardé tel quel (et
+    // bloquerait la triangulation de la vue 3D).
+    if (ring.length !== (o.points as number[]).length) return 'dalle : le dernier sommet répète le premier (le contour se ferme seul)';
     // Contour simple (aucune arête qui en croise une autre), comme le suppose la triangulation et l'IFC.
     const pts = o.points as number[], pairs: [number, number][] = [];
     for (let i = 0; i + 1 < pts.length; i += 2) pairs.push([pts[i], pts[i + 1]]);

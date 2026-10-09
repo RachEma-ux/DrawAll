@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MicroVersion } from '@/types/cad';
 import { createDefaultLayers } from '@/types/cad';
-import { merge3, mergedMateError, mergedParameterError, resolve } from './merge';
+import { merge3, mergedConstraintError, mergedMateError, mergedParameterError, resolve } from './merge';
 import type { CadObject } from '@/types/cad';
 import type { Parameter } from './params/expr';
 
@@ -66,3 +66,21 @@ describe('fusion : au moins un calque', () => {
   });
 });
 
+
+describe('fusion : contraintes géométriques revalidées', () => {
+  const line = (x: number) => ({ classification: 'non-classifie', layerId: 'LAY-0001', hatch: 'none', createdSeq: 0, id: 'L', name: 'L', kind: 'line', x1: x, y1: 0, x2: x + 100, y2: 0 }) as unknown as CadObject;
+  const fix = (id: string, x: number) => ({ id, type: 'fixed' as const, p: { obj: 'L', at: 'a' as const }, x, y: 0 });
+  it('extrémité fixée à x = 0 d’un côté, ligne déplacée et fixée à x = 10 de l’autre : refus', () => {
+    const base = { ...v(0, []), objects: [line(0)] };
+    const ours = { ...v(1, []), objects: [line(0)], constraints: [fix('CON-0001', 0)] };
+    const theirs = { ...v(2, []), objects: [line(10)], constraints: [fix('CON-0002', 10)] };
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts).toEqual([]);
+    const out = resolve(r, {});
+    if ('error' in out) throw new Error(out.error);
+    const merged = { objects: out.objects ?? ours.objects, constraints: out.constraints ?? ours.constraints };
+    expect(mergedConstraintError(merged, ours, theirs)).toMatch(/^Fusion refusée : les contraintes réunies seraient en conflit \(CON-000[12]\)$/);
+    // Contraintes compatibles (même point fixé au même endroit) : acceptées.
+    expect(mergedConstraintError({ objects: [line(0)], constraints: [fix('CON-0001', 0), fix('CON-0002', 0)] }, ours, base)).toBeNull();
+  });
+});

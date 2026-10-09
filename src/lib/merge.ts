@@ -3,8 +3,8 @@
 // est reprise, des modifications différentes d'un même élément sont un conflit, listé puis tranché
 // (garder l'une ou l'autre). Rien n'est tranché en silence. Fonctions pures.
 import { parse, references, resolveParameters, type Parameter } from './params/expr';
-import { parentsOf, withoutDanglingMates, type CadObject, type MicroVersion, type ProjectState, type Sheet } from '@/types/cad';
-import { constraintObjects } from './constraints/model';
+import { parentsOf, withoutDanglingMates, type CadObject, type GeoConstraint, type MicroVersion, type ProjectState, type Sheet } from '@/types/cad';
+import { constraintObjects, diagnose } from './constraints/model';
 import { activeBranch } from './branches';
 import { mateLoop } from './assembly';
 
@@ -362,6 +362,22 @@ export function mergedMateError(merged: CadObject[] | undefined, ours: CadObject
   const before = new Set([...looped(ours), ...looped(theirs)]);
   const after = [...looped(merged ?? [])].find(id => !before.has(id));
   return after ? `Fusion refusée : les liaisons réunies formeraient une boucle (${after})` : null;
+}
+
+/**
+ * Contraintes réunies en conflit (ou à réparer) alors qu'elles ne l'étaient dans aucune des deux
+ * variantes : deux variantes valides peuvent poser des contraintes incompatibles entre elles.
+ * Contraintes déjà liées à leurs paramètres.
+ */
+export function mergedConstraintError(
+  merged: { objects: CadObject[]; constraints?: GeoConstraint[] },
+  ours: { objects: CadObject[]; constraints?: GeoConstraint[] },
+  theirs: { objects: CadObject[]; constraints?: GeoConstraint[] },
+): string | null {
+  const bad = (v: typeof merged) => { const d = diagnose(v.objects, v.constraints); return new Set([...d.conflicting, ...d.unresolved]); };
+  const before = new Set([...bad(ours), ...bad(theirs)]);
+  const after = [...bad(merged)].find(id => !before.has(id));
+  return after ? `Fusion refusée : les contraintes réunies seraient en conflit (${after})` : null;
 }
 
 export const conflictKey = (c: Conflict) => `${c.where}:${c.id}`;

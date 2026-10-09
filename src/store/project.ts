@@ -56,7 +56,7 @@ import { isHexColor } from '@/lib/zones';
 import { georefError, normalizeGeoref } from '@/lib/georef';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
-import { merge3, mergedMateError, mergedParameterError, mergeInputs, resolve, type Choice } from '@/lib/merge';
+import { merge3, mergedMateError, mergedConstraintError, mergedParameterError, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications, type Publication } from '@/lib/publication';
 import { applyTransform, decodeArgs, encodeArgs, mergedReferenceError, scriptCommandError, transformTargetsError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
 import { MATE_LABEL, isMate, mateLoop, placeMate, resolveMates, type Mate } from '@/lib/assembly';
@@ -1550,7 +1550,12 @@ export function useProject() {
     const out = resolve(merge3(inputs.base, inputs.ours, inputs.theirs), choices);
     if ('error' in out) return out.error;
     const paramError = mergedParameterError(out.parameters, inputs.ours.parameters, inputs.theirs.parameters)
-      ?? mergedMateError(out.objects, inputs.ours.objects, inputs.theirs.objects);
+      ?? mergedMateError(out.objects, inputs.ours.objects, inputs.theirs.objects)
+      ?? mergedConstraintError(
+        { objects: out.objects ?? inputs.ours.objects, constraints: bindConstraintValues(out.constraints ?? inputs.ours.constraints, out.parameters ?? inputs.ours.parameters) },
+        { objects: inputs.ours.objects, constraints: bindConstraintValues(inputs.ours.constraints, inputs.ours.parameters) },
+        { objects: inputs.theirs.objects, constraints: bindConstraintValues(inputs.theirs.constraints, inputs.theirs.parameters) },
+      );
     if (paramError) return paramError;
     // Références des objets fusionnés (pièce source, parent, liaison, ouverture dans son mur…) : une
     // erreur qu'aucune des deux variantes n'avait fait refuser la fusion.
