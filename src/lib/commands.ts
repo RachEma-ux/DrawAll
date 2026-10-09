@@ -7,7 +7,7 @@ import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } fro
 import { isMate, mateLoop, placeMate, resolveMates, type Mate } from './assembly';
 import { enforceConstraints, pruneConstraints } from './constraints/model';
 import { isIfcClass, normalizePsets } from './properties';
-import { isRecipe, recipeProfileError } from './solids';
+import { isRecipe, profileError, recipeProfileError } from './solids';
 import { isValidSpline, type SplineGeom } from './spline';
 import { faceOf } from './views';
 import { cutView } from './cuts';
@@ -183,7 +183,14 @@ const SPECS: Record<string, Spec> = {
   opening: { nums: ['position'], pos: ['width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] }, extra: o => (o.type === 'porte' && !(['debut', 'fin'].includes(o.hinge as string) && ['gauche', 'droite'].includes(o.side as string)) ? 'porte : charnière (debut, fin) et côté (gauche, droite) attendus' : o.height !== undefined && !positive(o.height) ? 'ouverture : hauteur positive attendue' : o.sill !== undefined && !(finite(o.sill) && (o.sill as number) >= 0) ? 'ouverture : allège positive ou nulle attendue' : null) },
   room: { nums: ['x', 'y'], opt: { zoneId: 'str' } },
   // Contour d'aire non nulle, comme dans l'atelier (sinon volume vide et profil IFC nul).
-  slab: { opt: { roomId: 'str' }, pos: ['thickness'], points: 3, extra: o => (slabContour(o.points as number[]) ? null : 'dalle : contour d’aire nulle (au moins trois sommets non alignés)') },
+  slab: { opt: { roomId: 'str' }, pos: ['thickness'], points: 3, extra: o => {
+    if (!slabContour(o.points as number[])) return 'dalle : contour d’aire nulle (au moins trois sommets non alignés)';
+    // Contour simple (aucune arête qui en croise une autre), comme le suppose la triangulation et l'IFC.
+    const pts = o.points as number[], pairs: [number, number][] = [];
+    for (let i = 0; i + 1 < pts.length; i += 2) pairs.push([pts[i], pts[i + 1]]);
+    const e = profileError(pairs);
+    return e ? `dalle : ${e}` : null;
+  } },
   roof: { nums: ['x', 'y', 'pitch', 'overhang'], pos: ['w', 'h'], enums: { roofType: ['un-pan', 'deux-pans', 'quatre-pans'], axis: ['x', 'y'] }, extra: o => (o.highSide !== undefined && o.highSide !== 'min' && o.highSide !== 'max' ? 'toiture : côté haut min ou max attendu' : roofError(roofInput(o as unknown as RoofObj))) },
   column: { opt: { height: 'pos' },
     nums: ['x', 'y'], enums: { section: ['rect', 'circle'] },

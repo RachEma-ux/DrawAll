@@ -131,3 +131,12 @@ describe('réels STEP à exposant (relecture #68)', () => {
   });
 });
 
+describe('très petits réels STEP (relecture #68)', () => {
+  it('valeur non nulle conservée, toujours un réel', () => {
+    expect(stepReal(1e-10)).toBe('1.E-10');
+    expect(stepReal(-2.5e-11)).toBe('-2.5E-11');
+    expect(stepReal(0.0001234)).toBe('0.0001234');
+    expect(stepReal(1.0000000001)).toBe('1.');
+  });
+});
+

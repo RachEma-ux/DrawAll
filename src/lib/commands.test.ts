@@ -574,3 +574,11 @@ describe('relecture 42e passe : transformation identité', () => {
   });
 });
 
+describe('relecture 43e passe : dalle à contour croisé', () => {
+  it('contour qui se recoupe : refusé', () => {
+    const slab = (points: number[]) => validateCommand('addObject', [{ classification: 'structure', kind: 'slab', thickness: 200, points }], []);
+    expect(slab([0, 0, 4, 0, 0, 4, 3, 4])).toBe('dalle : contour qui se recoupe');
+    expect(slab([0, 0, 4, 0, 4, 4, 0, 4])).toBeNull();
+  });
+});
+
