@@ -41,8 +41,10 @@ export function stepString(s: string): string {
 export function stepReal(v: number): string {
   if (!Number.isFinite(v)) throw new Error(`Réel non fini dans l'export IFC : ${v}`);
   const r = Math.abs(v) < 1e-12 ? 0 : v;
-  const s = Number.isInteger(r) ? `${r}.` : String(Math.round(r * 1e9) / 1e9);
-  return s.includes('e') ? s.replace('e', 'E').replace(/^(-?\d+)E/, '$1.E') : s;
+  const raw = String(Number.isInteger(r) ? r : Math.round(r * 1e9) / 1e9);
+  // Notation à exposant (1e+21, 1.5e-7) : point dans la mantisse, jamais après l'exposant.
+  if (raw.includes('e')) return raw.replace(/^(-?\d+)e/, '$1.e').toUpperCase();
+  return Number.isInteger(r) ? `${raw}.` : raw;
 }
 
 const ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';

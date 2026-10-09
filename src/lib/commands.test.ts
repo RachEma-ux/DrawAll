@@ -564,3 +564,13 @@ describe('relecture 41e passe : transformation remise en place par les contraint
   });
 });
 
+describe('relecture 42e passe : transformation identité', () => {
+  it('déplacement nul, rotation de 0°, échelle 1 : refusés', () => {
+    const t = (op: unknown) => transformTargetsError(['OBJ-0001'], op as never, [line], []);
+    expect(t({ kind: 'move', dx: 0, dy: 0 })).toBe('transformation sans effet (aucun objet ne changerait)');
+    expect(t({ kind: 'rotate', cx: 0, cy: 0, deg: 0 })).toBe('transformation sans effet (aucun objet ne changerait)');
+    expect(t({ kind: 'scale', cx: 0, cy: 0, factor: 1 })).toBe('transformation sans effet (aucun objet ne changerait)');
+    expect(t({ kind: 'move', dx: 1, dy: 0 })).toBeNull();
+  });
+});
+

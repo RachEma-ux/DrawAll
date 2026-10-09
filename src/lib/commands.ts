@@ -60,6 +60,9 @@ export function transformTargetsError(list: string[], op: TransformOp, objects: 
     const shape = objectShapeError(o as unknown as Record<string, unknown>) ? null : objectShapeError({ ...o, ...f(o) } as unknown as Record<string, unknown>);
     if (shape) return `${id} non transformable (${shape})`;
   }
+  // Transformation identité (déplacement nul, rotation de 0°, échelle 1…) : aucun objet ne changerait.
+  const targets = list.map(id => objects.find(x => x.id === id)).filter((o): o is CadObject => !!o);
+  if (targets.length && targets.every(o => JSON.stringify({ ...o, ...f(o) }) === JSON.stringify(o))) return 'transformation sans effet (aucun objet ne changerait)';
   // Murs et ouvertures transformés : chaque ouverture concernée doit tenir dans son mur résultant.
   const moved = (o: CadObject) => (ids.has(o.id) ? ({ ...o, ...f(o) } as CadObject) : o);
   for (const op of objects) {

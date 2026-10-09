@@ -121,3 +121,13 @@ describe('baies dans le mur : volume net et géométrie (relecture #68)', () => 
   });
 });
 
+describe('réels STEP à exposant (relecture #68)', () => {
+  it('point dans la mantisse, jamais après l’exposant', () => {
+    expect(stepReal(1e21)).toBe('1.E+21');
+    expect(stepReal(-2e22)).toBe('-2.E+22');
+    expect(stepReal(1.5e-7)).toBe('1.5E-7');
+    expect(stepReal(1000)).toBe('1000.');
+    expect(stepReal(0.5)).toBe('0.5');
+  });
+});
+
