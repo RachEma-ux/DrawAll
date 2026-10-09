@@ -6,6 +6,7 @@ import { parse, references, resolveParameters, type Parameter } from './params/e
 import { parentsOf, withoutDanglingMates, type CadObject, type MicroVersion, type ProjectState, type Sheet } from '@/types/cad';
 import { constraintObjects } from './constraints/model';
 import { activeBranch } from './branches';
+import { mateLoop } from './assembly';
 
 type WithId = { id: string };
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
@@ -347,6 +348,17 @@ export function mergedParameterError(merged: Parameter[] | undefined, ours: Para
   const before = new Set([...resolveParameters(ours ?? []).errors.keys(), ...resolveParameters(theirs ?? []).errors.keys()]);
   for (const [name, msg] of after) if (!before.has(name)) return `Fusion refusée : le paramètre ${name} serait en erreur (${msg})`;
   return null;
+}
+
+/**
+ * Liaisons fusionnées : A → B d'un côté et B → A de l'autre, valables chacune, forment une boucle
+ * qu'aucune variante n'avait. Renvoie le refus, ou null.
+ */
+export function mergedMateError(merged: CadObject[] | undefined, ours: CadObject[], theirs: CadObject[]): string | null {
+  const looped = (objs: CadObject[]) => new Set(objs.filter(o => o.kind === 'occurrence' && o.mate && mateLoop(o.id, o.mate.to, objs)).map(o => o.id));
+  const before = new Set([...looped(ours), ...looped(theirs)]);
+  const after = [...looped(merged ?? [])].find(id => !before.has(id));
+  return after ? `Fusion refusée : les liaisons réunies formeraient une boucle (${after})` : null;
 }
 
 export const conflictKey = (c: Conflict) => `${c.where}:${c.id}`;

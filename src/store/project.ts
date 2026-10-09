@@ -56,7 +56,7 @@ import { isHexColor } from '@/lib/zones';
 import { georefError, normalizeGeoref } from '@/lib/georef';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
-import { merge3, mergedParameterError, mergeInputs, resolve, type Choice } from '@/lib/merge';
+import { merge3, mergedMateError, mergedParameterError, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications, type Publication } from '@/lib/publication';
 import { applyTransform, decodeArgs, encodeArgs, scriptCommandError, transformTargetsError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
 import { MATE_LABEL, isMate, mateLoop, placeMate, resolveMates, type Mate } from '@/lib/assembly';
@@ -1553,7 +1553,8 @@ export function useProject() {
     if ('error' in inputs) return inputs.error;
     const out = resolve(merge3(inputs.base, inputs.ours, inputs.theirs), choices);
     if ('error' in out) return out.error;
-    const paramError = mergedParameterError(out.parameters, inputs.ours.parameters, inputs.theirs.parameters);
+    const paramError = mergedParameterError(out.parameters, inputs.ours.parameters, inputs.theirs.parameters)
+      ?? mergedMateError(out.objects, inputs.ours.objects, inputs.theirs.objects);
     if (paramError) return paramError;
     const name = state.branches?.find(b => b.id === otherId)?.name ?? otherId;
     commit(`Fusion de la variante « ${name} »`, out as SnapshotPatch);

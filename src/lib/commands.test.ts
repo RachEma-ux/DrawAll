@@ -427,3 +427,11 @@ describe('relecture 32e passe : murs transformés, liaisons après modification 
   });
 });
 
+describe('relecture 33e passe : objet transformé complet', () => {
+  it('échelle infime qui arrondit les dimensions à zéro : refusée', () => {
+    const r = { ...line, id: 'R', kind: 'rect', x: 0, y: 0, w: 1, h: 1 } as unknown as CadObject;
+    expect(transformTargetsError(['R'], { kind: 'scale', cx: 0, cy: 0, factor: 0.0001 }, [r], [])).toMatch(/^R non transformable \(rect : /);
+    expect(transformTargetsError(['R'], { kind: 'scale', cx: 0, cy: 0, factor: 2 }, [r], [])).toBeNull();
+  });
+});
+

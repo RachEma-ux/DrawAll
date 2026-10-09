@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { MicroVersion } from '@/types/cad';
 import { createDefaultLayers } from '@/types/cad';
-import { merge3, mergedParameterError, resolve } from './merge';
+import { merge3, mergedMateError, mergedParameterError, resolve } from './merge';
+import type { CadObject } from '@/types/cad';
 import type { Parameter } from './params/expr';
 
 const layers = createDefaultLayers();
@@ -34,3 +35,21 @@ describe('fusion : graphe des paramètres revalidé', () => {
     expect(mergedParameterError(out.parameters, ours.parameters, theirs.parameters)).toBe('Fusion refusée : deux paramètres portent le nom e (PAR-0001 et PAR-0002) ; renommez-en un avant de fusionner');
   });
 });
+
+describe('fusion : liaisons revalidées', () => {
+  const base0 = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
+  const part = { ...base0, id: 'P', name: 'P', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+  const occ = (id: string, to?: string) => ({ ...base0, id, name: id, kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0, ...(to ? { mate: { type: 'fixe', to, rel: [0, 0, 0, 0] } } : {}) }) as unknown as CadObject;
+  it('A → B d’un côté, B → A de l’autre : la boucle née de la fusion est refusée', () => {
+    const base = { ...v(0, []), objects: [part, occ('A'), occ('B')] };
+    const ours = { ...v(1, []), objects: [part, occ('A', 'B'), occ('B')] };
+    const theirs = { ...v(2, []), objects: [part, occ('A'), occ('B', 'A')] };
+    const r = merge3(base, ours, theirs);
+    expect(r.conflicts).toEqual([]);
+    const out = resolve(r, {});
+    if ('error' in out) throw new Error(out.error);
+    expect(mergedMateError(out.objects, ours.objects, theirs.objects)).toMatch(/^Fusion refusée : les liaisons réunies formeraient une boucle \((A|B)\)$/);
+    expect(mergedMateError(ours.objects, ours.objects, base.objects)).toBeNull();
+  });
+});
+

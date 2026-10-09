@@ -49,6 +49,9 @@ export function transformTargetsError(list: string[], op: TransformOp, objects: 
       : o.kind === 'underlay' && o.locked ? 'fond de plan verrouillé'
       : f(o) ? null : 'opération impossible pour ce type d’objet';
     if (why) return `${id} non transformable (${why})`;
+    // L'objet transformé reste complet (une échelle infime arrondit ses dimensions à zéro…).
+    const shape = objectShapeError(o as unknown as Record<string, unknown>) ? null : objectShapeError({ ...o, ...f(o) } as unknown as Record<string, unknown>);
+    if (shape) return `${id} non transformable (${shape})`;
   }
   // Murs et ouvertures transformés : chaque ouverture concernée doit tenir dans son mur résultant.
   const moved = (o: CadObject) => (ids.has(o.id) ? ({ ...o, ...f(o) } as CadObject) : o);
