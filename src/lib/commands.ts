@@ -360,9 +360,12 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     const { ids, objects, layerIds } = ctx;
     if (!str(id)) return 'identifiant attendu';
     if (!ids.has(id as string)) return `objet ${String(id)} absent`;
-    if (!patch || typeof patch !== 'object') return 'modification attendue';
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'modification attendue';
     // L'objet résultant doit rester complet et de même type (identifiant inchangé).
     const p = patch as Record<string, unknown>;
+    // Une modification change au moins un champ (sinon : version et journal pollués par un « succès » vide).
+    const before = objects.find(o => o.id === id) as unknown as Record<string, unknown>;
+    if (!Object.keys(p).some(k => JSON.stringify(p[k]) !== JSON.stringify(before[k]))) return 'modification : aucun champ ne change';
     const current = objects.find(o => o.id === id) as unknown as Record<string, unknown>;
     if ('kind' in p && p.kind !== current.kind) return 'modification : le type d’un objet ne change pas';
     if ('id' in p && p.id !== id) return 'modification : l’identifiant ne change pas';
@@ -417,15 +420,15 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
   },
   removeObject: ([id], ctx) => (str(id) && ctx.ids.has(id as string) ? lockedError([id as string], ctx) : `objet ${String(id)} absent`),
   removeObjects: ([list], ctx) => {
-    if (!strs(list)) return 'liste d’identifiants attendue';
+    if (!strs(list) || !(list as string[]).length) return 'liste d’identifiants (non vide) attendue';
     const ids = list as string[];
     const missing = ids.find(i => !ctx.ids.has(i));
     if (missing) return `objet ${missing} absent`;
     return lockedError(ids, ctx);
   },
-  transform: ([list, op], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : transformError(op)),
+  transform: ([list, op], { ids }) => (!strs(list) || !(list as string[]).length ? 'liste d’identifiants (non vide) attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : transformError(op)),
   duplicateObjects: ([list, dx, dy], ctx) => {
-    if (!strs(list) || (list as string[]).some(i => !ctx.ids.has(i))) return 'objets à dupliquer absents';
+    if (!strs(list) || !(list as string[]).length || (list as string[]).some(i => !ctx.ids.has(i))) return 'objets à dupliquer absents';
     if ((dx !== undefined && !finite(dx)) || (dy !== undefined && !finite(dy))) return 'décalage fini attendu';
     // Objet d'un calque verrouillé : la copie ne serait pas faite (comme dans l'atelier).
     // Les parents et associés copiés avec eux (mur d'une ouverture…) comptent aussi.

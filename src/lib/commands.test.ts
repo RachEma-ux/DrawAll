@@ -532,3 +532,15 @@ describe('relecture 38e passe : occurrence liée transformée seule, intersectio
   });
 });
 
+describe('relecture 39e passe : commandes vides refusées', () => {
+  it('listes vides et modifications sans effet', () => {
+    expect(validateCommand('removeObjects', [[]], [line])).toBe('liste d’identifiants (non vide) attendue');
+    expect(validateCommand('transform', [[], { kind: 'move', dx: 1, dy: 0 }], [line])).toBe('liste d’identifiants (non vide) attendue');
+    expect(validateCommand('duplicateObjects', [[], 10, 0], [line])).toBe('objets à dupliquer absents');
+    expect(validateCommand('updateObject', ['OBJ-0001', {}], [line])).toBe('modification : aucun champ ne change');
+    expect(validateCommand('updateObject', ['OBJ-0001', []], [line])).toBe('modification attendue');
+    expect(validateCommand('updateObject', ['OBJ-0001', { x2: (line as { x2: number }).x2 }], [line])).toBe('modification : aucun champ ne change');
+    expect(validateCommand('updateObject', ['OBJ-0001', { x2: 50 }], [line])).toBeNull();
+  });
+});
+

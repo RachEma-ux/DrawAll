@@ -70,9 +70,10 @@ test('lot 18.2 — un script fautif n’abîme rien ; le script n’a accès ni 
   await expect(dlg).toContainText('commande non ouverte aux scripts « addSolids »');
   await expect.poll(() => currentObjects(page)).toEqual(before);
 
-  // Commande acceptée qui ne change rien (liste vide) : le script continue, pas d'attente sans fin.
-  dlg = await runCode(page, "await drawall.execute('removeObjects', []);\ndrawall.log('après la commande vide');", 'reussi');
-  await expect(dlg).toContainText('après la commande vide');
+  // Commande qui ne ferait rien (liste vide) : refusée en clair, annulation, pas d'attente sans fin.
+  dlg = await runCode(page, "await drawall.execute('removeObjects', []);\ndrawall.log('après la commande vide');", 'annule');
+  await expect(dlg).toContainText('liste d’identifiants (non vide) attendue');
+  await expect(dlg.getByRole('log', { name: 'Sortie du script' })).not.toContainText('après la commande vide');
   await expect.poll(() => currentObjects(page)).toEqual(before);
 
   // Argument facultatif mal typé (nom d'objet non textuel) : refusé, annulation, pas d'attente sans fin.

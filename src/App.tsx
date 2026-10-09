@@ -244,6 +244,7 @@ function Workbench() {
   );
 
   const nudgeSelection = useCallback((dx: number, dy: number) => {
+    if (selection.length === 0) return;
     project.transform(selection, { kind: 'move', dx, dy }, 'Déplacer');
   }, [project, selection]);
 
@@ -266,10 +267,12 @@ function Workbench() {
   }, [project, selection, pivot]);
 
   const offsetSelection = useCallback((d: number) => {
+    if (selection.length === 0) return;
     project.transform(selection, { kind: 'offset', d }, `Décalage ${d > 0 ? '+' : ''}${d} mm`);
   }, [project, selection]);
 
   const duplicateSelection = useCallback(() => {
+    if (selection.length === 0) return;
     project.duplicateObjects(selection);
   }, [project, selection]);
 
@@ -874,6 +877,7 @@ function Workbench() {
   // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
   const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
   const deleteWithImpact = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
     // Même validation que la commande : une suppression refusée (objet associatif emporté sur un calque
     // verrouillé…) est annoncée comme telle, jamais comme faite.
     const refused = validateCommand('removeObjects', [ids], project.allObjects, project.layers, { levels: project.levels, blocks: project.blocks, zones: project.zones });
