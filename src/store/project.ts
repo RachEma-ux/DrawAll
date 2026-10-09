@@ -60,7 +60,7 @@ import { merge3, mergedMateError, mergedParameterError, mergeInputs, resolve, ty
 import { buildPublication, normalizePublications, type Publication } from '@/lib/publication';
 import { applyTransform, decodeArgs, encodeArgs, mergedReferenceError, scriptCommandError, transformTargetsError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
 import { MATE_LABEL, isMate, mateLoop, placeMate, resolveMates, type Mate } from '@/lib/assembly';
-import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
+import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, renumberParts, type BooleanOp } from '@/lib/solids';
 import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
 import type { ProjView, SolidRecipe } from '@/lib/kernel/recipe';
 import type { ElevationView } from '@/types/cad';
@@ -693,13 +693,7 @@ export function useProject() {
     if (usable.length === 0 || placements.length === 0) return [];
     const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks, taken => nextGroupId(allObjects, taken), allObjects);
     // Pièce copiée : nouvelle pièce, nouveau repère (sur toutes les variantes), pour une nomenclature sans doublon.
-    let seen = allVersions(state).flatMap(v => v.objects);
-    const clones = cloned.map(stampLevel).map(o => {
-      if (o.kind !== 'solid' || !o.partDef) return o;
-      const c = { ...o, partDef: { ...o.partDef, no: nextPartNo(seen) } } as CadObject;
-      seen = [...seen, c];
-      return c;
-    });
+    const clones = renumberParts(cloned.map(stampLevel), allVersions(state).flatMap(v => v.objects));
     if (clones.length === 0) return [];
     commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
       objects: [...allObjects, ...clones],
@@ -1377,7 +1371,9 @@ export function useProject() {
   const copyLevel = useCallback((fromId: string, name: string, elevation: number) => {
     if (!levels.some(l => l.id === fromId)) return null;
     const id = nextId('NIV', allLevelIds);
-    const { objects: copies, counter } = copyLevelObjects(allObjects, fromId, id, state.counter, current.seq);
+    const { objects: copied, counter } = copyLevelObjects(allObjects, fromId, id, state.counter, current.seq);
+    // Pièces du niveau copié : nouvelles pièces, nouveaux repères (comme un collage).
+    const copies = renumberParts(copied, allVersions(state).flatMap(v => v.objects));
     commit(`Copier niveau ${levels.find(l => l.id === fromId)!.name} vers ${name}`, {
       levels: [...levels, { id, name, elevation }],
       objects: [...allObjects, ...copies],
@@ -1386,7 +1382,7 @@ export function useProject() {
     });
     setSelectedIds([]);
     return id;
-  }, [levels, allLevelIds, allObjects, state.counter, current.seq, commit, setSelectedIds]);
+  }, [levels, allLevelIds, allObjects, state, current.seq, commit, setSelectedIds]);
 
   // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
   const constraints = useMemo(() => current.constraints ?? [], [current.constraints]);

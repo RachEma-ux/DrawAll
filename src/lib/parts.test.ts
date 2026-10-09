@@ -3,7 +3,7 @@ import type { CadObject, OccurrenceObj, SolidObj } from '@/types/cad';
 import { createDefaultLayers, dimensionOf, parentOf } from '@/types/cad';
 import { exportToDxf } from './dxf';
 import { mirrorObject, moveObject, objectBounds, rotateObject, scaleObject } from './geometry';
-import { effectiveSolid, extrudeRecipe, solidTrace, nextPartNo, occurrenceRecipe, partInstances, partLocalRecipe, pushPullRecipe, recipeBounds } from './solids';
+import { effectiveSolid, extrudeRecipe, solidTrace, nextPartNo, renumberParts, occurrenceRecipe, partInstances, partLocalRecipe, pushPullRecipe, recipeBounds } from './solids';
 import type { SolidRecipe } from './kernel/recipe';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
@@ -64,3 +64,13 @@ describe('pièces et occurrences (lot 16.3)', () => {
     expect(dxf.match(/LWPOLYLINE/g)?.length).toBe(2);
   });
 });
+
+describe('pièces copiées : nouveaux repères (relecture #68)', () => {
+  it('chaque pièce copiée reçoit le repère suivant ; les autres objets sont inchangés', () => {
+    const part = (id: string, no: number) => ({ ...base, id, name: id, kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no, origin: [0, 0, 0], angle: 0 } }) as unknown as CadObject;
+    const line = { ...base, id: 'L', name: 'L', kind: 'line', x1: 0, y1: 0, x2: 1, y2: 0 } as CadObject;
+    const out = renumberParts([part('C1', 1), line, part('C2', 2)], [part('P1', 1), part('P2', 2), part('X', 7)]);
+    expect(out.map(o => (o.kind === 'solid' ? o.partDef?.no : null))).toEqual([8, null, 9]);
+  });
+});
+

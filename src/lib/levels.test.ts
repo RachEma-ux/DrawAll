@@ -64,3 +64,17 @@ describe('copie de niveau : coupe rattachée à la face et au repère copiés', 
     expect(copies.find(o => o.kind === 'cut')).toMatchObject({ sourceId: ids.get('OBJ-0001'), markId: ids.get('OBJ-0004'), levelId: 'NIV-0002' });
   });
 });
+
+describe('copie de niveau : liaisons d’occurrences (relecture #68)', () => {
+  it('liaison vers la copie de sa cible ; cible hors du niveau : liaison retirée', () => {
+    const occ = (id: string, to: string, lvl = 'NIV-0001') => ({ ...base, id, name: id, kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0, levelId: lvl, mate: { type: 'fixe', to, rel: [0, 0, 0, 0] } }) as unknown as CadObject;
+    const part = { ...base, id: 'P', name: 'P', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 }, levelId: 'NIV-0001' } as unknown as CadObject;
+    const far = { ...base, id: 'F', name: 'F', kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0, levelId: 'NIV-0003' } as unknown as CadObject;
+    const { objects: out } = copyLevelObjects([part, occ('A', 'P'), occ('B', 'F'), far], 'NIV-0001', 'NIV-0002', 10, 1);
+    const copyP = out.find(o => o.kind === 'solid')!;
+    const a = out.find(o => o.kind === 'occurrence' && o.mate) as { mate: { to: string } };
+    expect(a.mate.to).toBe(copyP.id);
+    expect(out.filter(o => o.kind === 'occurrence' && !o.mate)).toHaveLength(1);
+  });
+});
+

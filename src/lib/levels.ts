@@ -57,6 +57,12 @@ export function copyLevelObjects(objects: CadObject[], fromId: string, toId: str
     const c = withParents({ ...o, id: ids.get(o.id)!, levelId: toId, createdSeq: seq } as CadObject, p => ids.get(p));
     if (!c) continue;
     if (c.holes) c.holes = c.holes.map(h => ids.get(h)).filter((h): h is string => !!h);
+    // Liaison d'occurrence : vers la copie de sa cible ; une cible hors du niveau copié : liaison retirée.
+    if (c.kind === 'occurrence' && c.mate) {
+      const to = ids.get(c.mate.to);
+      if (to) c.mate = { ...c.mate, to };
+      else delete (c as { mate?: unknown }).mate;
+    }
     if (c.name === o.id) c.name = c.id;
     if (c.groupId) {
       let g = groups.get(c.groupId);

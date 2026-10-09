@@ -168,7 +168,9 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
     const pre = fallback === undefined || cls === fallback ? predefined : '.NOTDEFINED.';
     // Attributs propres avant PredefinedType : diamètre et longueur nominaux (fixation), lieu d'assemblage.
     const own = cls === 'IfcMechanicalFastener' ? '$,$,' : cls === 'IfcElementAssembly' ? '$,' : '';
-    const ref = s.add(`${cls.toUpperCase()}(${guid(o.id)},$,${stepString(o.name)},$,$,${pl},${rep},${stepString(o.id)},${own}${pre})`);
+    // Attributs propres après PredefinedType : type de construction d'un pieu (IFC4X3, facultatif).
+    const after = cls === 'IfcPile' ? ',$' : '';
+    const ref = s.add(`${cls.toUpperCase()}(${guid(o.id)},$,${stepString(o.name)},$,$,${pl},${rep},${stepString(o.id)},${own}${pre}${after})`);
     st.contents.push(ref);
     count(cls);
     psetsOf(o, ref);

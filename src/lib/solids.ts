@@ -342,6 +342,17 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
       }
       return recipeProfileError(r.of, depth + 1);
     }
+    case 'cut': {
+      const e = recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);
+      if (e) return e;
+      // Différence par un pavé qui contient tout le premier solide : vide, à coup sûr (le pavé est
+      // exactement son encombrement).
+      if (r.b.op === 'box') {
+        const a = recipeBounds(r.a), b = recipeBounds(r.b);
+        if ([0, 1, 2].every(i => b.min[i] <= a.min[i] + 1e-9 && b.max[i] >= a.max[i] - 1e-9)) return 'différence vide (le pavé retiré contient tout le solide)';
+      }
+      return null;
+    }
     case 'intersect': {
       const e = recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);
       if (e) return e;
@@ -669,6 +680,15 @@ export function effectiveSolid(o: CadObject, objects: CadObject[]): SolidObj | n
 
 /** Prochain repère de pièce (1, 2, 3…). */
 export const nextPartNo = (objects: CadObject[]) => Math.max(0, ...objects.map(o => (o.kind === 'solid' && o.partDef ? o.partDef.no : 0))) + 1;
+
+/**
+ * Copies (collage, réseau, copie de niveau) : chaque pièce copiée devient une nouvelle pièce, au repère
+ * suivant sur `existing` (toutes les variantes), pour une nomenclature sans doublon.
+ */
+export function renumberParts(copies: CadObject[], existing: CadObject[]): CadObject[] {
+  let max = nextPartNo(existing) - 1;
+  return copies.map(o => (o.kind === 'solid' && o.partDef ? ({ ...o, partDef: { ...o.partDef, no: ++max } } as CadObject) : o));
+}
 
 /** Occurrences d'une pièce, numérotées dans l'ordre du projet ; la pièce type compte pour la première. */
 export function partInstances(defId: string, objects: CadObject[]): string[] {

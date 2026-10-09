@@ -95,3 +95,16 @@ describe('export IFC des solides prismatiques (lot 19.1)', () => {
     }, null, 2));
   });
 });
+
+describe('IfcPile : liste d’attributs complète (IFC4X3, relecture #68)', () => {
+  it('PredefinedType puis ConstructionType ($) : 10 attributs', () => {
+    const pile = { ...base, classification: 'structure', id: 'OBJ-0050', name: 'Pieu', kind: 'solid', ifcClass: 'IfcPile', recipe: { op: 'cylinder', r: 300, h: 8000, at: [0, 0, -8000] }, levelId: 'NIV-0001' } as CadObject;
+    const { content } = exportIfc({ objects: [pile], levels, projectName: 'P', date: new Date(0) });
+    const line = content.split('\n').find(l => l.includes('IFCPILE('))!;
+    expect(line).toMatch(/,'OBJ-0050',\.NOTDEFINED\.,\$\);$/);
+    // Les autres classes gardent un seul attribut après le repère.
+    const plate = { ...pile, id: 'OBJ-0051', ifcClass: 'IfcPlate' } as CadObject;
+    expect(exportIfc({ objects: [plate], levels, projectName: 'P', date: new Date(0) }).content.split('\n').find(l => l.includes('IFCPLATE('))).toMatch(/,'OBJ-0051',\.NOTDEFINED\.\);$/);
+  });
+});
+

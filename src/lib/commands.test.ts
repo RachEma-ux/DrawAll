@@ -544,3 +544,11 @@ describe('relecture 39e passe : commandes vides refusées', () => {
   });
 });
 
+describe('relecture 40e passe : différence vide', () => {
+  it('pavé retiré qui contient tout le solide : refusé', () => {
+    const solid = (recipe: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe }], []);
+    expect(solid({ op: 'cut', a: { op: 'box', x: 10, y: 10, z: 10 }, b: { op: 'box', x: 20, y: 20, z: 20, at: [-5, -5, -5] } })).toBe('solide : différence vide (le pavé retiré contient tout le solide)');
+    expect(solid({ op: 'cut', a: { op: 'box', x: 10, y: 10, z: 10 }, b: { op: 'box', x: 5, y: 20, z: 20, at: [-5, -5, -5] } })).toBeNull();
+  });
+});
+
