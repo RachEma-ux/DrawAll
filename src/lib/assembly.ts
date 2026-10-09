@@ -51,6 +51,21 @@ const norm = (v: Vec3) => Math.hypot(v[0], v[1], v[2]);
 const normal = (s: Support): Vec3 => (s.kind === 'cylinder' ? s.axis : s.n);
 
 /** Placement de l'occurrence qui satisfait sa liaison, ou la raison de l'échec. */
+/**
+ * La liaison de `selfId` vers `to` fermerait-elle une boucle (liaison sur soi-même, A → B → A…) ?
+ * `objects` : l'état où la liaison serait posée.
+ */
+export function mateLoop(selfId: string, to: string, objects: CadObject[]): boolean {
+  for (let at: string | undefined = to, seen = new Set<string>(); at; ) {
+    if (at === selfId) return true;
+    if (seen.has(at)) return false;
+    seen.add(at);
+    const next = objects.find(x => x.id === at);
+    at = next?.kind === 'occurrence' ? next.mate?.to : undefined;
+  }
+  return false;
+}
+
 export function placeMate(dep: OccurrenceObj, mate: Mate, objects: CadObject[]): Placement | { error: string } {
   const ref = objects.find(o => o.id === mate.to);
   if (!ref) return { error: `référence ${mate.to} absente` };

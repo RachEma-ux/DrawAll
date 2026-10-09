@@ -59,7 +59,7 @@ import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switch
 import { merge3, mergedParameterError, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications, type Publication } from '@/lib/publication';
 import { applyTransform, decodeArgs, encodeArgs, scriptCommandError, transformTargetsError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
-import { MATE_LABEL, isMate, placeMate, resolveMates, type Mate } from '@/lib/assembly';
+import { MATE_LABEL, isMate, mateLoop, placeMate, resolveMates, type Mate } from '@/lib/assembly';
 import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, type BooleanOp } from '@/lib/solids';
 import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
 import type { ProjView, SolidRecipe } from '@/lib/kernel/recipe';
@@ -903,6 +903,7 @@ export function useProject() {
     const o = allObjects.find(x => x.id === occId);
     if (o?.kind !== 'occurrence') return 'Liaison : une occurrence est attendue.';
     if (mate) {
+      if (mateLoop(occId, mate.to, allObjects)) return 'Liaison refusée : elle formerait une boucle de liaisons.';
       const p = placeMate(o, mate, allObjects);
       if ('error' in p) return `Liaison refusée : ${p.error}.`;
     }

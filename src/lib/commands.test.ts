@@ -412,3 +412,18 @@ describe('relecture 31e passe : mur hôte, pousser / tirer plan, trajet continu,
   });
 });
 
+describe('relecture 32e passe : murs transformés, liaisons après modification d’une pièce', () => {
+  it('mur mis à l’échelle sans son ouverture : refusé si elle n’y tient plus', () => {
+    const w = { ...line, id: 'W', kind: 'wall', x2: 10000, thickness: 200, justification: 'axe' } as unknown as CadObject;
+    const op = { ...line, id: 'O', kind: 'opening', hostId: 'W', type: 'fenetre', position: 8000, width: 900 } as unknown as CadObject;
+    expect(transformTargetsError(['W'], { kind: 'scale', cx: 0, cy: 0, factor: 0.5 }, [w, op], [])).toBe('O ne tiendrait plus dans W (L’ouverture (900 mm) dépasse du mur (5000 mm).)');
+    expect(transformTargetsError(['W'], { kind: 'move', dx: 100, dy: 0 }, [w, op], [])).toBeNull();
+  });
+  it('recette d’une pièce changée : la liaison qui vise une de ses faces doit rester réalisable', () => {
+    const part = { ...line, id: 'P', kind: 'solid', recipe: { op: 'cylinder', r: 10, h: 50, name: 'C' }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const occ = { ...line, id: 'O', kind: 'occurrence', sourceId: 'P', x: 100, y: 0, z: 0, angle: 0, mate: { type: 'coaxiale', to: 'P', face: { feature: 'C', role: 'wall' }, toFace: { feature: 'C', role: 'wall' } } } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['P', { recipe: { op: 'box', x: 10, y: 10, z: 10 } }], [part, occ])).toMatch(/^modification : la liaison de O deviendrait impossible \(/);
+    expect(validateCommand('updateObject', ['P', { recipe: { op: 'cylinder', r: 20, h: 50, name: 'C' } }], [part, occ])).toBeNull();
+  });
+});
+

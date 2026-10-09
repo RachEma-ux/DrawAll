@@ -4,7 +4,7 @@
 // journal depuis son état de base reproduit le projet. Fonctions pures.
 import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OccurrenceObj, type OpeningObj, type RoofObj, type WallObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
-import { isMate, placeMate, type Mate } from './assembly';
+import { isMate, mateLoop, placeMate, type Mate } from './assembly';
 import { isIfcClass, normalizePsets } from './properties';
 import { isRecipe, recipeProfileError } from './solids';
 import { isValidSpline, type SplineGeom } from './spline';
@@ -49,6 +49,15 @@ export function transformTargetsError(list: string[], op: TransformOp, objects: 
       : o.kind === 'underlay' && o.locked ? 'fond de plan verrouillé'
       : f(o) ? null : 'opération impossible pour ce type d’objet';
     if (why) return `${id} non transformable (${why})`;
+  }
+  // Murs et ouvertures transformés : chaque ouverture concernée doit tenir dans son mur résultant.
+  const moved = (o: CadObject) => (ids.has(o.id) ? ({ ...o, ...f(o) } as CadObject) : o);
+  for (const op of objects) {
+    if (op.kind !== 'opening') continue;
+    const host = objects.find(w => w.id === op.hostId);
+    if (host?.kind !== 'wall' || !(ids.has(op.id) || ids.has(host.id))) continue;
+    const e = openingFits(moved(op) as OpeningObj, moved(host) as WallObj);
+    if (e) return `${op.id} ne tiendrait plus dans ${host.id} (${e})`;
   }
   return null;
 }
@@ -268,13 +277,7 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
     const self = { ...c, id: (o.id as string | undefined) ?? '__nouvelle__' } as CadObject;
     // Pas de liaison sur soi-même ni de cycle (A → B → A) : aucune ne pourrait être résolue.
     const after = [...objects.filter(x => x.id !== self.id), self];
-    for (let at: string | undefined = mate.to as string, seen = new Set<string>(); at; ) {
-      if (at === self.id) return `occurrence : liaison en boucle (${self.id} dépend de lui-même)`;
-      if (seen.has(at)) break;
-      seen.add(at);
-      const next = after.find(x => x.id === at);
-      at = next?.kind === 'occurrence' ? next.mate?.to : undefined;
-    }
+    if (mateLoop(self.id, mate.to as string, after)) return `occurrence : liaison en boucle (${self.id} dépend de lui-même)`;
     const placed = placeMate(self as OccurrenceObj, mate as Mate, after);
     if ('error' in placed) return `occurrence : liaison impossible (${placed.error})`;
   }
@@ -336,6 +339,16 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
         if (op.kind !== 'opening' || op.hostId !== id) continue;
         const e = openingFits(op, next as unknown as WallObj);
         if (e) return `modification : ${op.id} ne tiendrait plus dans ${String(id)} (${e})`;
+      }
+    }
+    // Pièce ou occurrence modifiée : les liaisons qui s'y appuient doivent rester réalisables (faces nommées).
+    if (current.kind === 'solid' || current.kind === 'occurrence') {
+      const after = objects.map(o => (o.id === id ? (next as unknown as CadObject) : o));
+      for (const o of objects) {
+        if (o.kind !== 'occurrence' || !o.mate || o.mate.type === 'fixe' || o.id === id) continue;
+        if ('error' in placeMate(o, o.mate, objects)) continue;
+        const r = placeMate(o, o.mate, after);
+        if ('error' in r) return `modification : la liaison de ${o.id} deviendrait impossible (${r.error})`;
       }
     }
     // Pièce dont dépendent des occurrences (source ou cible de liaison) : elle reste une pièce.

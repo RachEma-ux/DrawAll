@@ -308,6 +308,13 @@ describe('STEP AP242 édition 3 (lot 17.2) : export, relecture, import en recett
   const volumes = parts.map(p => k.volume(p.recipe));
   const out = k.exportStep(parts, 'solides.step', new Date('2026-10-08T12:00:00Z'));
 
+  it('barre oblique inverse d’un nom de pièce : doublée une seule fois, par le noyau (aucun second doublement)', () => {
+    const one = k.exportStep([{ name: 'A\\B', recipe: { op: 'box', x: 1, y: 1, z: 1 } }], 'f.step', new Date(0));
+    if ('error' in one) throw new Error(one.error);
+    expect(one.content).toContain("PRODUCT('A\\\\B',");
+    expect(one.content).not.toContain("'A\\\\\\\\B'");
+  });
+
   it('en-tête de l’édition 3, sous-ensemble B-rep vérifié, noms des pièces', () => {
     if ('error' in out) throw new Error(out.error);
     expect(declaredSchema(out.content)).toBe(AP242_ED3);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CadObject, OccurrenceObj, SolidObj } from '@/types/cad';
-import { assemblyRows, explodeOffsets, fixeMate, isMate, placeMate, resolveMates, type Mate } from './assembly';
+import { assemblyRows, explodeOffsets, fixeMate, isMate, mateLoop, placeMate, resolveMates, type Mate } from './assembly';
 import { scheduleTable } from './schedules';
 import { effectiveSolid, extrudeRecipe, recipeBounds } from './solids';
 import type { SolidRecipe } from './kernel/recipe';
@@ -96,3 +96,16 @@ describe('assemblage (lot 16.4)', () => {
     expect(isMate({ type: 'soudure', to: 'A' })).toBe(false);
   });
 });
+
+describe('boucles de liaisons (relecture #68)', () => {
+  const occ = (id: string, to?: string) => ({ ...base, id, name: id, kind: 'occurrence', sourceId: 'P1', x: 0, y: 0, z: 0, angle: 0, ...(to ? { mate: { type: 'fixe', to, rel: [0, 0, 0, 0] } } : {}) }) as OccurrenceObj;
+  it('liaison sur soi-même, A → B → A, A → B → C → A : boucle ; chaîne vers une pièce : non', () => {
+    expect(mateLoop('A', 'A', [plate, occ('A')])).toBe(true);
+    expect(mateLoop('A', 'B', [plate, occ('A'), occ('B', 'A')])).toBe(true);
+    expect(mateLoop('A', 'B', [plate, occ('A'), occ('B', 'C'), occ('C', 'A')])).toBe(true);
+    expect(mateLoop('A', 'B', [plate, occ('A'), occ('B', 'P1')])).toBe(false);
+    // Boucle existante ailleurs (B ↔ C) : sans rapport avec A, pas de faux positif ni de boucle infinie.
+    expect(mateLoop('A', 'B', [plate, occ('A'), occ('B', 'C'), occ('C', 'B')])).toBe(false);
+  });
+});
+
