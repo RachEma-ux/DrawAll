@@ -12,6 +12,7 @@ import { faceOf } from './views';
 import { cutView } from './cuts';
 import { roofError, roofInput } from './roof';
 import { openingFits } from './opening';
+import { levelsOf } from './levels';
 import { slabContour } from './slab';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
@@ -317,6 +318,8 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     // (il ne doit pas faire passer l'objet pour celui qu'il désigne, ex. détenteur d'un repère de pièce).
     const { id: _id, ...fresh } = n as Record<string, unknown>;
     void _id;
+    // Solide STEP : seul l'import (qui le fait relire par le noyau) en crée ; un script ne peut pas en fournir.
+    if (hasStep(fresh.recipe)) return 'solide : recette STEP réservée à l’import (Fichier › Importer STEP)';
     return objectShapeError(fresh) ?? referenceError(fresh, ctx);
   },
   updateObject: ([id, patch], ctx) => {
@@ -329,6 +332,7 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     const current = objects.find(o => o.id === id) as unknown as Record<string, unknown>;
     if ('kind' in p && p.kind !== current.kind) return 'modification : le type d’un objet ne change pas';
     if ('id' in p && p.id !== id) return 'modification : l’identifiant ne change pas';
+    if ('recipe' in p && hasStep(p.recipe) && JSON.stringify(p.recipe) !== JSON.stringify(current.recipe)) return 'modification : recette STEP réservée à l’import (Fichier › Importer STEP)';
     // Objet d'un calque verrouillé : intouchable, comme dans l'atelier.
     if (ctx.lockedLayerIds?.has(current.layerId as string)) return `modification : calque ${String(current.layerId)} verrouillé`;
     // Fond de plan verrouillé : seul son déverrouillage est permis.
@@ -450,6 +454,37 @@ export function decodeArgs(v: unknown): unknown {
 }
 
 /** Une commande est-elle valide (arguments journalisables et cohérents avec le projet) ? */
+/**
+ * Références de chaque objet d'un état (niveau, bloc, zone, parent du bon type, pièce source,
+ * liaison réalisable, ouverture dans son mur…) : identifiant → erreur. Sert à revalider un état
+ * produit autrement que par une commande (fusion de variantes).
+ */
+export function referenceErrors(objects: CadObject[], project: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[] } = {}): Map<string, string> {
+  const ids = (l: { id: string }[] | undefined) => (l ? new Set(l.map(x => x.id)) : undefined);
+  const ctx: Ctx = { ids: new Set(objects.map(o => o.id)), objects, levelIds: ids(project.levels), blockIds: ids(project.blocks), zoneIds: ids(project.zones) };
+  const out = new Map<string, string>();
+  for (const o of objects) { const e = referenceError(o as unknown as Record<string, unknown>, ctx); if (e) out.set(o.id, e); }
+  return out;
+}
+
+type StateLike = { objects?: CadObject[]; levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[] };
+const refsOf = (v: StateLike) => referenceErrors(v.objects ?? [], { levels: levelsOf(v.levels as never), blocks: v.blocks ?? [], zones: v.zones ?? [] });
+
+/** Fusion : refus si un objet fusionné a une référence en erreur qu'il n'avait dans aucune des deux variantes. */
+export function mergedReferenceError(merged: StateLike, ours: StateLike, theirs: StateLike): string | null {
+  const before = new Set([...refsOf(ours).keys(), ...refsOf(theirs).keys()]);
+  const broken = [...refsOf(merged)].find(([id]) => !before.has(id));
+  return broken ? `Fusion refusée : ${broken[1]}.` : null;
+}
+
+/** Une recette contient-elle un solide STEP importé (données non vérifiables sans le noyau) ? */
+function hasStep(r: unknown, depth = 0): boolean {
+  if (!r || typeof r !== 'object' || depth > 200) return false;
+  const x = r as Record<string, unknown>;
+  if (x.op === 'step') return true;
+  return ['a', 'b', 'of'].some(k => hasStep(x[k], depth + 1)) || (Array.isArray(x.parts) && x.parts.some(p => hasStep(p, depth + 1)));
+}
+
 export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[]; versions?: number; partMarks?: Map<number, string[]> }): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];

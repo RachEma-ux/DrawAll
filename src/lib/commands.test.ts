@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CadObject, MicroVersion } from '@/types/cad';
 import { polarArray, rectangularArray } from './array';
 import { KIND_LABEL } from '@/types/cad';
-import { applyTransform, OBJECT_SPEC_KINDS, SCRIPT_COMMANDS, decodeArgs, scriptCommandError, transformTargetsError, encodeArgs, validateCommand, versionDigest } from './commands';
+import { applyTransform, mergedReferenceError, OBJECT_SPEC_KINDS, SCRIPT_COMMANDS, decodeArgs, scriptCommandError, transformTargetsError, encodeArgs, validateCommand, versionDigest } from './commands';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const line = { ...base, id: 'OBJ-0001', name: 'L', kind: 'line', x1: 0, y1: 0, x2: 100, y2: 0 } as CadObject;
@@ -432,6 +432,24 @@ describe('relecture 33e passe : objet transformé complet', () => {
     const r = { ...line, id: 'R', kind: 'rect', x: 0, y: 0, w: 1, h: 1 } as unknown as CadObject;
     expect(transformTargetsError(['R'], { kind: 'scale', cx: 0, cy: 0, factor: 0.0001 }, [r], [])).toMatch(/^R non transformable \(rect : /);
     expect(transformTargetsError(['R'], { kind: 'scale', cx: 0, cy: 0, factor: 2 }, [r], [])).toBeNull();
+  });
+});
+
+describe('relecture 34e passe : recettes STEP, références revalidées à la fusion', () => {
+  it('recette STEP : réservée à l’import ; un solide importé reste modifiable', () => {
+    const step = { op: 'step', data: 'ISO-10303-21;', bounds: { min: [0, 0, 0], max: [1, 1, 1] }, trace: [] };
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: step }], [])).toBe('solide : recette STEP réservée à l’import (Fichier › Importer STEP)');
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'translate', of: step, by: [1, 0, 0] } }], [])).toBe('solide : recette STEP réservée à l’import (Fichier › Importer STEP)');
+    const imported = { ...line, id: 'S', kind: 'solid', recipe: step } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['S', { name: 'Pièce importée', recipe: step }], [imported])).toBeNull();
+    expect(validateCommand('updateObject', ['S', { recipe: { ...step, data: 'ISO-10303-21; autre' } }], [imported])).toBe('modification : recette STEP réservée à l’import (Fichier › Importer STEP)');
+  });
+  it('fusion : pièce retirée d’un côté, occurrence ajoutée de l’autre → refus', () => {
+    const part = { ...line, id: 'P', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const plain = { ...part, partDef: undefined } as unknown as CadObject;
+    const occ = { ...line, id: 'O', kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0 } as unknown as CadObject;
+    expect(mergedReferenceError({ objects: [plain, occ] }, { objects: [plain] }, { objects: [part, occ] })).toBe('Fusion refusée : occurrence : P n’est pas une pièce (définir la pièce d’abord).');
+    expect(mergedReferenceError({ objects: [part, occ] }, { objects: [part] }, { objects: [part, occ] })).toBeNull();
   });
 });
 
