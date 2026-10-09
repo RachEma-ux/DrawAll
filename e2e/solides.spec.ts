@@ -393,3 +393,20 @@ test('relecture 50e passe — import STEP appliqué à l’état courant : une m
   expect(kinds).toContain('rect');
   expect(errors).toEqual([]);
 });
+
+test('relecture 51e passe — panneau des solides fermé pendant le calcul : le résultat est abandonné', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'panneau en dialogue : recette bureau');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  await tapModel(page, info, 500, 0);
+  await page.getByRole('button', { name: /^Solides \(extrusion/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Solides' });
+  await panel.getByLabel('Hauteur d’extrusion (mm)').fill('300');
+  // Extrusion lancée (chargement du noyau compris), panneau fermé aussitôt.
+  await panel.getByRole('button', { name: 'Extruder' }).click();
+  await panel.getByRole('button', { name: 'Fermer les solides' }).click();
+  await page.waitForTimeout(10_000);
+  expect((await currentObjects(page)).filter(o => o.kind === 'solid')).toEqual([]);
+  expect(errors).toEqual([]);
+});

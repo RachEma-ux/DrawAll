@@ -82,6 +82,9 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
   // Objets du projet tels qu'au dernier rendu : le calcul du noyau est asynchrone, l'atelier reste utilisable.
   const latest = useRef(objects);
   useEffect(() => { latest.current = objects; }, [objects]);
+  // Panneau fermé pendant un calcul : le résultat est abandonné (l'état suivi n'est plus tenu à jour).
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   /**
    * Contrôle par le noyau, puis application. `operands` : objets dont part l'opération ; s'ils ont changé
    * (ou disparu) pendant le calcul, rien n'est appliqué. `check` : contrôle supplémentaire (texte, ou erreur).
@@ -95,6 +98,7 @@ export default function SolidsPanel({ objects, selectedIds, onCreate, onUpdate, 
       if (!(v > 1e-9)) { setMessage({ error: true, text: 'Résultat vide : le solide n’a aucun volume (rien n’est créé).' }); return; }
       const extra = check ? await check(res.recipe) : null;
       if (extra && !extra.ok) { setMessage({ error: true, text: extra.text }); return; }
+      if (!mounted.current) return;
       const changed = operands.find((o, i) => JSON.stringify(latest.current.find(x => x.id === o.id)) !== before[i]);
       if (changed) { setMessage({ error: true, text: `${changed.id} a changé pendant le calcul : rien n’est appliqué, recommencez.` }); return; }
       apply(res.recipe);
