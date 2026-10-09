@@ -1,6 +1,6 @@
 // Zone de travail : canvas SVG 2D avec accrochage objet, intersections,
 // contrainte orthogonale, saisie de coordonnées, zoom ajusté, mesures et blocs.
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   BlockDef,
   CadObject,
@@ -53,7 +53,7 @@ import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
 import { structurePrimitives } from '@/lib/structure';
 import { effectiveSolid, solidPrimitives } from '@/lib/solids';
-import { VIEW_LABEL, elevationLabel, placedAny, viewPrimitives } from '@/lib/projection';
+import { VIEW_LABEL, elevationLabel, placedAny, projectionsVersion, subscribeProjections, viewPrimitives } from '@/lib/projection';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -373,15 +373,19 @@ export default function CanvasView({
     onZoomChange(tf.k);
   }, [tf.k, onZoomChange]);
 
-  // Échelle de dessin des objets (épaisseurs de trait, tailles d'annotation) : elle rejoint celle de la
-  // vue à la fin d'un geste de zoom. Pendant le geste, seule la transformation du plan change et les
-  // objets ne sont pas redessinés (temps de retour et de trame, banc 19.2).
-  const [drawK, setDrawK] = useState(tf.k);
-  useEffect(() => {
-    if (drawK === tf.k) return;
-    const t = window.setTimeout(() => setDrawK(tf.k), ZOOM_SETTLE_MS);
-    return () => window.clearTimeout(t);
-  }, [tf.k, drawK]);
+  // Échelle de dessin des objets (épaisseurs de trait, tailles d'annotation). Pendant un geste continu
+  // de zoom (molette, pincement), elle reste figée et seule la transformation du plan change : les
+  // objets ne sont pas redessinés à chaque pas ; ils le sont à la nouvelle échelle 120 ms après le
+  // dernier pas (temps de retour et de trame, banc 19.2). Hors geste, elle suit la vue sans délai.
+  const [gestureK, setGestureK] = useState<number | null>(null);
+  const drawK = gestureK ?? tf.k;
+  const gestureTimer = useRef<number | undefined>(undefined);
+  const zoomGesture = (k: number) => {
+    setGestureK(g => g ?? k);
+    window.clearTimeout(gestureTimer.current);
+    gestureTimer.current = window.setTimeout(() => setGestureK(null), ZOOM_SETTLE_MS);
+  };
+  useEffect(() => () => window.clearTimeout(gestureTimer.current), []);
 
   // Calques d'objets mémorisés : un changement de la seule vue (déplacement, zoom en cours) ne les
   // reconstruit pas ; après une modification, seuls les objets touchés sont redessinés (ObjectShape).
@@ -809,6 +813,7 @@ export default function CanvasView({
     viewTouched.current = true;
     const r = ref.current!.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
+    zoomGesture(tf.k);
     setTf(t => {
       const k = Math.min(12, Math.max(MIN_ZOOM, t.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
       const wx = (mx - t.x) / t.k, wy = (my - t.y) / t.k;
@@ -1038,6 +1043,7 @@ export default function CanvasView({
       const { tf0, d0, mx, my } = pinch.current;
       const k = Math.min(12, Math.max(MIN_ZOOM, tf0.k * (p.d / d0)));
       const wx = (mx - r.left - tf0.x) / tf0.k, wy = (my - r.top - tf0.y) / tf0.k;
+      zoomGesture(tf.k);
       setTf({ k, x: p.mx - r.left - wx * k, y: p.my - r.top - wy * k });
       return;
     }
@@ -1504,19 +1510,7 @@ function ObjectShapeImpl({ obj, objects, blocks, view, selected, zoom, unit, lay
     // Poteau coupé (section pleine), poutre au-dessus du plan de coupe (traits interrompus) (lot 13.4).
     return <g data-structure={obj.id}>{structurePrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
   }
-  if (obj.kind === 'projection' || obj.kind === 'elevation') {
-    // Vue projetée (lot 16.1), façade ou coupe (lot 16.2) : arêtes du noyau ; cadre en attendant le calcul.
-    const v = placedAny(obj, objects);
-    if (!v) return null;
-    const label = obj.kind === 'projection' ? VIEW_LABEL[obj.view] : elevationLabel(obj, objects);
-    return (
-      <g data-projection={obj.id} data-vue={obj.view} data-etat={v.state} data-vues={v.visible.length} data-cachees={v.hidden.length}>
-        {v.state !== 'prête' && <rect x={v.frame.x} y={v.frame.y} width={v.frame.w} height={v.frame.h} fill="none" stroke="#64748b" strokeDasharray={`${4 / zoom} ${4 / zoom}`} strokeWidth={1 / zoom} />}
-        {viewPrimitives(obj, objects).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}
-        <text x={v.frame.x} y={v.frame.y + v.frame.h} dy={14 / zoom} fontSize={11 / zoom} fill="#94a3b8">{label}{v.state === 'calcul' ? ' — calcul…' : v.state === 'erreur' ? ` — ${v.error}` : ''}</text>
-      </g>
-    );
-  }
+  if (obj.kind === 'projection' || obj.kind === 'elevation') return <ProjectionShape obj={obj} objects={objects} view={view} selected={selected} zoom={zoom} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'occurrence') {
     // Occurrence (lot 16.3) : trace de la pièce posée, et son repère.
     const s = effectiveSolid(obj, objects), def = objects.find(o => o.id === obj.sourceId);
@@ -1538,6 +1532,24 @@ function ObjectShapeImpl({ obj, objects, blocks, view, selected, zoom, unit, lay
   }
   // Dalle (lot 13.1) : dessinée comme son contour fermé.
   return <PrimitiveShape obj={obj.kind === 'slab' ? slabAsPolyline(obj) as PolylineObj : obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} />;
+}
+
+/**
+ * Vue projetée (lot 16.1), façade ou coupe (lot 16.2) : arêtes calculées par le noyau, hors du fil
+ * principal ; la vue se redessine quand son calcul aboutit (ObjectShape est mémorisé).
+ */
+function ProjectionShape({ obj, objects, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix }: Omit<ObjectShapeProps, 'obj' | 'blocks' | 'walls' | 'rooms' | 'assets' | 'zoneColors'> & { obj: Extract<CadObject, { kind: 'projection' | 'elevation' }> }) {
+  useSyncExternalStore(subscribeProjections, projectionsVersion);
+  const v = placedAny(obj, objects);
+  if (!v) return null;
+  const label = obj.kind === 'projection' ? VIEW_LABEL[obj.view] : elevationLabel(obj, objects);
+  return (
+    <g data-projection={obj.id} data-vue={obj.view} data-etat={v.state} data-vues={v.visible.length} data-cachees={v.hidden.length}>
+      {v.state !== 'prête' && <rect x={v.frame.x} y={v.frame.y} width={v.frame.w} height={v.frame.h} fill="none" stroke="#64748b" strokeDasharray={`${4 / zoom} ${4 / zoom}`} strokeWidth={1 / zoom} />}
+      {viewPrimitives(obj, objects).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}
+      <text x={v.frame.x} y={v.frame.y + v.frame.h} dy={14 / zoom} fontSize={11 / zoom} fill="#94a3b8">{label}{v.state === 'calcul' ? ' — calcul…' : v.state === 'erreur' ? ` — ${v.error}` : ''}</text>
+    </g>
+  );
 }
 
 /** Natures dessinées d'après leurs seules données (sans lire les autres objets du projet). */
