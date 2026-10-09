@@ -15,9 +15,10 @@ interface Props {
   /** Crée un solide à partir d'un objet source (calque, classification et niveau repris). */
   /** Variante active : un calcul lancé dans une variante ne s'applique jamais à une autre. */
   branchId: string;
-  onCreate: (from: CadObject, recipe: SolidRecipe, label: string) => void;
-  onUpdate: (id: string, recipe: SolidRecipe, label: string) => void;
-  onCombine: (aId: string, bId: string, op: BooleanOp) => void;
+  /** Rendent un résultat (identifiant, vrai) ; undefined, null ou faux : commande refusée, rien d'appliqué. */
+  onCreate: (from: CadObject, recipe: SolidRecipe, label: string) => unknown;
+  onUpdate: (id: string, recipe: SolidRecipe, label: string) => unknown;
+  onCombine: (aId: string, bId: string, op: BooleanOp) => unknown;
   /** Pose des vues projetées du solide (lot 16.1). */
   onProject?: (sourceId: string, views: ProjView[]) => void;
   /** Pièces et occurrences (lot 16.3). */
@@ -91,7 +92,7 @@ export default function SolidsPanel({ objects, branchId, selectedIds, onCreate, 
    * Contrôle par le noyau, puis application. `operands` : objets dont part l'opération ; s'ils ont changé
    * (ou disparu) pendant le calcul, rien n'est appliqué. `check` : contrôle supplémentaire (texte, ou erreur).
    */
-  const run = async (res: SolidResult, operands: CadObject[], apply: (r: SolidRecipe) => void, done: string, check?: (r: SolidRecipe) => Promise<{ ok: boolean; text: string }>) => {
+  const run = async (res: SolidResult, operands: CadObject[], apply: (r: SolidRecipe) => unknown, done: string, check?: (r: SolidRecipe) => Promise<{ ok: boolean; text: string }>) => {
     if ('error' in res) { setMessage({ error: true, text: res.error }); return; }
     const before = operands.map(o => JSON.stringify(o)), branch = branchId;
     setBusy(true);
@@ -104,7 +105,9 @@ export default function SolidsPanel({ objects, branchId, selectedIds, onCreate, 
       if (latestBranch.current !== branch) { setMessage({ error: true, text: 'Variante changée pendant le calcul : rien n’est appliqué, recommencez dans la variante voulue.' }); return; }
       const changed = operands.find((o, i) => JSON.stringify(latest.current.find(x => x.id === o.id)) !== before[i]);
       if (changed) { setMessage({ error: true, text: `${changed.id} a changé pendant le calcul : rien n’est appliqué, recommencez.` }); return; }
-      apply(res.recipe);
+      // Commande refusée au moment d'appliquer (calque verrouillé entre-temps…) : jamais annoncée faite.
+      const out = apply(res.recipe);
+      if (out === undefined || out === null || out === false) { setMessage({ error: true, text: 'Rien n’est appliqué : la commande a été refusée (calque verrouillé… ; voir le journal des commandes).' }); return; }
       setMessage({ error: false, text: `${done}${extra ? ` — ${extra.text}` : ''} — volume ${m3(v)}.` });
     } catch (e) {
       setMessage({ error: true, text: e instanceof Error ? e.message : String(e) });

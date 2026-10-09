@@ -631,6 +631,8 @@ export function useProject() {
 
   const updateObject = useCallback((id: string, patch: Partial<CadObject>, label = 'Modifier') => {
     commit(`${label} ${id}`, { objects: allObjects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)) });
+    // Vrai : appliquée (la commande refusée rend undefined).
+    return true;
   }, [allObjects, commit]);
 
   /** Grouper (lot 10.5) : les objets désignés forment un groupe neuf, en une version. */

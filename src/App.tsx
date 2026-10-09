@@ -2220,7 +2220,7 @@ function Workbench() {
       )}
       {solidsOpen && (
         <SolidsPanel objects={project.allObjects} branchId={activeBranchId(project)} selectedIds={project.selectedIds}
-          onCreate={(from, recipe, label) => latestProject.current.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe }, undefined, label)}
+          onCreate={(from, recipe, label) => latestProject.current.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe, levelId: levelIdOf(from) }, undefined, label)}
           onUpdate={(id, recipe, label) => latestProject.current.updateObject(id, { recipe }, label)}
           onCombine={(a, b, op) => latestProject.current.combineSolids(a, b, op)} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onSetMate={project.setMate} onClose={() => setSolidsOpen(false)} />
       )}

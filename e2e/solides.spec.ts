@@ -426,3 +426,44 @@ test('relecture 54e passe — variante changée pendant un import STEP : rien n�
   expect((await currentObjects(page)).filter(o => o.kind === 'solid')).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('relecture 59e passe — niveau changé pendant le calcul : le solide reste sur le niveau de son contour', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'sélecteur de niveaux : recette bureau');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await page.waitForFunction(() => localStorage.getItem('drawall-projet-v1') !== null);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    s.versions[s.pointer].levels = [{ id: 'NIV-0001', name: 'Rez-de-chaussée', elevation: 0 }, { id: 'NIV-0002', name: 'Étage', elevation: 3000 }];
+    localStorage.setItem('drawall-projet-v1', JSON.stringify(s));
+  });
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  await tapModel(page, info, 500, 0);
+  await page.getByRole('button', { name: /^Solides \(extrusion/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Solides' });
+  await panel.getByLabel('Hauteur d’extrusion (mm)').fill('300');
+  await panel.getByRole('button', { name: 'Extruder' }).click();
+  // Calcul en cours (chargement du noyau) : l'étage devient actif.
+  await page.getByRole('button', { name: 'Afficher le niveau Étage' }).click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Extrusion créée', { timeout: 90_000 });
+  const solid = (await currentObjects(page)).find(o => o.kind === 'solid')!;
+  expect(solid.levelId ?? 'NIV-0001').toBe('NIV-0001');
+  expect(errors).toEqual([]);
+});
+
+test('relecture 59e passe — calque verrouillé pendant le calcul : rien n’est appliqué, jamais annoncé fait', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'panneau des calques : recette bureau');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500, layerId: 'LAY-0001' }]);
+  await tapModel(page, info, 500, 0);
+  await page.getByRole('button', { name: /^Solides \(extrusion/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Solides' });
+  await panel.getByLabel('Hauteur d’extrusion (mm)').fill('300');
+  await panel.getByRole('button', { name: 'Extruder' }).click();
+  // Calcul en cours : le calque du contour (et du solide à créer) est verrouillé.
+  await page.getByTitle('Verrouiller', { exact: true }).first().click();
+  await expect(panel.getByTestId('solides-message')).toContainText('Rien n’est appliqué : la commande a été refusée', { timeout: 90_000 });
+  expect((await currentObjects(page)).filter(o => o.kind === 'solid')).toEqual([]);
+  expect(errors).toEqual([]);
+});
