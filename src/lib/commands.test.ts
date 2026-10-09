@@ -296,3 +296,23 @@ describe('relecture 24e passe : solides constructibles, duplication, retour à u
   });
 });
 
+describe('relecture 25e passe : dalle, nom, suppression en cascade', () => {
+  const LK = [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }];
+  it('dalle : contour d’aire non nulle', () => {
+    const slab = (points: number[]) => validateCommand('addObject', [{ classification: 'structure', kind: 'slab', thickness: 200, points }], []);
+    expect(slab([0, 0, 1000, 0, 1000, 1000])).toBeNull();
+    expect(slab([0, 0, 1000, 0, 2000, 0])).toBe('dalle : contour d’aire nulle (au moins trois sommets non alignés)');
+  });
+  it('nom : texte attendu, à la création comme en modification', () => {
+    expect(validateCommand('updateObject', ['OBJ-0001', { name: 1 }], [line])).toBe('line : nom (texte) attendu');
+    expect(validateCommand('updateObject', ['OBJ-0001', { name: 'Axe' }], [line])).toBeNull();
+  });
+  it('suppression : un objet associatif d’un calque verrouillé emporté avec son parent fait refuser', () => {
+    const wall = { ...line, id: 'W', kind: 'wall', x2: 2000, thickness: 200, justification: 'axe' } as unknown as CadObject;
+    const door = { ...line, id: 'D', layerId: 'LAY-0002', kind: 'opening', hostId: 'W', type: 'fenetre', position: 1000, width: 900 } as unknown as CadObject;
+    expect(validateCommand('removeObject', ['W'], [wall, door], LK)).toBe('suppression : D (emporté avec son parent) sur le calque LAY-0002 verrouillé');
+    expect(validateCommand('removeObjects', [['W']], [wall, door], LK)).toBe('suppression : D (emporté avec son parent) sur le calque LAY-0002 verrouillé');
+    expect(validateCommand('removeObject', ['W'], [wall, { ...door, layerId: 'LAY-0001' } as CadObject], LK)).toBeNull();
+  });
+});
+

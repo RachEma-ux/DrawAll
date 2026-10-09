@@ -2,7 +2,7 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OpeningObj, type RoofObj } from '@/types/cad';
+import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OpeningObj, type RoofObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isMate } from './assembly';
 import { isIfcClass, normalizePsets } from './properties';
@@ -12,6 +12,7 @@ import { faceOf } from './views';
 import { cutView } from './cuts';
 import { roofError, roofInput } from './roof';
 import { openingFits } from './opening';
+import { slabContour } from './slab';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
 export type TransformOp =
@@ -133,7 +134,8 @@ const SPECS: Record<string, Spec> = {
   wall: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['thickness'], enums: { justification: ['axe', 'gauche', 'droite'] }, extra: o => (o.height !== undefined && !positive(o.height) ? 'mur : hauteur positive attendue' : distinct('mur')(o)) },
   opening: { nums: ['position'], pos: ['width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] }, extra: o => (o.type === 'porte' && !(['debut', 'fin'].includes(o.hinge as string) && ['gauche', 'droite'].includes(o.side as string)) ? 'porte : charnière (debut, fin) et côté (gauche, droite) attendus' : o.height !== undefined && !positive(o.height) ? 'ouverture : hauteur positive attendue' : o.sill !== undefined && !(finite(o.sill) && (o.sill as number) >= 0) ? 'ouverture : allège positive ou nulle attendue' : null) },
   room: { nums: ['x', 'y'], opt: { zoneId: 'str' } },
-  slab: { opt: { roomId: 'str' }, pos: ['thickness'], points: 3 },
+  // Contour d'aire non nulle, comme dans l'atelier (sinon volume vide et profil IFC nul).
+  slab: { opt: { roomId: 'str' }, pos: ['thickness'], points: 3, extra: o => (slabContour(o.points as number[]) ? null : 'dalle : contour d’aire nulle (au moins trois sommets non alignés)') },
   roof: { nums: ['x', 'y', 'pitch', 'overhang'], pos: ['w', 'h'], enums: { roofType: ['un-pan', 'deux-pans', 'quatre-pans'], axis: ['x', 'y'] }, extra: o => (o.highSide !== undefined && o.highSide !== 'min' && o.highSide !== 'max' ? 'toiture : côté haut min ou max attendu' : roofError(roofInput(o as unknown as RoofObj))) },
   column: { opt: { height: 'pos' },
     nums: ['x', 'y'], enums: { section: ['rect', 'circle'] },
@@ -178,6 +180,8 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
   // Champs communs : classification connue (couleurs métier), hachure permise, désignations textuelles.
   if (!Object.prototype.hasOwnProperty.call(CLASSIFICATION_META, o.classification as string)) return `${kind} : classification parmi ${Object.keys(CLASSIFICATION_META).join(', ')} attendue`;
   if (o.hatch !== undefined && !HATCHES.includes(o.hatch as string)) return `${kind} : hachure parmi ${HATCHES.join(', ')} attendue`;
+  // Nom : texte (les exports l'écrivent tel quel, IFC compris).
+  if (o.name !== undefined && typeof o.name !== 'string') return `${kind} : nom (texte) attendu`;
   for (const k of ['part', 'materialId', 'groupId']) if (o[k] !== undefined && !str(o[k])) return `${kind} : ${k} texte attendu`;
   // Trait propre à l'objet (couleur, type, épaisseur) et hachures : formes permises ; classe IFC connue.
   if (o.color !== undefined && !str(o.color)) return `${kind} : couleur (texte) attendue`;
@@ -265,9 +269,13 @@ export const OBJECT_SPEC_KINDS = Object.keys(SPECS);
  * l'interface ne passe que des arguments bien formés, un script peut passer n'importe quoi.
  */
 /** Suppression : un objet d'un calque verrouillé est intouchable, comme dans l'atelier. */
-function lockedError(id: string, { objects, lockedLayerIds }: Ctx): string | null {
-  const o = objects.find(x => x.id === id);
-  return o && lockedLayerIds?.has(o.layerId) ? `suppression : ${id} sur le calque ${o.layerId} verrouillé` : null;
+function lockedError(ids: string[], { objects, lockedLayerIds }: Ctx): string | null {
+  if (!lockedLayerIds?.size) return null;
+  // Les objets associatifs (ouverture, cote, occurrence, note…) partent avec leur parent : eux aussi.
+  const asked = new Set(ids);
+  const all = withDependents(objects, ids);
+  const o = objects.find(x => all.has(x.id) && lockedLayerIds.has(x.layerId));
+  return o ? `suppression : ${o.id}${asked.has(o.id) ? '' : ' (emporté avec son parent)'} sur le calque ${o.layerId} verrouillé` : null;
 }
 
 const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> = {
@@ -301,14 +309,13 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     if (objectShapeError(current)) return null;
     return objectShapeError(next) ?? (referenceError(current, ctx) ? null : referenceError(next, ctx));
   },
-  removeObject: ([id], ctx) => (str(id) && ctx.ids.has(id as string) ? lockedError(id as string, ctx) : `objet ${String(id)} absent`),
+  removeObject: ([id], ctx) => (str(id) && ctx.ids.has(id as string) ? lockedError([id as string], ctx) : `objet ${String(id)} absent`),
   removeObjects: ([list], ctx) => {
     if (!strs(list)) return 'liste d’identifiants attendue';
     const ids = list as string[];
     const missing = ids.find(i => !ctx.ids.has(i));
     if (missing) return `objet ${missing} absent`;
-    for (const i of ids) { const e = lockedError(i, ctx); if (e) return e; }
-    return null;
+    return lockedError(ids, ctx);
   },
   transform: ([list, op], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : transformError(op)),
   duplicateObjects: ([list, dx, dy], ctx) => {
