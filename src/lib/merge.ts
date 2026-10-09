@@ -390,13 +390,18 @@ export function mergeInputs(s: ProjectState, otherId: string): { base: MicroVers
   const other = s.branches?.find(b => b.id === otherId);
   if (!other) return { error: 'Variante inconnue.' };
   const me = activeBranch(s);
+  // Version de départ cherchée dans toutes les histoires concernées, la branche mère d'abord : une
+  // variante revenue avant son point de départ (puis modifiée) ne l'a plus, sa mère si (et
+  // inversement). Les numéros nouveaux sont toujours plus grands que le point de départ : une
+  // version de ce numéro, où qu'elle soit trouvée, est bien l'ancêtre commun.
+  const find = (seq: number, histories: (MicroVersion[] | undefined)[]) => histories.flatMap(h => h ?? []).find(v => v.seq === seq);
   let base: MicroVersion | undefined;
-  if (other.from?.branchId === me.id) base = other.versions.find(v => v.seq === other.from!.seq);
-  else if (me.from?.branchId === other.id) base = s.versions.find(v => v.seq === me.from!.seq);
+  if (other.from?.branchId === me.id) base = find(other.from.seq, [s.versions, other.versions]);
+  else if (me.from?.branchId === other.id) base = find(me.from.seq, [other.versions, s.versions]);
   else if (me.from && other.from && me.from.branchId === other.from.branchId) {
     // Deux variantes nées de la même branche : la plus ancienne des deux versions de départ.
     const seq = Math.min(me.from.seq, other.from.seq);
-    base = s.versions.find(v => v.seq === seq) ?? other.versions.find(v => v.seq === seq);
+    base = find(seq, [s.branches?.find(b => b.id === me.from!.branchId)?.versions, s.versions, other.versions]);
   }
   if (!base) return { error: 'Ancêtre commun introuvable : seules une variante et la branche dont elle est partie (ou deux variantes sœurs) se fusionnent.' };
   return { base, ours: s.versions[s.pointer], theirs: other.versions[other.pointer] };

@@ -3,13 +3,14 @@
 // blanc ; en cas d'erreur, les erreurs lui sont renvoyées, trois corrections au plus. La séquence
 // validée est aperçue puis exécutée seulement après accord explicite (hors de ce module). Les
 // hypothèses du générateur sont rendues avec la proposition. Fonctions pures, sauf l'appel au générateur.
-import type { CadObject, GeoConstraint, Layer } from '@/types/cad';
+import type { BlockDef, CadObject, GeoConstraint, Layer } from '@/types/cad';
 import type { Parameter } from '@/lib/params/expr';
 import { KIND_LABEL, withDependents, withoutDanglingMates } from '@/types/cad';
 import { resolveMates } from '@/lib/assembly';
 import { enforceConstraints, pruneConstraints } from '@/lib/constraints/model';
 import { bindConstraintValues } from '@/lib/params/bind';
 import { onLevel } from '@/lib/levels';
+import { reanchorNote } from '@/lib/geometry';
 import { applyTransform, scriptCommandError, transformTargetsError, updateSettledError, validateCommand, type TransformOp } from '@/lib/commands';
 import { beamError, columnError } from '@/lib/structure';
 
@@ -36,7 +37,7 @@ export interface AssistantContext {
   activeLevelId?: string;
   /** Niveaux et définitions de blocs du projet (références des objets proposés). */
   levels?: { id: string }[];
-  blocks?: { id: string }[];
+  blocks?: BlockDef[];
   zones?: { id: string }[];
   /** Contraintes géométriques et paramètres du projet (re-résolus après chaque opération simulée). */
   constraints?: GeoConstraint[];
@@ -125,7 +126,17 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
       const ids = new Set(list);
       const f = applyTransform(s.args[1] as TransformOp);
       // Une note jointe suit son objet : la commande ne la transforme pas deux fois.
-      objects = objects.map(o => { if (!ids.has(o.id) || (o.kind === 'note' && o.targetId && ids.has(o.targetId))) return o; const p = f(o); return p ? ({ ...o, ...p } as CadObject) : o; });
+      const before = objects, changed = new Set<string>();
+      let next = objects.map(o => { if (!ids.has(o.id) || (o.kind === 'note' && o.targetId && ids.has(o.targetId))) return o; const p = f(o); if (p) changed.add(o.id); return p ? ({ ...o, ...p } as CadObject) : o; });
+      // Comme la commande : une note jointe à un objet transformé suit la même transformation.
+      const notes = new Map<string, Partial<CadObject>>();
+      for (const o of before) {
+        if (o.kind !== 'note' || !o.targetId || !changed.has(o.targetId)) continue;
+        const p = reanchorNote(o, f, before, next, ctx.blocks ?? []);
+        if (p) notes.set(o.id, p);
+      }
+      if (notes.size) next = next.map(o => (notes.has(o.id) ? ({ ...o, ...notes.get(o.id) } as CadObject) : o));
+      objects = next;
     } else if (s.type === 'updateObject') {
       const [id, patch] = s.args as [string, Record<string, unknown>];
       const next = { ...objects.find(o => o.id === id)!, ...patch } as CadObject;

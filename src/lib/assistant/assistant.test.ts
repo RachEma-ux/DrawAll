@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { withoutDanglingMates, type CadObject } from '@/types/cad';
+import { withoutDanglingMates, type CadObject, type NoteObj } from '@/types/cad';
+import { applyTransform } from '@/lib/commands';
+import { reanchorNote } from '@/lib/geometry';
 import { MAX_CORRECTIONS, controlledLoop, dryRun, previewDiff, provisionalId, remapIds, requestKey, scriptedGenerator, type AssistantContext, type Proposal } from './loop';
 import { localGenerator } from './local-generator';
 
@@ -231,5 +233,20 @@ describe('contraintes géométriques dans la simulation', () => {
     // Sans contrainte, la rotation est appliquée telle quelle.
     const free = dryRun([{ type: 'transform', args: [['OBJ-0001'], { kind: 'rotate', cx: 0, cy: 0, deg: 30 }, 'Tourner'] }], ctx).objects[0] as unknown as { y1: number; y2: number };
     expect(Math.abs(free.y2 - free.y1)).toBeGreaterThan(100);
+  });
+});
+
+describe('relecture 57e passe : note jointe dans l’aperçu', () => {
+  it('rotation d’un objet noté : la note suit, comme à l’exécution', () => {
+    const note = { id: 'OBJ-0002', name: 'n', kind: 'note', x: 500, y: 100, targetId: 'OBJ-0001', text: 'ici', time: 0, layerId: 'LAY-0001', classification: 'non-classifie', hatch: 'none', createdSeq: 0 } as CadObject;
+    const c = { ...ctx, objects: [...ctx.objects, note] };
+    const op = { kind: 'rotate', cx: 0, cy: 0, deg: 90 } as const;
+    const r = dryRun([{ type: 'transform', args: [['OBJ-0001'], op, 'Tourner'] }], c);
+    expect(r.errors).toEqual([]);
+    const f = applyTransform(op);
+    const after = c.objects.map(o => (o.id === 'OBJ-0001' ? ({ ...o, ...f(o) } as CadObject) : o));
+    const expected = { ...note, ...reanchorNote(note as NoteObj, f, c.objects, after, []) };
+    expect(r.objects.find(o => o.id === 'OBJ-0002')).toEqual(expected);
+    expect(expected).not.toEqual(note);
   });
 });

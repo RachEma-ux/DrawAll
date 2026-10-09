@@ -288,3 +288,19 @@ describe('comparaison et fusion (lot 14.2)', () => {
     expect(versionDiff(v(0, []), v(1, [], { georef: g }))).toEqual([{ id: 'georef', kind: 'modifié', where: 'georef' }]);
   });
 });
+
+describe('relecture 57e passe : ancêtre commun perdu par une histoire', () => {
+  it('variante revenue avant son point de départ puis modifiée : l’ancêtre est trouvé chez sa mère', () => {
+    const start: ProjectState = normalizeProjectState({ versions: [v(0, []), v(1, [line('A', 100)])], pointer: 1, counter: 1, layerCounter: 4, blockCounter: 0, activeLayerId: layers[0].id });
+    let s = createBranch(start, 'B') as ProjectState;
+    // La variante revient à v0 et modifie : v1 (son point de départ) quitte son histoire.
+    s = { ...s, versions: [s.versions[0], v(2, [line('C', 7)])], pointer: 1 };
+    // Variante → mère.
+    const m = mergeInputs(s, 'BR-0000');
+    expect('error' in m ? m.error : m.base.seq).toBe(1);
+    // Mère → variante.
+    const back = switchBranch(s, 'BR-0000') as ProjectState;
+    const m2 = mergeInputs(back, 'BR-0001');
+    expect('error' in m2 ? m2.error : m2.base.seq).toBe(1);
+  });
+});
