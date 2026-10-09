@@ -353,6 +353,25 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
       const b = recipeBounds(r.of), ext = [0, 1, 2].map(i => b.max[i] - b.min[i]);
       const lo = Math.min(...ext), hi = Math.max(...ext);
       if (r.op === 'shell' && r.thickness >= lo) return `coque : épaisseur ${fmt(r.thickness)} mm ≥ plus petite dimension du solide (${fmt(lo)} mm), aucune cavité possible`;
+      if (r.op === 'shell') {
+        // Axe sans face ouverte qui lui soit normale : les parois opposées avancent l'une vers l'autre,
+        // la cavité exige une épaisseur inférieure à la moitié de l'étendue. Calculé seulement si
+        // chaque face ouverte est plane et normale à un axe (sinon une droite pourrait sortir par elle).
+        // Sans face désignée, le noyau ouvre la face du dessus (normale Z).
+        const supports = featureSupports(r.of);
+        const axes = new Set<number>();
+        let known = true;
+        if (!faces.length) axes.add(2);
+        for (const f of faces) {
+          const sp = supportOf(supports, f);
+          const n = 'support' in sp && sp.support.kind === 'plane' ? sp.support.n : null;
+          const ax = n ? [0, 1, 2].find(i => Math.abs(Math.abs(n[i]) - Math.hypot(n[0], n[1], n[2])) < 1e-9) : undefined;
+          if (ax === undefined) known = false; else axes.add(ax);
+        }
+        const closed = known ? [0, 1, 2].filter(i => !axes.has(i)) : [];
+        const i = closed.find(k => r.thickness >= ext[k] / 2);
+        if (i !== undefined) return `coque : épaisseur ${fmt(r.thickness)} mm ≥ moitié de l’étendue en ${'XYZ'[i]} (${fmt(ext[i] / 2)} mm) entre deux parois gardées, aucune cavité possible`;
+      }
       if (r.op === 'fillet' && !r.edges && r.r >= lo / 2) return `congé : rayon ${fmt(r.r)} mm ≥ moitié de la plus petite dimension du solide (${fmt(lo / 2)} mm)`;
       if (r.op === 'fillet' && r.edges && r.r >= hi) return `congé : rayon ${fmt(r.r)} mm ≥ plus grande dimension du solide (${fmt(hi)} mm)`;
       return null;

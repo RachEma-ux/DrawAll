@@ -609,3 +609,19 @@ describe('relecture 46e passe : dalle refermée, congé et coque irréalisables'
     expect(solid({ op: 'shell', of: box, thickness: 0.1 })).toBeNull();
   });
 });
+
+describe('relecture 47e passe : objets associatifs sur le niveau de leur cible, coque entre parois gardées', () => {
+  const P2 = { levels: [{ id: 'NIV-0001' }, { id: 'NIV-0002' }] };
+  const target = { ...line, id: 'T', levelId: 'NIV-0002' } as unknown as CadObject;
+  const dim = { classification: 'non-classifie', layerId: 'LAY-0001', kind: 'dimension', targetId: 'T', style: 'aligned', offset: 10 };
+  it('cote sur un autre niveau que sa cible : refusée', () => {
+    expect(validateCommand('addObject', [dim], [target], undefined, { ...P2, activeLevelId: 'NIV-0001' })).toBe('dimension : niveau NIV-0001 différent de celui de T (NIV-0002)');
+    expect(validateCommand('addObject', [dim], [target], undefined, { ...P2, activeLevelId: 'NIV-0002' })).toBeNull();
+  });
+  it('coque : épaisseur sous la moitié de l’étendue entre deux parois gardées', () => {
+    const solid = (recipe: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe }], []);
+    expect(solid({ op: 'shell', of: { op: 'box', x: 1, y: 1, z: 1, name: 'B' }, thickness: 0.6 })).toBe('solide : coque : épaisseur 0.6 mm ≥ moitié de l’étendue en X (0.5 mm) entre deux parois gardées, aucune cavité possible');
+    // Dessus ouvert : en Z, une seule paroi ; 3 mm sur 4 mm de hauteur restent possibles.
+    expect(solid({ op: 'shell', of: { op: 'box', x: 100, y: 100, z: 4, name: 'B' }, thickness: 3 })).toBeNull();
+  });
+});

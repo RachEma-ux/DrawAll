@@ -332,7 +332,10 @@ const SOLID_QTO = new Set(['IfcPlate', 'IfcMember', 'IfcFooting', 'IfcBeam', 'If
 function storeyHeightOf(levels: Level[], id: string): number | null {
   const sorted = [...levels].sort((a, b) => a.elevation - b.elevation);
   const i = sorted.findIndex(l => l.id === id);
-  return i >= 0 && i + 1 < sorted.length ? sorted[i + 1].elevation - sorted[i].elevation : null;
+  if (i < 0) return null;
+  // Niveau suivant strictement plus haut : deux niveaux à la même altitude ne donnent pas d'étage nul.
+  const above = sorted.slice(i + 1).find(l => l.elevation > sorted[i].elevation);
+  return above ? above.elevation - sorted[i].elevation : null;
 }
 
 /** Rectangle de la baie en plan, débordant de 1 mm de chaque face du mur (évidement net). */

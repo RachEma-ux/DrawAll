@@ -78,7 +78,10 @@ export function meshVolume3(m: Mesh3D): number {
 export function storeyHeight(levels: Level[], levelId: string): number | null {
   const sorted = [...levels].sort((a, b) => a.elevation - b.elevation);
   const i = sorted.findIndex(l => l.id === levelId);
-  return i >= 0 && i + 1 < sorted.length ? sorted[i + 1].elevation - sorted[i].elevation : null;
+  if (i < 0) return null;
+  // Niveau suivant strictement plus haut : deux niveaux à la même altitude ne donnent pas d'étage nul.
+  const above = sorted.slice(i + 1).find(l => l.elevation > sorted[i].elevation);
+  return above ? above.elevation - sorted[i].elevation : null;
 }
 
 /** Pans de la toiture (polygones plans, repère du noyau : X, Y du plan, Z altitude), égout à `y0`. */

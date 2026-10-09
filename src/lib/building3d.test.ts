@@ -94,3 +94,12 @@ describe('vue 3D : solides dérivés du plan (lot 15.1)', () => {
     expect(p95([3, 1, 2])).toBe(3);
   });
 });
+
+describe('relecture 47e passe : niveaux de même altitude', () => {
+  it('hauteur d’étage : jusqu’au niveau strictement plus haut, jamais nulle', () => {
+    const lv: Level[] = [{ id: 'A', name: 'A', elevation: 0 }, { id: 'B', name: 'B', elevation: 0 }, { id: 'C', name: 'C', elevation: 2700 }];
+    expect(storeyHeight(lv, 'A')).toBe(2700);
+    expect(storeyHeight(lv, 'B')).toBe(2700);
+    expect(storeyHeight(lv, 'C')).toBeNull();
+  });
+});

@@ -148,3 +148,12 @@ describe('réels STEP : seul le zéro s’écrit 0. (relecture #68)', () => {
   });
 });
 
+
+describe('relecture 47e passe : niveaux de même altitude', () => {
+  it('mur sans hauteur : extrudé jusqu’au niveau strictement plus haut, jamais sur 0 mm', () => {
+    const lv: Level[] = [{ id: 'NIV-0001', name: 'A', elevation: 0 }, { id: 'NIV-0003', name: 'B', elevation: 0 }, { id: 'NIV-0002', name: 'C', elevation: 3000 }];
+    const { content } = exportIfc({ objects: [wall('W', 0, 0, 5000, 0)], levels: lv, projectName: 'P', date: new Date('2026-10-08T12:00:00Z') });
+    expect(content).not.toMatch(/IFCEXTRUDEDAREASOLID\([^)]*,0\.\);/);
+    expect(content).toMatch(/IFCEXTRUDEDAREASOLID\([^)]*,3000\.\);/);
+  });
+});
