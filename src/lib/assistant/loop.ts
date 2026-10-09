@@ -173,7 +173,8 @@ export function remapIds(v: unknown, real: Map<string, string>): unknown {
  * créés, modifiés (même identifiant, contenu différent) et supprimés.
  */
 export function previewDiff(before: CadObject[], after: CadObject[], levelId: string) {
-  const shown = (l: CadObject[]) => onLevel(l, levelId).filter(o => o.kind !== 'underlay' && o.kind !== 'note');
+  // Notes gardées : une note jointe suit la transformation de son objet, l'aperçu la montre.
+  const shown = (l: CadObject[]) => onLevel(l, levelId).filter(o => o.kind !== 'underlay');
   const b = shown(before), a = shown(after);
   const old = new Map(b.map(o => [o.id, JSON.stringify(o)]));
   const kept = new Set(a.map(o => o.id));

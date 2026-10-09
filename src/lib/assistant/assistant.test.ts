@@ -248,5 +248,7 @@ describe('relecture 57e passe : note jointe dans l’aperçu', () => {
     const expected = { ...note, ...reanchorNote(note as NoteObj, f, c.objects, after, []) };
     expect(r.objects.find(o => o.id === 'OBJ-0002')).toEqual(expected);
     expect(expected).not.toEqual(note);
+    // L'aperçu la montre, modifiée.
+    expect(previewDiff(c.objects, r.objects, 'NIV-0001').modified.map(o => o.id)).toEqual(['OBJ-0001', 'OBJ-0002']);
   });
 });
