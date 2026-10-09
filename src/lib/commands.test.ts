@@ -515,3 +515,20 @@ describe('relecture 37e passe : objets dépendants revalidés, duplication avec 
   });
 });
 
+describe('relecture 38e passe : occurrence liée transformée seule, intersection vide', () => {
+  it('occurrence à liaison fixe déplacée sans sa référence : refusée ; avec elle : acceptée', () => {
+    const part = { ...line, id: 'P', kind: 'solid', recipe: { op: 'box', x: 10, y: 10, z: 10 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const occ = { ...line, id: 'O', kind: 'occurrence', sourceId: 'P', x: 100, y: 0, z: 0, angle: 0, mate: { type: 'fixe', to: 'P', rel: [100, 0, 0, 0] } } as unknown as CadObject;
+    expect(transformTargetsError(['O'], { kind: 'move', dx: 50, dy: 0 }, [part, occ], [])).toBe('O non transformable (sa liaison à P la remet en place ; transformer aussi P ou la délier)');
+    expect(transformTargetsError(['O', 'P'], { kind: 'move', dx: 50, dy: 0 }, [part, occ], [])).toBeNull();
+    const free = { ...occ, id: 'Q', mate: undefined } as unknown as CadObject;
+    expect(transformTargetsError(['Q'], { kind: 'move', dx: 50, dy: 0 }, [part, free], [])).toBeNull();
+  });
+  it('intersection de deux solides disjoints : refusée', () => {
+    const box = (x: number) => ({ op: 'box', x: 10, y: 10, z: 10, at: [x, 0, 0] });
+    const solid = (recipe: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe }], []);
+    expect(solid({ op: 'intersect', a: box(0), b: box(100) })).toBe('solide : intersection vide (les deux solides ne se recouvrent pas)');
+    expect(solid({ op: 'intersect', a: box(0), b: box(5) })).toBeNull();
+  });
+});
+

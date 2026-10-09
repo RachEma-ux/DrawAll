@@ -342,6 +342,14 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
       }
       return recipeProfileError(r.of, depth + 1);
     }
+    case 'intersect': {
+      const e = recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);
+      if (e) return e;
+      // Intersection de deux solides dont les encombrements ne se recouvrent pas : vide, à coup sûr.
+      const a = recipeBounds(r.a), b = recipeBounds(r.b);
+      if ([0, 1, 2].some(i => Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i]) <= 1e-9)) return 'intersection vide (les deux solides ne se recouvrent pas)';
+      return null;
+    }
     default:
       if ('a' in r) return recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);
       if ('of' in r) return recipeProfileError(r.of, depth + 1);

@@ -4,7 +4,7 @@
 // journal depuis son état de base reproduit le projet. Fonctions pures.
 import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OccurrenceObj, type OpeningObj, type RoofObj, type WallObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
-import { isMate, mateLoop, placeMate, type Mate } from './assembly';
+import { isMate, mateLoop, placeMate, resolveMates, type Mate } from './assembly';
 import { isIfcClass, normalizePsets } from './properties';
 import { isRecipe, recipeProfileError } from './solids';
 import { isValidSpline, type SplineGeom } from './spline';
@@ -66,6 +66,14 @@ export function transformTargetsError(list: string[], op: TransformOp, objects: 
     if (host?.kind !== 'wall' || !(ids.has(op.id) || ids.has(host.id))) continue;
     const e = openingFits(moved(op) as OpeningObj, moved(host) as WallObj);
     if (e) return `${op.id} ne tiendrait plus dans ${host.id} (${e})`;
+  }
+  // Occurrences liées : la liaison repositionne l'occurrence après la transformation. Si elle la ramène
+  // exactement où elle était, la commande ne ferait rien (transformer aussi sa référence, ou la délier).
+  const settled = resolveMates(objects.map(moved)).objects;
+  for (const o of objects) {
+    if (o.kind !== 'occurrence' || !o.mate || !ids.has(o.id)) continue;
+    const r = settled.find(x => x.id === o.id) as OccurrenceObj | undefined;
+    if (r && r.x === o.x && r.y === o.y && r.z === o.z && r.angle === o.angle) return `${o.id} non transformable (sa liaison à ${o.mate.to} la remet en place ; transformer aussi ${o.mate.to} ou la délier)`;
   }
   // Îlots de hachure : chaque îlot reste contenu dans son contour transformé (s'il l'était avant).
   const after = objects.map(moved);
