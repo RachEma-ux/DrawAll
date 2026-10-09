@@ -1539,7 +1539,7 @@ function ObjectShapeImpl({ obj, objects, blocks, view, selected, zoom, unit, lay
  * principal ; la vue se redessine quand son calcul aboutit (ObjectShape est mémorisé).
  */
 function ProjectionShape({ obj, objects, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix }: Omit<ObjectShapeProps, 'obj' | 'blocks' | 'walls' | 'rooms' | 'assets' | 'zoneColors'> & { obj: Extract<CadObject, { kind: 'projection' | 'elevation' }> }) {
-  useSyncExternalStore(subscribeProjections, projectionsVersion);
+  useSyncExternalStore(subscribeProjections, projectionsVersion, projectionsVersion); // aussi au rendu statique (export SVG)
   const v = placedAny(obj, objects);
   if (!v) return null;
   const label = obj.kind === 'projection' ? VIEW_LABEL[obj.view] : elevationLabel(obj, objects);
