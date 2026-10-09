@@ -416,12 +416,15 @@ function Workbench() {
   const importStepFile = useCallback(async (file: File) => {
     try {
       // Variante où l'import a été lancé : les solides n'iront jamais dans une autre.
+      // Calque et niveau de destination : ceux du début de l'import, pas ceux devenus actifs ensuite.
       const branch = activeBranchId(latestProject.current);
+      const dest = { layerId: latestProject.current.activeLayerId, levelId: latestProject.current.activeLevelId };
       const r = await kernelImportStep(await file.text());
       if (activeBranchId(latestProject.current) !== branch) { window.alert('Import STEP abandonné : la variante active a changé pendant la lecture.'); return; }
       const items = r.solids.flatMap((s, i) => (s.recipe ? [{ name: `${file.name.replace(/\.[^.]+$/, '')} ${i + 1}`, recipe: s.recipe as SolidRecipe }] : []));
       // État du projet au retour du noyau (l'atelier est resté utilisable pendant la lecture).
-      if (items.length) latestProject.current.addSolids(items, 'Importer STEP');
+      const made = items.length ? latestProject.current.addSolids(items, 'Importer STEP', dest) : [];
+      if (typeof made === 'string' || made === undefined) { window.alert(`Import STEP refusé : ${made ?? 'commande refusée'}.`); return; }
       const lines = [`Import STEP : ${r.status}${r.error ? ` — ${r.error}` : ''}`, `${items.length} solide(s) importé(s).`, ...r.losses.map(l => `– ${l}`)];
       window.alert(lines.join('\n'));
     } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }

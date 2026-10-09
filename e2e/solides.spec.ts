@@ -467,3 +467,32 @@ test('relecture 59e passe — calque verrouillé pendant le calcul : rien n’es
   expect((await currentObjects(page)).filter(o => o.kind === 'solid')).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('relecture 60e passe — import STEP : niveau de départ gardé ; calques tous verrouillés : import refusé', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'panneaux des niveaux et des calques : recette bureau');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await page.waitForFunction(() => localStorage.getItem('drawall-projet-v1') !== null);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    s.versions[s.pointer].levels = [{ id: 'NIV-0001', name: 'Rez-de-chaussée', elevation: 0 }, { id: 'NIV-0002', name: 'Étage', elevation: 3000 }];
+    localStorage.setItem('drawall-projet-v1', JSON.stringify(s));
+  });
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  let report = '';
+  page.on('dialog', d => { report = d.message(); d.accept().catch(() => {}); });
+  // Lecture lancée au rez-de-chaussée, puis l'étage devient actif avant la fin.
+  await page.getByLabel('Fichier STEP à importer').setInputFiles('e2e/fixtures/cube.step');
+  await page.getByRole('button', { name: 'Afficher le niveau Étage' }).click();
+  await expect.poll(() => report, { timeout: 90_000 }).toContain('Import STEP : importé');
+  const solid = (await currentObjects(page)).find(o => o.kind === 'solid')!;
+  expect(solid.levelId ?? 'NIV-0001').toBe('NIV-0001');
+  // Tous les calques verrouillés : l'import est refusé, rien n'est ajouté.
+  report = '';
+  const lock = page.getByTitle('Verrouiller', { exact: true });
+  while (await lock.count()) await lock.first().click();
+  await page.getByLabel('Fichier STEP à importer').setInputFiles('e2e/fixtures/cube.step');
+  await expect.poll(() => report, { timeout: 90_000 }).toContain('Import STEP refusé : calque');
+  expect((await currentObjects(page)).filter(o => o.kind === 'solid')).toHaveLength(1);
+  expect(errors).toEqual([]);
+});

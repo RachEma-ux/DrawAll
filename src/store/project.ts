@@ -926,19 +926,28 @@ export function useProject() {
     return null;
   }, [commit]);
 
-  /** Solides importés (lot 17.2), sur le calque actif, en une seule version. */
-  const addSolids = useCallback((items: { name: string; recipe: SolidRecipe }[], label: string) => {
+  /**
+   * Solides importés (lot 17.2), en une seule version : sur le calque et le niveau donnés (ceux du
+   * début de l'import), sinon les actifs. Rend les identifiants, ou un message si la destination est
+   * refusée (calque verrouillé ou absent, niveau absent), comme `addObject`.
+   */
+  const addSolids = useCallback((items: { name: string; recipe: SolidRecipe }[], label: string, dest?: { layerId: string; levelId: string }): string[] | string => {
     if (!items.length) return [];
+    const layerId = dest?.layerId ?? activeLayerId, levelId = dest?.levelId ?? activeLevelId;
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer) return `calque ${layerId} absent`;
+    if (layer.locked) return `calque ${layer.name} verrouillé : déverrouillez-le pour importer`;
+    if (!levels.some(l => l.id === levelId)) return `niveau ${levelId} absent`;
     let counter = state.counter;
     const made = items.map(({ name, recipe }) => {
       counter += 1;
       const id = `OBJ-${String(counter).padStart(4, '0')}`;
-      return stampLevel({ id, name, kind: 'solid', classification: 'non-classifie', layerId: activeLayerId, hatch: 'none', createdSeq: current.seq, recipe } as CadObject);
+      return { id, name, kind: 'solid', classification: 'non-classifie', layerId, hatch: 'none', createdSeq: current.seq, recipe, ...(levelId === DEFAULT_LEVEL.id ? {} : { levelId }) } as CadObject;
     });
     commit(`${label} ${made.map(o => o.id).join(', ')}`, { objects: [...allObjects, ...made], counter });
     setSelectedIds(made.map(o => o.id));
     return made.map(o => o.id);
-  }, [allObjects, state.counter, current.seq, commit, activeLayerId, stampLevel, setSelectedIds]);
+  }, [allObjects, state.counter, current.seq, commit, activeLayerId, activeLevelId, layers, levels, setSelectedIds]);
 
   /** Façades et coupes du bâtiment (lot 16.2), posées sous lui, en une seule version. */
   const addElevations = useCallback((views: { view: ElevationView; markId?: string }[]) => {
@@ -1657,7 +1666,7 @@ export function useProject() {
     addViewport: cmd('addViewport', addViewport), updateViewport: cmd('updateViewport', updateViewport), removeViewport: cmd('removeViewport', removeViewport),
     addObject: cmd('addObject', addObject), updateObject: cmd('updateObject', updateObject), removeObject: cmd('removeObject', removeObject), removeObjects: cmd('removeObjects', removeObjects),
     combineSolids: checked('combineSolids', combineSolids, r => (r === false ? 'deux solides distincts attendus' : null)), addProjections: cmd('addProjections', addProjections), addElevations: cmd('addElevations', addElevations),
-    makePart: checked('makePart', makePart, r => (r === null ? 'solide attendu, pas déjà une pièce' : null)), addOccurrence: checked('addOccurrence', addOccurrence, r => (r === null ? 'pièce attendue, position finie' : null)), setMate: checked('setMate', setMate, failedWith), addSolids: cmd('addSolids', addSolids), setGeoref: checked('setGeoref', setGeoref, failedWith),
+    makePart: checked('makePart', makePart, r => (r === null ? 'solide attendu, pas déjà une pièce' : null)), addOccurrence: checked('addOccurrence', addOccurrence, r => (r === null ? 'pièce attendue, position finie' : null)), setMate: checked('setMate', setMate, failedWith), addSolids: checked('addSolids', addSolids, failedWith), setGeoref: checked('setGeoref', setGeoref, failedWith),
     transform: cmd('transform', transform), duplicateObjects: cmd('duplicateObjects', duplicateObjects), addCopies: cmd('addCopies', addCopies),
     applyEdit: cmd('applyEdit', applyEdit), applyPatches: cmd('applyPatches', applyPatches), groupObjects: cmd('groupObjects', groupObjects), ungroupObjects: cmd('ungroupObjects', ungroupObjects),
     addLayer: cmd('addLayer', addLayer), updateLayer: cmd('updateLayer', updateLayer), removeLayer: cmd('removeLayer', removeLayer), setActiveLayerId: cmd('setActiveLayerId', setActiveLayerId),
