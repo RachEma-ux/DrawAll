@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CadObject, Level } from '@/types/cad';
-import { exportIfc, ifcGuid, stepReal, stepString } from './ifc';
+import { exportIfc, ifcGuid, stepReal, stepString, unionArea } from './ifc';
 import { modelToMap } from './georef';
 import type { Georef } from '@/types/cad';
 
@@ -93,3 +93,31 @@ describe('export IFC 4.3 (lot 17.1)', () => {
     }, null, 2));
   });
 });
+
+describe('baies dans le mur : volume net et géométrie (relecture #68)', () => {
+  const op = (id: string, position: number, extra: Record<string, unknown>) => ({ ...base, id, name: id, kind: 'opening', hostId: 'M', type: 'fenetre', position, width: 900, levelId: 'NIV-0001', ...extra }) as CadObject;
+  const net = (content: string) => Number(content.match(/IFCQUANTITYVOLUME\('NetVolume',\$,\$,([^,]+),/)![1]);
+  const run = (objects: CadObject[]) => exportIfc({ objects: [wall('M', 0, 0, 5000, 0, { height: 2500 }), ...objects], levels, projectName: 'P', date: new Date('2026-10-09T00:00:00Z') });
+
+  it('union des rectangles', () => {
+    expect(unionArea([{ a0: 0, a1: 10, z0: 0, z1: 10 }, { a0: 5, a1: 15, z0: 5, z1: 15 }])).toBe(175);
+    expect(unionArea([{ a0: 0, a1: 10, z0: 0, z1: 10 }, { a0: 0, a1: 10, z0: 0, z1: 10 }])).toBe(100);
+    expect(unionArea([])).toBe(0);
+  });
+
+  it('deux baies qui se recouvrent n’évident le mur qu’une fois', () => {
+    // [550, 1450] ∪ [850, 1750] = 1 200 mm × 2 100 mm × 200 mm = 0,504 m³ ; brut 2,5 m³.
+    const { content } = run([op('A', 1000, { sill: 0, height: 2100 }), op('B', 1300, { sill: 0, height: 2100 })]);
+    expect(net(content)).toBeCloseTo(2.5 - 0.504, 9);
+  });
+
+  it('baie qui dépasse le haut du mur : écrêtée (géométrie et volume), signalée ; baie au-dessus : n’évide rien', () => {
+    const { content, report } = run([op('A', 1000, { sill: 2000, height: 1200 }), op('B', 3000, { sill: 2600, height: 500 })]);
+    expect(net(content)).toBeCloseTo(2.5 - (900 * 500 * 200) / 1e9, 9);
+    expect(report.adjusted).toEqual(['A : baie écrêtée à la hauteur du mur M (500 mm évidés au lieu de 1200 mm)']);
+    expect(report.notExported).toContain('B : baie hors de la hauteur du mur M (allège 2600 mm, mur 2500 mm), exportée sans évider le mur');
+    expect(report.exported.IfcOpeningElement).toBe(1);
+    expect(content).not.toContain("'Baie B'");
+  });
+});
+

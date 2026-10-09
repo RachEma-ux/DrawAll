@@ -375,6 +375,7 @@ function Workbench() {
       'Export IFC 4.3 (IFC4X3_ADD2, millimètres)',
       `Exporté : ${Object.entries(report.exported).map(([k, n]) => `${n} ${k}`).join(', ') || 'rien'}.`,
       ...(report.notExported.length ? ['Non exporté ou exporté sans volume :', ...report.notExported.map(t => `– ${t}`)] : []),
+      ...(report.adjusted.length ? ['Exporté après ajustement :', ...report.adjusted.map(t => `– ${t}`)] : []),
     ];
     window.setTimeout(() => window.alert(lines.join('\n')), 0);
   }, [project.allObjects, project.levels, project.georef, cloudName]);

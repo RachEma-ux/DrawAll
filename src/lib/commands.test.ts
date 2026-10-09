@@ -337,6 +337,9 @@ describe('relecture 27e passe : trajet de balayage, repères de pièce, pièce d
     expect(validateCommand('updateObject', ['P', { partDef: { no: 1, origin: [0, 0, 0], angle: 90 } }], [part('P', 1), part('Q', 2)])).toBeNull();
     expect(validateCommand('updateObject', ['P', { partDef: { no: 2, origin: [0, 0, 0], angle: 0 } }], [part('P', 1), part('Q', 2)])).toBe('solide : repère de pièce 2 déjà pris par Q');
   });
+  it('création : un identifiant fourni ne fait pas passer l’objet pour le détenteur du repère', () => {
+    expect(validateCommand('addObject', [{ id: 'P', classification: 'non-classifie', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } }], [part('P', 1)])).toBe('solide : repère de pièce 1 déjà pris par P');
+  });
   it('une pièce dont dépendent des occurrences reste une pièce', () => {
     const occ = { ...line, id: 'O', kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0 } as unknown as CadObject;
     expect(validateCommand('updateObject', ['P', { partDef: undefined }], [part('P', 1), occ])).toBe('modification : P reste une pièce, O en dépend');

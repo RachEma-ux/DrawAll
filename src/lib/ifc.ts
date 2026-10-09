@@ -16,7 +16,8 @@ import { wallQuad } from './wall';
 type P2 = [number, number];
 type P3 = [number, number, number];
 
-export interface IfcReport { exported: Record<string, number>; notExported: string[] }
+/** `adjusted` : éléments exportés après ajustement (baie écrêtée à la hauteur de son mur…). */
+export interface IfcReport { exported: Record<string, number>; notExported: string[]; adjusted: string[] }
 
 // ——— Écriture STEP ———
 
@@ -76,7 +77,7 @@ export interface IfcInput { objects: CadObject[]; levels: Level[] | undefined; p
 
 export function exportIfc({ objects, levels: levelList, projectName, date, georef }: IfcInput): { content: string; report: IfcReport } {
   const s = new Step();
-  const report: IfcReport = { exported: {}, notExported: [] };
+  const report: IfcReport = { exported: {}, notExported: [], adjusted: [] };
   const count = (cls: string) => { report.exported[cls] = (report.exported[cls] ?? 0) + 1; };
   const guid = (id: string) => stepString(ifcGuid(`${projectName}|${id}`));
   const pt3 = (p: P3) => s.add(`IFCCARTESIANPOINT(${list(p.map(stepReal))})`);
@@ -180,13 +181,26 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
   const walls = new Map<string, { ref: string; z0: number; h: number; wall: WallObj }>();
   // Baies exportées en volume (hauteur et allège connues) : volume retiré à chaque mur (volume net).
   const wallHeight = new Map(model.meshes.filter(m => m.kind === 'wall').map(m => [m.id, m.positions[(m.positions.length / 6) * 3 + 1] - m.positions[1]]));
-  const voids = new Map<string, number>();
+  // Baie dans la hauteur du mur : bas et haut ramenés à [0, h] (une baie qui dépasse est écrêtée,
+  // une baie entièrement hors du mur n'évide rien). Même partie pour le volume net et la géométrie.
+  const openingSpan = (o: OpeningObj): { z0: number; z1: number } | null => {
+    const h = wallHeight.get(o.hostId), sill = o.sill ?? (o.type === 'porte' ? 0 : undefined);
+    if (h === undefined || sill === undefined || o.height === undefined) return null;
+    const z0 = Math.max(0, sill), z1 = Math.min(h, sill + o.height);
+    return z1 > z0 ? { z0, z1 } : null;
+  };
+  // Volume retiré : union des baies du mur (deux baies qui se recouvrent n'évident qu'une fois).
+  const voidRects = new Map<string, Rect[]>();
   for (const o of objects) {
-    if (o.kind !== 'opening' || o.height === undefined) continue;
-    const w = objects.find(x => x.id === o.hostId), h = wallHeight.get(o.hostId), sill = o.sill ?? (o.type === 'porte' ? 0 : undefined);
-    if (w?.kind !== 'wall' || h === undefined || sill === undefined) continue;
-    voids.set(w.id, (voids.get(w.id) ?? 0) + (o.width * w.thickness * Math.max(0, Math.min(o.height, h - sill))) / 1e9);
+    if (o.kind !== 'opening') continue;
+    const w = objects.find(x => x.id === o.hostId), span = openingSpan(o);
+    if (w?.kind !== 'wall' || !span) continue;
+    voidRects.set(w.id, [...(voidRects.get(w.id) ?? []), { a0: o.position - o.width / 2, a1: o.position + o.width / 2, z0: span.z0, z1: span.z1 }]);
   }
+  const voids = new Map([...voidRects].map(([id, rects]) => {
+    const w = objects.find(x => x.id === id) as WallObj;
+    return [id, (unionArea(rects) * w.thickness) / 1e9];
+  }));
   for (const m of model.meshes) {
     const o = objects.find(x => x.id === m.id)!;
     const elev = storeys.get(levelIdOf(o))!.elevation;
@@ -230,8 +244,12 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
     const st = storeys.get(levelIdOf(host.wall))!;
     const pl = s.add(`IFCLOCALPLACEMENT(${st.pl},${axis3([0, 0, 0])})`);
     let filled: string | null = null;
-    if (o.height !== undefined && sill !== undefined && geom) {
-      const opening = s.add(`IFCOPENINGELEMENT(${guid(`ouverture|${o.id}`)},$,${stepString(`Baie ${o.id}`)},$,$,${pl},${extruded(geom.map(toIfc), host.z0 + sill, o.height)},$,.OPENING.)`);
+    const span = openingSpan(o);
+    if (o.height !== undefined && sill !== undefined && geom && !span) {
+      report.notExported.push(`${o.id} : baie hors de la hauteur du mur ${host.wall.id} (allège ${sill} mm, mur ${Math.round(host.h)} mm), exportée sans évider le mur`);
+    } else if (o.height !== undefined && sill !== undefined && geom && span) {
+      if (span.z0 !== sill || span.z1 !== sill + o.height) report.adjusted.push(`${o.id} : baie écrêtée à la hauteur du mur ${host.wall.id} (${Math.round(span.z1 - span.z0)} mm évidés au lieu de ${o.height} mm)`);
+      const opening = s.add(`IFCOPENINGELEMENT(${guid(`ouverture|${o.id}`)},$,${stepString(`Baie ${o.id}`)},$,$,${pl},${extruded(geom.map(toIfc), host.z0 + span.z0, span.z1 - span.z0)},$,.OPENING.)`);
       s.add(`IFCRELVOIDSELEMENT(${guid(`vide|${o.id}`)},$,$,$,${host.ref},${opening})`);
       count('IfcOpeningElement');
       filled = opening;
@@ -310,6 +328,22 @@ function storeyHeightOf(levels: Level[], id: string): number | null {
 }
 
 /** Rectangle de la baie en plan, débordant de 1 mm de chaque face du mur (évidement net). */
+type Rect = { a0: number; a1: number; z0: number; z1: number };
+
+/** Aire de l'union de rectangles (le long du mur × hauteur), par bandes verticales. */
+export function unionArea(rects: Rect[]): number {
+  const xs = [...new Set(rects.flatMap(r => [r.a0, r.a1]))].sort((a, b) => a - b);
+  let total = 0;
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const x0 = xs[i], x1 = xs[i + 1];
+    const spans = rects.filter(r => r.a0 <= x0 && r.a1 >= x1 && r.z1 > r.z0).map(r => [r.z0, r.z1] as const).sort((a, b) => a[0] - b[0]);
+    let covered = 0, top = -Infinity;
+    for (const [lo, hi] of spans) { if (hi <= top) continue; covered += hi - Math.max(lo, top); top = hi; }
+    total += covered * (x1 - x0);
+  }
+  return total;
+}
+
 function openingBox(o: OpeningObj, wall: WallObj): { x: number; y: number }[] | null {
   const len = Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1);
   if (!(len > 0)) return null;

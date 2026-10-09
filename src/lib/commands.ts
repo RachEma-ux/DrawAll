@@ -293,7 +293,11 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     if (!Object.prototype.hasOwnProperty.call(KIND_LABEL, n.kind as string)) return `type d’objet inconnu « ${String(n.kind)} »`;
     if (layerIds && !(str(n.layerId) && layerIds.has(n.layerId as string))) return `objet à créer : calque ${String(n.layerId)} absent`;
     if (ctx.lockedLayerIds?.has(n.layerId as string)) return `objet à créer : calque ${String(n.layerId)} verrouillé`;
-    return objectShapeError(n as Record<string, unknown>) ?? referenceError(n as Record<string, unknown>, ctx);
+    // L'identifiant est attribué par le magasin : un identifiant fourni n'entre pas dans la validation
+    // (il ne doit pas faire passer l'objet pour celui qu'il désigne, ex. détenteur d'un repère de pièce).
+    const { id: _id, ...fresh } = n as Record<string, unknown>;
+    void _id;
+    return objectShapeError(fresh) ?? referenceError(fresh, ctx);
   },
   updateObject: ([id, patch], ctx) => {
     const { ids, objects, layerIds } = ctx;
