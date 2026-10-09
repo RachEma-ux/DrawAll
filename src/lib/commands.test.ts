@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CadObject, GeoConstraint, MicroVersion } from '@/types/cad';
 import { polarArray, rectangularArray } from './array';
 import { KIND_LABEL } from '@/types/cad';
-import { applyTransform, mergedReferenceError, OBJECT_SPEC_KINDS, SCRIPT_COMMANDS, decodeArgs, scriptCommandError, transformTargetsError, encodeArgs, validateCommand, versionDigest } from './commands';
+import { applyTransform, mergedReferenceError, OBJECT_SPEC_KINDS, SCRIPT_COMMANDS, decodeArgs, scriptCommandError, transformTargetsError, encodeArgs, updateSettledError, validateCommand, versionDigest } from './commands';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0 };
 const line = { ...base, id: 'OBJ-0001', name: 'L', kind: 'line', x1: 0, y1: 0, x2: 100, y2: 0 } as CadObject;
@@ -644,5 +644,18 @@ describe('relecture 49e passe : faces libres et congé sans arête', () => {
   });
   it('congé avec une liste d’arêtes vide : refusé', () => {
     expect(solid({ op: 'fillet', of: { op: 'box', x: 10, y: 10, z: 10, name: 'B' }, r: 1, edges: [] })).toBe('solide : congé : au moins une arête désignée (ou aucune liste : toutes les arêtes)');
+  });
+});
+
+describe('relecture 55e passe : modification annulée par les contraintes ou la liaison', () => {
+  it('extrémité fixée déplacée, occurrence liée déplacée : refusées ; renommage : accepté', () => {
+    const l = { ...line, id: 'L' } as CadObject;
+    const fixed = [{ id: 'CTR-0001', type: 'fixed' as const, p: { obj: 'L', at: 'a' as const }, x: 0, y: 0 }];
+    expect(updateSettledError('L', { x1: 50 }, [l], fixed)).toBe('modification : L remis en place par ses contraintes géométriques ou sa liaison d’assemblage (l’en dégager d’abord)');
+    expect(updateSettledError('L', { name: 'Autre' }, [l], fixed)).toBeNull();
+    expect(updateSettledError('L', { x2: 500 }, [l], fixed)).toBeNull();
+    const part = { ...line, id: 'P', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const occ = { ...line, id: 'Q', kind: 'occurrence', sourceId: 'P', x: 10, y: 0, z: 0, angle: 0, mate: { type: 'fixe', to: 'P', rel: [10, 0, 0, 0] } } as unknown as CadObject;
+    expect(updateSettledError('Q', { x: 500 }, [part, occ])).toMatch(/^modification : Q remis en place/);
   });
 });

@@ -55,8 +55,9 @@ export default function AssistantPanel({ project, onClose, generator = localGene
   const { projectRef, exec } = useCommandRunner(project);
   /** Contenu du projet sur lequel la proposition affichée a été validée et aperçue. */
   const basisRef = useRef<string | null>(null);
-  // Version courante et niveau, calque actifs (les objets proposés y sont posés).
-  const digest = () => { const p = projectRef.current, st = p.state; return `${p.activeLevelId}|${p.activeLayerId}|${versionDigest(st.versions[st.pointer])}`; };
+  // Variante, version courante et niveau, calque actifs (les objets proposés y sont posés) : deux
+  // variantes au contenu identique restent distinctes.
+  const digest = () => { const p = projectRef.current, st = p.state; return `${p.branches.find(b => b.active)?.id ?? ''}|${p.activeLevelId}|${p.activeLayerId}|${versionDigest(st.versions[st.pointer])}`; };
 
   const propose = async () => {
     const p = projectRef.current;

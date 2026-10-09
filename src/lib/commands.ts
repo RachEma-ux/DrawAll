@@ -42,6 +42,22 @@ export function applyTransform(op: TransformOp): (o: CadObject) => Partial<CadOb
  * l'opération (un rectangle ne tourne que d'un quart de tour…). Sinon la commande ne ferait rien
  * pour lui, en silence. Une note jointe à un objet transformé le suit : elle n'est pas examinée.
  */
+/**
+ * Modification qu'un enregistrement annulerait entièrement : les contraintes géométriques, puis les
+ * liaisons d'assemblage, ramèneraient l'objet exactement à son état d'avant (comme `commit`). La
+ * commande ne ferait rien ; elle est refusée plutôt que de se dire faite.
+ */
+export function updateSettledError(id: string, patch: Record<string, unknown>, objects: CadObject[], constraints?: GeoConstraint[]): string | null {
+  const before = objects.find(o => o.id === id);
+  if (!before) return null;
+  const next = objects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o));
+  const enforced = constraints?.length ? enforceConstraints(objects, next, pruneConstraints(next, constraints)).objects : next;
+  const settled = resolveMates(enforced).objects.find(o => o.id === id);
+  return settled && JSON.stringify(settled) === JSON.stringify(before)
+    ? `modification : ${id} remis en place par ses contraintes géométriques ou sa liaison d’assemblage (l’en dégager d’abord)`
+    : null;
+}
+
 /** `constraints` : contraintes actives, valeurs liées aux paramètres (comme à l'enregistrement). */
 export function transformTargetsError(list: string[], op: TransformOp, objects: CadObject[], layers: (Pick<Layer, 'id'> & { locked?: boolean })[], constraints?: GeoConstraint[]): string | null {
   const f = applyTransform(op);

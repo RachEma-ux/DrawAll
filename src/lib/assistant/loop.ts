@@ -10,7 +10,7 @@ import { resolveMates } from '@/lib/assembly';
 import { enforceConstraints, pruneConstraints } from '@/lib/constraints/model';
 import { bindConstraintValues } from '@/lib/params/bind';
 import { onLevel } from '@/lib/levels';
-import { applyTransform, scriptCommandError, transformTargetsError, validateCommand, type TransformOp } from '@/lib/commands';
+import { applyTransform, scriptCommandError, transformTargetsError, updateSettledError, validateCommand, type TransformOp } from '@/lib/commands';
 import { beamError, columnError } from '@/lib/structure';
 
 export interface ProposedStep {
@@ -130,7 +130,7 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
       const [id, patch] = s.args as [string, Record<string, unknown>];
       const next = { ...objects.find(o => o.id === id)!, ...patch } as CadObject;
       if (!Object.prototype.hasOwnProperty.call(KIND_LABEL, next.kind)) { errors.push(`${at} : type d’objet inconnu`); return; }
-      const e = objectError(next as unknown as Record<string, unknown>, ctx.layers);
+      const e = objectError(next as unknown as Record<string, unknown>, ctx.layers) ?? updateSettledError(id, patch, objects, bindConstraintValues(ctx.constraints, ctx.parameters));
       if (e) { errors.push(`${at} : ${e}`); return; }
       objects = objects.map(o => (o.id === id ? next : o));
     }

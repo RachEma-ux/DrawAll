@@ -97,3 +97,21 @@ test('lot 18.3 — niveau actif changé entre l’aperçu et l’accord : rien n
   expect(await currentObjects(page)).toEqual(before);
   expect(errors).toEqual([]);
 });
+
+test('relecture 55e passe — variante changée entre l’aperçu et l’accord : rien n’est exécuté', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 4000, y2: 0 }]);
+  const before = await currentObjects(page);
+  const dlg = await openAssistant(page);
+  await dlg.getByLabel('Demande').fill('grille de 2 x 2 poteaux 300 x 300 mm entraxe 5 m');
+  await dlg.getByRole('button', { name: 'Proposer' }).click();
+  await expect(dlg.getByRole('region', { name: 'Proposition' })).toHaveAttribute('data-statut', 'ready');
+  // Nouvelle variante, au contenu identique, devenue active.
+  await page.getByLabel('Nom de la nouvelle variante').fill('B');
+  await page.getByRole('button', { name: 'Créer la variante' }).click();
+  await dlg.getByRole('button', { name: 'Accepter et exécuter' }).click();
+  await expect(dlg.getByRole('status')).toContainText('Le projet a changé depuis l’aperçu : rien n’a été exécuté.');
+  expect(await currentObjects(page)).toEqual(before);
+  expect(errors).toEqual([]);
+});
