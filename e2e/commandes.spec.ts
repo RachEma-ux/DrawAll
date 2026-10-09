@@ -92,3 +92,21 @@ test('lot 18.1 — rejeu du journal : une note garde sa date, le projet est repr
   expect(errors).toEqual([]);
 });
 
+
+test('relecture 49e passe — une commande refusée à l’exécution est marquée refusée au journal', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'room', x: 1500, y: 2000, name: 'Séjour' }]);
+  await chooseTool(page, /^Sélection/);
+  await tapModel(page, info, 1500, 2000);
+  await page.getByRole('button', { name: 'Gérer les zones…' }).click();
+  // Nom vide : la zone est refusée par la commande elle-même.
+  await page.getByRole('button', { name: 'Créer la zone' }).click();
+  await page.getByRole('button', { name: 'Fermer les zones' }).click();
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('journal');
+  await page.getByText('Journal des commandes', { exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Journal des commandes' });
+  await expect(panel).toContainText('addZone — refusée : Nom de zone attendu.');
+  expect(errors).toEqual([]);
+});

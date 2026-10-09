@@ -1608,6 +1608,23 @@ export function useProject() {
     record(type, args);
     return fn(...args);
   };
+  /**
+   * Commande dont l'échec n'apparaît qu'à l'exécution (fusion refusée, publication sans feuille…) :
+   * son entrée du journal est marquée refusée, si bien que le rejeu ne la refait pas comme réussie.
+   */
+  const checked = <A extends unknown[], R>(type: string, fn: (...a: A) => R, failed: (r: R) => string | null) => (...args: A): R => {
+    const r = cmd(type, fn)(...args);
+    const why = r === undefined ? null : failed(r);
+    if (why) setState(s => {
+      const entries = s.journal?.entries ?? [];
+      const last = entries[entries.length - 1];
+      if (!s.journal || !last || last.type !== type || last.refused) return s;
+      return { ...s, journal: { ...s.journal, entries: [...entries.slice(0, -1), { ...last, refused: why }] } };
+    });
+    return r;
+  };
+  /** Commandes qui rendent un message d'erreur, ou null si elles ont abouti. */
+  const failedWith = (r: unknown) => (typeof r === 'string' ? r : null);
   /** Transformation déclarative de la sélection (remplace les fonctions, non journalisables). */
   const transform = useCallback((ids: string[], op: TransformOp, label = 'Transformer') => transformObjects(ids, applyTransform(op), label), [transformObjects]);
   // Repartir de zéro commence un nouveau journal ; ouvrir un projet reprend le journal enregistré
@@ -1615,31 +1632,20 @@ export function useProject() {
   const resetWithJournal = useCallback(() => { reset(); setState(s => { const { journal: _j, ...rest } = s; void _j; return rest as ProjectState; }); }, [reset]);
 
   const commands = {
-    // Publication refusée (nom vide, aucune feuille) : l'entrée du journal est marquée refusée, si bien que le
-    // rejeu n'associe les dossiers figés qu'aux publications réussies.
-    publish: (name: string) => {
-      const err = cmd('publish', publish)(name);
-      if (err) setState(s => {
-        const entries = s.journal?.entries ?? [];
-        const last = entries[entries.length - 1];
-        if (!s.journal || !last || last.type !== 'publish' || last.refused) return s;
-        return { ...s, journal: { ...s.journal, entries: [...entries.slice(0, -1), { ...last, refused: err }] } };
-      });
-      return err;
-    },
-    createVariant: cmd('createVariant', createVariant), switchVariant: cmd('switchVariant', switchVariant),
-    removeVariant: cmd('removeVariant', removeVariant), mergeVariant: cmd('mergeVariant', mergeVariant),
-    addZone: cmd('addZone', addZone), updateZone: cmd('updateZone', updateZone), removeZone: cmd('removeZone', removeZone), setRoomZone: cmd('setRoomZone', setRoomZone),
-    addConstraint: cmd('addConstraint', addConstraint), removeConstraint: cmd('removeConstraint', removeConstraint), setConstraintExpr: cmd('setConstraintExpr', setConstraintExpr),
-    addParameter: cmd('addParameter', addParameter), updateParameter: cmd('updateParameter', updateParameter), removeParameter: cmd('removeParameter', removeParameter),
+    publish: checked('publish', publish, failedWith),
+    createVariant: checked('createVariant', createVariant, failedWith), switchVariant: checked('switchVariant', switchVariant, failedWith),
+    removeVariant: checked('removeVariant', removeVariant, failedWith), mergeVariant: checked('mergeVariant', mergeVariant, failedWith),
+    addZone: checked('addZone', addZone, failedWith), updateZone: checked('updateZone', updateZone, failedWith), removeZone: cmd('removeZone', removeZone), setRoomZone: cmd('setRoomZone', setRoomZone),
+    addConstraint: cmd('addConstraint', addConstraint), removeConstraint: cmd('removeConstraint', removeConstraint), setConstraintExpr: checked('setConstraintExpr', setConstraintExpr, failedWith),
+    addParameter: checked('addParameter', addParameter, failedWith), updateParameter: checked('updateParameter', updateParameter, failedWith), removeParameter: checked('removeParameter', removeParameter, failedWith),
     setActiveLevelId: cmd('setActiveLevelId', setActiveLevelId), addLevel: cmd('addLevel', addLevel), updateLevel: cmd('updateLevel', updateLevel),
-    removeLevel: cmd('removeLevel', removeLevel), copyLevel: cmd('copyLevel', copyLevel),
+    removeLevel: checked('removeLevel', removeLevel, r => (r === false ? 'niveau inconnu ou dernier niveau' : null)), copyLevel: checked('copyLevel', copyLevel, r => (r === null ? 'niveau source inconnu' : null)),
     setProfileId: cmd('setProfileId', setProfileId), setSurfaceRule: cmd('setSurfaceRule', setSurfaceRule),
     addSheet: cmd('addSheet', addSheet), updateSheet: cmd('updateSheet', updateSheet), removeSheet: cmd('removeSheet', removeSheet),
     addViewport: cmd('addViewport', addViewport), updateViewport: cmd('updateViewport', updateViewport), removeViewport: cmd('removeViewport', removeViewport),
     addObject: cmd('addObject', addObject), updateObject: cmd('updateObject', updateObject), removeObject: cmd('removeObject', removeObject), removeObjects: cmd('removeObjects', removeObjects),
-    combineSolids: cmd('combineSolids', combineSolids), addProjections: cmd('addProjections', addProjections), addElevations: cmd('addElevations', addElevations),
-    makePart: cmd('makePart', makePart), addOccurrence: cmd('addOccurrence', addOccurrence), setMate: cmd('setMate', setMate), addSolids: cmd('addSolids', addSolids), setGeoref: cmd('setGeoref', setGeoref),
+    combineSolids: checked('combineSolids', combineSolids, r => (r === false ? 'deux solides distincts attendus' : null)), addProjections: cmd('addProjections', addProjections), addElevations: cmd('addElevations', addElevations),
+    makePart: checked('makePart', makePart, r => (r === null ? 'solide attendu, pas déjà une pièce' : null)), addOccurrence: checked('addOccurrence', addOccurrence, r => (r === null ? 'pièce attendue, position finie' : null)), setMate: checked('setMate', setMate, failedWith), addSolids: cmd('addSolids', addSolids), setGeoref: checked('setGeoref', setGeoref, failedWith),
     transform: cmd('transform', transform), duplicateObjects: cmd('duplicateObjects', duplicateObjects), addCopies: cmd('addCopies', addCopies),
     applyEdit: cmd('applyEdit', applyEdit), applyPatches: cmd('applyPatches', applyPatches), groupObjects: cmd('groupObjects', groupObjects), ungroupObjects: cmd('ungroupObjects', ungroupObjects),
     addLayer: cmd('addLayer', addLayer), updateLayer: cmd('updateLayer', updateLayer), removeLayer: cmd('removeLayer', removeLayer), setActiveLayerId: cmd('setActiveLayerId', setActiveLayerId),

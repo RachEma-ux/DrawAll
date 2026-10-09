@@ -635,3 +635,14 @@ describe('relecture 48e passe : îlots sur le niveau de leur contour', () => {
     expect(validateCommand('addObject', [outer], [circle('I', 10, 'NIV-0001')], undefined, P2)).toBeNull();
   });
 });
+
+describe('relecture 49e passe : faces libres et congé sans arête', () => {
+  const solid = (recipe: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe }], []);
+  it('recette « faces » : réservée à la maquette du bâtiment', () => {
+    expect(solid({ op: 'polyhedron', faces: [[[0, 0, 0], [1, 0, 0], [0, 1, 0]]] })).toBe('solide : recette « faces » réservée à la maquette du bâtiment (aucun volume fermé garanti)');
+    expect(solid({ op: 'translate', by: [1, 0, 0], of: { op: 'polyhedron', faces: [[[0, 0, 0], [1, 0, 0], [0, 1, 0]]] } })).toBe('solide : recette « faces » réservée à la maquette du bâtiment (aucun volume fermé garanti)');
+  });
+  it('congé avec une liste d’arêtes vide : refusé', () => {
+    expect(solid({ op: 'fillet', of: { op: 'box', x: 10, y: 10, z: 10, name: 'B' }, r: 1, edges: [] })).toBe('solide : congé : au moins une arête désignée (ou aucune liste : toutes les arêtes)');
+  });
+});

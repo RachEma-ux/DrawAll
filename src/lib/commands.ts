@@ -387,8 +387,10 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     // (il ne doit pas faire passer l'objet pour celui qu'il désigne, ex. détenteur d'un repère de pièce).
     const { id: _id, ...fresh } = n as Record<string, unknown>;
     void _id;
-    // Solide STEP : seul l'import (qui le fait relire par le noyau) en crée ; un script ne peut pas en fournir.
-    if (hasStep(fresh.recipe)) return 'solide : recette STEP réservée à l’import (Fichier › Importer STEP)';
+    // Solide STEP : seul l'import (qui le fait relire par le noyau) en crée ; un script ne peut pas en fournir,
+    // pas plus que des faces libres (opération interne de la maquette du bâtiment).
+    const reserved = reservedOpError(fresh.recipe);
+    if (reserved) return `solide : ${reserved}`;
     return objectShapeError(fresh) ?? referenceError(fresh, ctx);
   },
   updateObject: ([id, patch], ctx) => {
@@ -404,7 +406,8 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     const current = objects.find(o => o.id === id) as unknown as Record<string, unknown>;
     if ('kind' in p && p.kind !== current.kind) return 'modification : le type d’un objet ne change pas';
     if ('id' in p && p.id !== id) return 'modification : l’identifiant ne change pas';
-    if ('recipe' in p && hasStep(p.recipe) && JSON.stringify(p.recipe) !== JSON.stringify(current.recipe)) return 'modification : recette STEP réservée à l’import (Fichier › Importer STEP)';
+    const reserved = 'recipe' in p && JSON.stringify(p.recipe) !== JSON.stringify(current.recipe) ? reservedOpError(p.recipe) : null;
+    if (reserved) return `modification : ${reserved}`;
     // Objet d'un calque verrouillé : intouchable, comme dans l'atelier.
     if (ctx.lockedLayerIds?.has(current.layerId as string)) return `modification : calque ${String(current.layerId)} verrouillé`;
     // Fond de plan verrouillé : seul son déverrouillage est permis.
@@ -566,11 +569,18 @@ export function mergedReferenceError(merged: StateLike, ours: StateLike, theirs:
 }
 
 /** Une recette contient-elle un solide STEP importé (données non vérifiables sans le noyau) ? */
-function hasStep(r: unknown, depth = 0): boolean {
+/** La recette contient-elle l'opération `op` (à n'importe quelle profondeur) ? */
+function hasOp(r: unknown, op: string, depth = 0): boolean {
   if (!r || typeof r !== 'object' || depth > 200) return false;
   const x = r as Record<string, unknown>;
-  if (x.op === 'step') return true;
-  return ['a', 'b', 'of'].some(k => hasStep(x[k], depth + 1)) || (Array.isArray(x.parts) && x.parts.some(p => hasStep(p, depth + 1)));
+  if (x.op === op) return true;
+  return ['a', 'b', 'of'].some(k => hasOp(x[k], op, depth + 1)) || (Array.isArray(x.parts) && x.parts.some(p => hasOp(p, op, depth + 1)));
+}
+/** Opérations internes, jamais fournies par un script : STEP (import relu par le noyau), faces libres (maquette du bâtiment, sans volume fermé garanti). */
+function reservedOpError(r: unknown): string | null {
+  if (hasOp(r, 'step')) return 'recette STEP réservée à l’import (Fichier › Importer STEP)';
+  if (hasOp(r, 'polyhedron')) return 'recette « faces » réservée à la maquette du bâtiment (aucun volume fermé garanti)';
+  return null;
 }
 
 export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[]; versions?: number; partMarks?: Map<number, string[]>; activeLevelId?: string }): string | null {

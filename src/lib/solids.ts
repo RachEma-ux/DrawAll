@@ -343,6 +343,8 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
           if (r.op === 'pushpull' && s.support.kind !== 'plane') return `pousser / tirer : face ${f.feature}.${f.role} non plane`;
         }
       }
+      // Liste d'arêtes donnée mais vide : rien à arrondir (sans liste, ce sont toutes les arêtes).
+      if (r.op === 'fillet' && r.edges && !r.edges.length) return 'congé : au moins une arête désignée (ou aucune liste : toutes les arêtes)';
       const inner = recipeProfileError(r.of, depth + 1);
       if (inner || r.op === 'pushpull') return inner;
       // Bornes sûres, tirées de l'encombrement de la recette d'entrée (le reste est vérifié par le
