@@ -2,9 +2,9 @@
 // arguments sérialisables (JSON), validée avant exécution et journalisée. La palette, l'interface et
 // les scripts passent tous par elle (le magasin du projet n'expose que des commandes). Rejouer le
 // journal depuis son état de base reproduit le projet. Fonctions pures.
-import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OpeningObj, type RoofObj } from '@/types/cad';
+import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, withDependents, type CadObject, type CutObj, type DimensionStyle, type Layer, type MicroVersion, type OccurrenceObj, type OpeningObj, type RoofObj } from '@/types/cad';
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
-import { isMate } from './assembly';
+import { isMate, placeMate, type Mate } from './assembly';
 import { isIfcClass, normalizePsets } from './properties';
 import { isRecipe, recipeProfileError } from './solids';
 import { isValidSpline, type SplineGeom } from './spline';
@@ -263,6 +263,11 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
     // Cible : une autre occurrence ou une pièce (solide défini comme pièce), comme dans l'atelier.
     const target = byId.get(mate.to as string);
     if (!(target?.kind === 'occurrence' || (target?.kind === 'solid' && !!target.partDef))) return `occurrence : liaison vers ${String(mate.to)} absente`;
+    // Liaison réalisable (faces existantes et compatibles), comme dans l'atelier : sinon elle serait
+    // enregistrée sans jamais placer l'occurrence.
+    const self = { ...c, id: (o.id as string | undefined) ?? '__nouvelle__' } as CadObject;
+    const placed = placeMate(self as OccurrenceObj, mate as Mate, [...objects.filter(x => x.id !== self.id), self]);
+    if ('error' in placed) return `occurrence : liaison impossible (${placed.error})`;
   }
   return null;
 }

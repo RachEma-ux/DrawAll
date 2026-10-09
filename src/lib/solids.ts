@@ -312,6 +312,17 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
       return up || down ? null : 'lissage : les cotes des sections doivent croître (ou décroître) strictement';
     }
     case 'compound': { for (const p of r.parts) { const e = recipeProfileError(p, depth + 1); if (e) return e; } return null; }
+    // Faces désignées (pousser / tirer, coque, congé d'arêtes) : nommées dans la recette d'entrée,
+    // sinon le noyau ne saurait pas les retrouver (référence « à réparer » dès la création).
+    case 'pushpull': case 'shell': case 'fillet': {
+      const label = r.op === 'pushpull' ? 'pousser / tirer' : r.op === 'shell' ? 'coque' : 'congé';
+      const faces = r.op === 'pushpull' ? [r.face] : r.op === 'shell' ? (r.open === undefined ? [] : Array.isArray(r.open) ? r.open : [r.open]) : (r.edges ?? []).flatMap(e => e.faces);
+      if (faces.length) {
+        const supports = featureSupports(r.of);
+        for (const f of faces) { const s = supportOf(supports, f); if ('reason' in s) return `${label} : face ${f.feature}.${f.role} introuvable (${s.reason})`; }
+      }
+      return recipeProfileError(r.of, depth + 1);
+    }
     default:
       if ('a' in r) return recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);
       if ('of' in r) return recipeProfileError(r.of, depth + 1);

@@ -24,4 +24,13 @@ describe('fusion : graphe des paramètres revalidé', () => {
     expect(mergedParameterError(p('b + 1', '2'), p('b + 1', '1'), p('1', '2'))).toBeNull();
     expect(mergedParameterError(p('c', '2'), p('c', '2'), p('1', '2'))).toBeNull();
   });
+
+  it('même nom ajouté dans chaque variante : fusion refusée', () => {
+    const base = v(0, []);
+    const ours = v(1, [P('PAR-0001', 'e', '200')]);
+    const theirs = v(2, [P('PAR-0002', 'e', '300')]);
+    const out = resolve(merge3(base, ours, theirs), {});
+    if ('error' in out) throw new Error(out.error);
+    expect(mergedParameterError(out.parameters, ours.parameters, theirs.parameters)).toBe('Fusion refusée : deux paramètres portent le nom e (PAR-0001 et PAR-0002) ; renommez-en un avant de fusionner');
+  });
 });

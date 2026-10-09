@@ -364,3 +364,23 @@ describe('relecture 29e passe : échelle de bloc, cotes de lissage', () => {
   });
 });
 
+describe('relecture 30e passe : faces désignées, liaisons réalisables', () => {
+  const box = { op: 'box', x: 100, y: 100, z: 100, name: 'B' };
+  const solid = (recipe: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe }], []);
+  it('pousser / tirer, coque, congé : faces nommées dans la recette d’entrée', () => {
+    expect(solid({ op: 'pushpull', of: box, face: { feature: 'B', role: 'zmax' }, distance: 10 })).toBeNull();
+    expect(solid({ op: 'pushpull', of: box, face: { feature: 'X', role: 'zmax' }, distance: 10 })).toBe('solide : pousser / tirer : face X.zmax introuvable (fonction « X » absente de la recette)');
+    expect(solid({ op: 'shell', of: box, thickness: 5, open: { feature: 'B', role: 'haut' } })).toBe('solide : coque : face B.haut introuvable (rôle « haut » absent de la fonction « B »)');
+    expect(solid({ op: 'fillet', of: box, r: 5, edges: [{ faces: [{ feature: 'B', role: 'zmax' }, { feature: 'B', role: 'q' }] }] })).toBe('solide : congé : face B.q introuvable (rôle « q » absent de la fonction « B »)');
+    expect(solid({ op: 'fillet', of: box, r: 5 })).toBeNull();
+  });
+  it('liaison coaxiale ou d’appui : faces existantes et compatibles', () => {
+    const part = { ...line, id: 'P', kind: 'solid', recipe: { op: 'cylinder', r: 10, h: 50, name: 'C' }, partDef: { no: 1, origin: [0, 0, 0], angle: 0 } } as unknown as CadObject;
+    const occ = { kind: 'occurrence', classification: 'non-classifie', sourceId: 'P', x: 100, y: 0, z: 0, angle: 0 };
+    const add = (mate: unknown) => validateCommand('addObject', [{ ...occ, mate }], [part]);
+    expect(add({ type: 'coaxiale', to: 'P', face: { feature: 'C', role: 'wall' }, toFace: { feature: 'C', role: 'wall' } })).toBeNull();
+    expect(add({ type: 'coaxiale', to: 'P', face: { feature: 'Z', role: 'wall' }, toFace: { feature: 'C', role: 'wall' } })).toMatch(/^occurrence : liaison impossible \(/);
+    expect(add({ type: 'coaxiale', to: 'P', face: { feature: 'C', role: 'base' }, toFace: { feature: 'C', role: 'wall' } })).toBe('occurrence : liaison impossible (liaison coaxiale : deux faces cylindriques attendues)');
+  });
+});
+

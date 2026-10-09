@@ -335,6 +335,13 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
  * Renvoie l'erreur d'un paramètre en erreur après fusion qui ne l'était dans aucune des deux variantes.
  */
 export function mergedParameterError(merged: Parameter[] | undefined, ours: Parameter[] | undefined, theirs: Parameter[] | undefined): string | null {
+  // Deux paramètres de même nom (ajoutés chacun dans sa variante) : lequel piloterait les cotes ?
+  const seen = new Map<string, string>();
+  for (const p of merged ?? []) {
+    const other = seen.get(p.name);
+    if (other) return `Fusion refusée : deux paramètres portent le nom ${p.name} (${other} et ${p.id}) ; renommez-en un avant de fusionner`;
+    seen.set(p.name, p.id);
+  }
   const after = resolveParameters(merged ?? []).errors;
   if (!after.size) return null;
   const before = new Set([...resolveParameters(ours ?? []).errors.keys(), ...resolveParameters(theirs ?? []).errors.keys()]);
