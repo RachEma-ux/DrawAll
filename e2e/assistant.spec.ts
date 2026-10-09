@@ -115,3 +115,31 @@ test('relecture 55e passe — variante changée entre l’aperçu et l’accord 
   expect(await currentObjects(page)).toEqual(before);
   expect(errors).toEqual([]);
 });
+
+test('relecture 62e passe — projet remplacé (paquet restauré, contenu identique) entre l’aperçu et l’accord : rien n’est exécuté', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'palette de commandes au clavier');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'line', x1: 0, y1: 0, x2: 4000, y2: 0 }]);
+  // Paquet du projet tel quel.
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Rechercher un outil/).fill('exporter le paquet');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByText('Exporter le paquet du projet').click()]);
+  const path = (await download.path())!;
+  // Restauré une première fois : le projet a dès lors exactement la forme d'un projet restauré.
+  page.once('dialog', d => d.accept());
+  await page.locator('input[aria-label="Fichier du paquet DrawAll"]').setInputFiles(path);
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(1);
+  const before = await currentObjects(page);
+  const dlg = await openAssistant(page);
+  await dlg.getByLabel('Demande').fill('grille de 2 x 2 poteaux 300 x 300 mm entraxe 5 m');
+  await dlg.getByRole('button', { name: 'Proposer' }).click();
+  await expect(dlg.getByRole('region', { name: 'Proposition' })).toHaveAttribute('data-statut', 'ready');
+  // Le même projet, restauré depuis son paquet : même contenu, mais un autre chargement.
+  page.once('dialog', d => d.accept());
+  await page.locator('input[aria-label="Fichier du paquet DrawAll"]').setInputFiles(path);
+  await expect.poll(async () => (await currentObjects(page)).length).toBe(1);
+  await dlg.getByRole('button', { name: 'Accepter et exécuter' }).click();
+  await expect(dlg.getByRole('status')).toContainText('Le projet a changé depuis l’aperçu : rien n’a été exécuté.');
+  expect(await currentObjects(page)).toEqual(before);
+  expect(errors).toEqual([]);
+});
