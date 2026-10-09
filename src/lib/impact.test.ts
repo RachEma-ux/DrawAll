@@ -97,3 +97,13 @@ describe('relecture 54e passe : contour dont un îlot est touché', () => {
     expect(impactOf(['C2'], 'suppression', c).affected.map(x => x.id)).toContain('C1');
   });
 });
+
+describe('relecture 56e passe : façades et coupes recalculées', () => {
+  it('mur modifié ou supprimé : façade et coupe annoncées ; trait modifié : non', () => {
+    const facade = { ...base, id: 'E1', name: 'Façade', kind: 'elevation', view: 'sud', x: 0, y: 8000 } as unknown as CadObject;
+    const c = { ...ctx, objects: [...objects, facade] };
+    expect(impactOf(['W2'], 'modification', c).affected.map(x => [x.id, x.reason])).toContainEqual(['E1', 'façade recalculée (W2)']);
+    expect(impactOf(['W2'], 'suppression', c).affected.map(x => x.id)).toContain('E1');
+    expect(impactOf(['L1'], 'modification', c).affected.map(x => x.id)).not.toContain('E1');
+  });
+});

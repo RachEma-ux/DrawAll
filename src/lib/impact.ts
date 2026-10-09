@@ -97,6 +97,12 @@ export function impactOf(ids: string[], mode: 'suppression' | 'modification', ct
     }
   }
 
+  // Façades et coupes : recalculées sur tout le bâtiment (tous niveaux), dès qu'un élément en volume
+  // (mur, dalle, poteau, poutre, toiture, solide, occurrence) est touché ou repositionné.
+  const VOLUME = new Set<CadObject['kind']>(['wall', 'slab', 'column', 'beam', 'roof', 'solid', 'occurrence']);
+  const volume = [...touched, ...affected.map(a => byId.get(a.id)!)].find(o => VOLUME.has(o.kind));
+  if (volume) for (const o of objects) if (o.kind === 'elevation') add(o, `${o.view === 'coupe' ? 'coupe' : 'façade'} recalculée (${volume.id})`);
+
   // Contraintes.
   const all = new Set([...touched.map(o => o.id), ...affected.map(a => a.id)]);
   const constraints = (ctx.constraints ?? []).filter(k => constraintObjects(k).some(id => all.has(id))).map(k => k.id);

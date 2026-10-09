@@ -659,3 +659,12 @@ describe('relecture 55e passe : modification annulée par les contraintes ou la 
     expect(updateSettledError('Q', { x: 500 }, [part, occ])).toMatch(/^modification : Q remis en place/);
   });
 });
+
+describe('relecture 56e passe : différence d’un solide par lui-même', () => {
+  it('opérandes identiques : refusé ; opérandes distincts : accepté', () => {
+    const solid = (recipe: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe }], []);
+    const cyl = { op: 'cylinder', r: 10, h: 50 };
+    expect(solid({ op: 'cut', a: cyl, b: cyl })).toBe('solide : différence vide (le solide retiré est le même que le premier)');
+    expect(solid({ op: 'cut', a: cyl, b: { op: 'cylinder', r: 5, h: 50 } })).toBeNull();
+  });
+});

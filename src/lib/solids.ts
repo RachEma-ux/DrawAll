@@ -381,6 +381,8 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
     case 'cut': {
       const e = recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);
       if (e) return e;
+      // Un solide moins lui-même (recettes identiques) : vide, à coup sûr.
+      if (JSON.stringify(r.a) === JSON.stringify(r.b)) return 'différence vide (le solide retiré est le même que le premier)';
       // Différence par un pavé qui contient tout le premier solide : vide, à coup sûr (le pavé est
       // exactement son encombrement).
       if (r.b.op === 'box') {
