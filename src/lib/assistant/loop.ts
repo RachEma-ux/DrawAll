@@ -101,7 +101,7 @@ export function dryRun(steps: ProposedStep[], ctx: AssistantContext): DryRun {
     if (!Array.isArray(s.args)) { errors.push(`${at} : arguments attendus`); return; }
     const closed = scriptCommandError(s.type, s.args);
     if (closed) { errors.push(`${at} : ${closed}`); return; }
-    const err = validateCommand(s.type, s.args, objects, ctx.layers, { levels: ctx.levels, blocks: ctx.blocks, zones: ctx.zones });
+    const err = validateCommand(s.type, s.args, objects, ctx.layers, { levels: ctx.levels, blocks: ctx.blocks, zones: ctx.zones, activeLevelId: ctx.activeLevelId });
     if (err) { errors.push(`${at} : ${err}`); return; }
     const prev = objects;
     if (s.type === 'addObject') {

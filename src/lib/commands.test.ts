@@ -471,3 +471,25 @@ describe('relecture 35e passe : révolution d’un seul côté de l’axe', () =
   });
 });
 
+describe('relecture 36e passe : niveau de l’ouverture, îlots et modifications vides après transformation', () => {
+  const w = (lvl?: string) => ({ ...line, id: 'W', kind: 'wall', x2: 3000, thickness: 200, justification: 'axe', ...(lvl ? { levelId: lvl } : {}) }) as unknown as CadObject;
+  const op = { classification: 'non-classifie', layerId: 'LAY-0001', kind: 'opening', hostId: 'W', type: 'fenetre', position: 1000, width: 900 };
+  const P2 = { levels: [{ id: 'NIV-0001' }, { id: 'NIV-0002' }] };
+  it('ouverture sur le niveau de son mur (niveau donné, ou niveau actif à la création)', () => {
+    expect(validateCommand('addObject', [{ ...op, levelId: 'NIV-0002' }], [w('NIV-0002')], undefined, P2)).toBeNull();
+    expect(validateCommand('addObject', [{ ...op, levelId: 'NIV-0001' }], [w('NIV-0002')], undefined, P2)).toBe('ouverture : niveau NIV-0001 différent de celui du mur W (NIV-0002)');
+    expect(validateCommand('addObject', [op], [w('NIV-0002')], undefined, { ...P2, activeLevelId: 'NIV-0002' })).toBeNull();
+    expect(validateCommand('addObject', [op], [w('NIV-0002')], undefined, { ...P2, activeLevelId: 'NIV-0001' })).toBe('ouverture : niveau NIV-0001 différent de celui du mur W (NIV-0002)');
+  });
+  it('transformation : îlot laissé hors du contour, modification vide d’un objet qui suit son parent', () => {
+    const rect = { ...line, id: 'R', kind: 'rect', x: 0, y: 0, w: 100, h: 100, holes: ['D'] } as unknown as CadObject;
+    const disc = { ...line, id: 'D', kind: 'circle', cx: 50, cy: 50, r: 10 } as unknown as CadObject;
+    expect(transformTargetsError(['R'], { kind: 'move', dx: 500, dy: 0 }, [rect, disc], [])).toBe('D ne serait plus un îlot de R (hors du contour)');
+    expect(transformTargetsError(['R', 'D'], { kind: 'move', dx: 500, dy: 0 }, [rect, disc], [])).toBeNull();
+    expect(transformTargetsError(['R'], { kind: 'move', dx: 5, dy: 0 }, [rect, disc], [])).toBeNull();
+    const opening = { ...line, ...op, id: 'O' } as unknown as CadObject;
+    expect(transformTargetsError(['O'], { kind: 'move', dx: 10, dy: 0 }, [w(), opening], [])).toBe('O non transformable (il suit son parent ; transformer aussi W)');
+    expect(transformTargetsError(['W', 'O'], { kind: 'move', dx: 10, dy: 0 }, [w(), opening], [])).toBeNull();
+  });
+});
+

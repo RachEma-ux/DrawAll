@@ -13,7 +13,7 @@ import { cutView } from './cuts';
 import { roofError, roofInput } from './roof';
 import { openingFits } from './opening';
 import { containedContours } from './hatch';
-import { levelsOf } from './levels';
+import { levelIdOf, levelsOf } from './levels';
 import { slabContour } from './slab';
 
 /** Transformation déclarative (remplace les fonctions, non sérialisables). */
@@ -51,6 +51,8 @@ export function transformTargetsError(list: string[], op: TransformOp, objects: 
       : o.kind === 'underlay' && o.locked ? 'fond de plan verrouillé'
       : f(o) ? null : 'opération impossible pour ce type d’objet';
     if (why) return `${id} non transformable (${why})`;
+    // Modification vide : l'objet suit son parent (ouverture, occurrence…) ; seul, il ne bougerait pas.
+    if (Object.keys(f(o)!).length === 0 && !parentsOf(o).some(p => ids.has(p))) return `${id} non transformable (il suit son parent ; transformer aussi ${parentsOf(o).join(', ') || 'son parent'})`;
     // L'objet transformé reste complet (une échelle infime arrondit ses dimensions à zéro…).
     const shape = objectShapeError(o as unknown as Record<string, unknown>) ? null : objectShapeError({ ...o, ...f(o) } as unknown as Record<string, unknown>);
     if (shape) return `${id} non transformable (${shape})`;
@@ -63,6 +65,15 @@ export function transformTargetsError(list: string[], op: TransformOp, objects: 
     if (host?.kind !== 'wall' || !(ids.has(op.id) || ids.has(host.id))) continue;
     const e = openingFits(moved(op) as OpeningObj, moved(host) as WallObj);
     if (e) return `${op.id} ne tiendrait plus dans ${host.id} (${e})`;
+  }
+  // Îlots de hachure : chaque îlot reste contenu dans son contour transformé (s'il l'était avant).
+  const after = objects.map(moved);
+  for (const o of objects) {
+    if (!o.holes?.length || !(ids.has(o.id) || o.holes.some(h => ids.has(h)))) continue;
+    const before = new Set(containedContours(o, objects));
+    const inside = new Set(containedContours(moved(o), after));
+    const bad = o.holes.find(h => before.has(h) && !inside.has(h));
+    if (bad) return `${bad} ne serait plus un îlot de ${o.id} (hors du contour)`;
   }
   return null;
 }
@@ -226,13 +237,13 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
 /** Type attendu de l'objet désigné, pour les références typées (ouverture → mur, occurrence → pièce…). */
 const REF_KIND: Partial<Record<string, string>> = { opening: 'wall', occurrence: 'solid', projection: 'solid' };
 
-type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; lockedLayerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string>; versions?: number; partMarks?: Map<number, string[]> };
+type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; lockedLayerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string>; versions?: number; partMarks?: Map<number, string[]>; activeLevelId?: string };
 
 /**
  * Références d'un objet : niveau, définition de bloc, objets désignés (parent, repère de coupe, cible
  * d'une liaison) présents et du bon type. Un objet orphelin serait enregistré sans être jamais dessiné.
  */
-function referenceError(o: Record<string, unknown>, { objects, levelIds, blockIds, zoneIds, partMarks }: Ctx): string | null {
+function referenceError(o: Record<string, unknown>, { objects, levelIds, blockIds, zoneIds, partMarks, activeLevelId }: Ctx): string | null {
   const kind = o.kind as string;
   if (o.levelId !== undefined && levelIds && !(str(o.levelId) && levelIds.has(o.levelId as string))) return `${kind} : niveau ${String(o.levelId)} absent`;
   if (kind === 'blockRef' && blockIds && !blockIds.has(o.blockId as string)) return `blockRef : bloc ${String(o.blockId)} absent`;
@@ -267,8 +278,15 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
   if (kind === 'cut') { const r = cutView(o as unknown as CutObj, byId.get(o.sourceId as string), byId.get(o.markId as string), objects, 1, 1); if (!r.ok) return `coupe : ${r.error}`; }
   // Vues liées : la source doit offrir une face fermée.
   if (kind === 'views') { const src = byId.get(o.sourceId as string); if (src && !faceOf(src, objects)) return `vues : ${src.id} n’offre pas de face fermée`; }
-  // Ouverture : elle tient dans son mur, comme à la pose dans l'atelier.
-  if (kind === 'opening') { const w = byId.get(o.hostId as string); const e = w?.kind === 'wall' ? openingFits(o as unknown as OpeningObj, w) : null; if (e) return `ouverture : ${e}`; }
+  // Ouverture : elle tient dans son mur, comme à la pose dans l'atelier, et sur le même niveau.
+  if (kind === 'opening') {
+    const w = byId.get(o.hostId as string);
+    const e = w?.kind === 'wall' ? openingFits(o as unknown as OpeningObj, w) : null;
+    if (e) return `ouverture : ${e}`;
+    // Niveau de l'ouverture : le sien, sinon (création sans niveau) le niveau actif où elle sera posée.
+    const level = (o.levelId as string | undefined) ?? (o.id === undefined ? activeLevelId : undefined);
+    if (w && levelIdOf({ levelId: level }) !== levelIdOf(w)) return `ouverture : niveau ${levelIdOf({ levelId: level })} différent de celui du mur ${w.id} (${levelIdOf(w)})`;
+  }
   // Cote : la cible accepte ce style (ligne, rectangle, polyligne, cercle ou arc).
   if (kind === 'dimension') {
     const t = byId.get(o.targetId as string);
@@ -492,11 +510,11 @@ function hasStep(r: unknown, depth = 0): boolean {
   return ['a', 'b', 'of'].some(k => hasStep(x[k], depth + 1)) || (Array.isArray(x.parts) && x.parts.some(p => hasStep(p, depth + 1)));
 }
 
-export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[]; versions?: number; partMarks?: Map<number, string[]> }): string | null {
+export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[]; versions?: number; partMarks?: Map<number, string[]>; activeLevelId?: string }): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];
   const ids = (l: { id: string }[] | undefined) => (l ? new Set(l.map(x => x.id)) : undefined);
-  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), lockedLayerIds: layers ? new Set(layers.filter(l => l.locked).map(l => l.id)) : undefined, levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones), versions: project?.versions, partMarks: project?.partMarks }) : null;
+  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), lockedLayerIds: layers ? new Set(layers.filter(l => l.locked).map(l => l.id)) : undefined, levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones), versions: project?.versions, partMarks: project?.partMarks, activeLevelId: project?.activeLevelId }) : null;
 }
 
 /** Empreinte comparable d'une version : contenu du projet, sans horodatage ni libellé. */
