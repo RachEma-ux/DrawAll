@@ -505,7 +505,9 @@ function Workbench() {
       }
       result = parseDxf(text, { ...options, sourceUnit: unit.key });
     }
-    const count = project.importObjects(result.objects, result.layers, `Importer ${file.name}`, result.blocks);
+    const imported = project.importObjects(result.objects, result.layers, `Importer ${file.name}`, result.blocks);
+    if (typeof imported !== 'number') { window.alert(`Import DXF refusé : ${imported ?? 'commande refusée'}.`); return; }
+    const count = imported;
     const notes = result.warnings.filter(w => !w.startsWith('Entités DXF ignorées') && !w.startsWith('Le fichier ne déclare pas'));
     window.alert([formatExchangeReport(`Import DXF — ${file.name} (${count} objet${count > 1 ? 's' : ''})`, result.report), ...notes].join('\n'));
     if (count > 0) setMode('atelier');

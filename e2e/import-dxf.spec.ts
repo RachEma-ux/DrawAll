@@ -40,3 +40,21 @@ test('lot 6.3 — l’import DWG se trouve dans la palette de commandes et sur l
   if (await menu.isVisible().catch(() => false)) await menu.click();
   await expect(page.getByRole('button', { name: 'Importer DXF / DWG' })).toBeVisible();
 });
+
+test('relecture 64e passe — DXF vers un calque verrouillé du projet : import refusé, rien d’ajouté', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'panneau des calques : recette bureau');
+  const errors = await openAtelier(page);
+  const before = await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return s.versions[s.pointer].objects.length; });
+  const lock = page.getByTitle('Verrouiller', { exact: true });
+  while (await lock.count()) await lock.first().click();
+  let message = '';
+  page.on('dialog', d => { message = d.message(); void d.accept(); });
+  // Une ligne sur le calque « Dessin libre », homonyme d'un calque du projet (verrouillé).
+  const dxf = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES',
+    '0', 'LINE', '8', 'Dessin libre', '10', '0', '20', '0', '11', '1000', '21', '0', '0', 'ENDSEC', '0', 'EOF'].join('\n');
+  await page.locator('input[type="file"][accept*=".dxf"]').setInputFiles({ name: 'ligne.dxf', mimeType: 'application/dxf', buffer: Buffer.from(dxf, 'latin1') });
+  await expect.poll(() => message).toContain('Import DXF refusé : calque Dessin libre verrouillé');
+  const after = await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!); return s.versions[s.pointer].objects.length; });
+  expect(after).toBe(before);
+  expect(errors).toEqual([]);
+});

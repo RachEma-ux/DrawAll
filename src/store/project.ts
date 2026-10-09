@@ -1137,7 +1137,8 @@ export function useProject() {
     return id;
   }, [blocks, state.counter, activeLayerId, current.seq, allObjects, commit, setSelectedId, stampLevel]);
 
-  const importObjects = useCallback((importedObjects: CadObject[], importedLayers: Layer[], label = 'Importer DXF', importedBlocks: BlockDef[] = []) => {
+  /** Rend le nombre d'objets importés, ou un message si l'import est refusé (calque verrouillé). */
+  const importObjects = useCallback((importedObjects: CadObject[], importedLayers: Layer[], label = 'Importer DXF', importedBlocks: BlockDef[] = []): number | string => {
     if (importedObjects.length === 0) return 0;
     const mergedLayers = [...layers];
     for (const layer of importedLayers) {
@@ -1157,6 +1158,10 @@ export function useProject() {
     } as CadObject));
     // Blocs importés (lot 6.1) : leurs primitives suivent la même correspondance de calques.
     const newBlocks = importedBlocks.map(b => ({ ...b, primitives: b.primitives.map(p => ({ ...p, layerId: layerIdAlias.get(p.layerId) ?? p.layerId })) }));
+    // Aucun objet importé (ni primitive de bloc) sur un calque verrouillé du projet : import refusé.
+    const locked = [...stamped.map(o => o.layerId), ...newBlocks.flatMap(b => b.primitives.map(p => p.layerId))]
+      .map(id => mergedLayers.find(l => l.id === id)).find(l => l?.locked);
+    if (locked) return `calque ${locked.name} verrouillé : déverrouillez-le pour importer`;
     commit(label, {
       objects: [...allObjects, ...stamped],
       layers: mergedLayers,
@@ -1697,7 +1702,7 @@ export function useProject() {
     addBom: cmd('addBom', addBom), addUnderlay: cmd('addUnderlay', addUnderlay), // Date fixée avant la journalisation : le rejeu redonne la même note, date comprise.
     addNote: (x: number, y: number, text: string, targetId?: string, time?: number) => cmd('addNote', addNote)(x, y, text, targetId, time ?? Date.now()), addNotePhoto: cmd('addNotePhoto', addNotePhoto),
     removeNotePhoto: cmd('removeNotePhoto', removeNotePhoto), createBlockFromObject: cmd('createBlockFromObject', createBlockFromObject), insertBlock: cmd('insertBlock', insertBlock),
-    importObjects: cmd('importObjects', importObjects), removeBlock: cmd('removeBlock', removeBlock), addLibraryBlock: cmd('addLibraryBlock', addLibraryBlock),
+    importObjects: checked('importObjects', importObjects, failedWith), removeBlock: cmd('removeBlock', removeBlock), addLibraryBlock: cmd('addLibraryBlock', addLibraryBlock),
     // Sans argument : un bouton qui passe son événement ne fait pas refuser la commande.
     undo: () => cmd('undo', undo)(), redo: () => cmd('redo', redo)(), goTo: cmd('goTo', goTo), nameVersion: cmd('nameVersion', nameVersion), issueIndex: cmd('issueIndex', issueIndex),
   };
