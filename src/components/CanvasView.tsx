@@ -52,6 +52,8 @@ import { pickElement, type Pick } from '@/lib/constraints/model';
 import { slabAsPolyline } from '@/lib/slab';
 import { roofInput, roofPrimitives } from '@/lib/roof';
 import { structurePrimitives } from '@/lib/structure';
+import { effectiveSolid, solidPrimitives } from '@/lib/solids';
+import { VIEW_LABEL, elevationLabel, placedAny, viewPrimitives } from '@/lib/projection';
 import { fromMm, parseLength, parsePointInput, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { effectiveStyle, screenDash, screenWidth } from '@/lib/linestyle';
 import { PAPER_DIMENSION_STYLE, arrowHead, dashInModel, dimensionTextPosition, paperToModelSize, strokeInModel } from '@/lib/annotation';
@@ -117,6 +119,8 @@ interface Props {
   onCorner: (mode: 'fillet' | 'chamfer', first: { id: string; x: number; y: number }, second: { id: string; x: number; y: number }) => void;
   /** Décaler (lot 10.4) : objet désigné puis côté désigné. */
   onOffset?: (id: string, side: { x: number; y: number }) => void;
+  /** Surimpression des changements d'une autre variante (lot 14.2). */
+  diffOverlay?: { id: string; kind: 'ajouté' | 'modifié' | 'supprimé'; minX: number; minY: number; maxX: number; maxY: number }[];
   /** Couleur de zone des pièces (lot 13.3). */
   zoneColors?: Map<string, string>;
   /** Dalle (lot 13.1) : depuis la pièce sous le point, ou contour tracé point par point. */
@@ -161,6 +165,8 @@ interface Props {
   onCursor: (x: number | null, y: number | null) => void;
   onSnapChange: (snap: SnapPoint | null) => void;
   onZoomChange: (k: number) => void;
+  /** Ouvre la vue 3D (lot 15.1). */
+  onOpen3d?: () => void;
 }
 
 
@@ -189,10 +195,13 @@ function pathLength(p: number[]): number {
 const MIN_LENGTH = 1e-6;
 /** Déplacement minimal de la souris pour qu'un tracé soit pris en compte (pixels écran). */
 const DRAG_THRESHOLD_PX = 3;
+/** Zoom minimal (px écran par mm) : 1 000 px montrent 200 m, un bâtiment industriel entier (lot 19.2). */
+const MIN_ZOOM = 0.005;
 /** Main levée (lot 10.6) : écart maximal du tracé simplifié au geste, en pixels d'écran. */
 const FREEHAND_TOLERANCE_PX = 1.5;
 
 export default function CanvasView({
+  onOpen3d,
   objects,
   underlay,
   layers,
@@ -221,6 +230,7 @@ export default function CanvasView({
   onAddRoof,
   onAddColumn,
   onAddBeam,
+  diffOverlay,
   zoneColors,
   constraintMarks,
   constraintPicks,
@@ -769,7 +779,7 @@ export default function CanvasView({
     const r = ref.current!.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     setTf(t => {
-      const k = Math.min(12, Math.max(0.08, t.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+      const k = Math.min(12, Math.max(MIN_ZOOM, t.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
       const wx = (mx - t.x) / t.k, wy = (my - t.y) / t.k;
       return { k, x: mx - wx * k, y: my - wy * k };
     });
@@ -995,7 +1005,7 @@ export default function CanvasView({
       const r = ref.current!.getBoundingClientRect();
       const p = pinchState();
       const { tf0, d0, mx, my } = pinch.current;
-      const k = Math.min(12, Math.max(0.08, tf0.k * (p.d / d0)));
+      const k = Math.min(12, Math.max(MIN_ZOOM, tf0.k * (p.d / d0)));
       const wx = (mx - r.left - tf0.x) / tf0.k, wy = (my - r.top - tf0.y) / tf0.k;
       setTf({ k, x: p.mx - r.left - wx * k, y: p.my - r.top - wy * k });
       return;
@@ -1069,7 +1079,7 @@ export default function CanvasView({
     if (!base || !rect) return;
     // Marge proportionnelle : une marge fixe écraserait les zones basses (téléphone en paysage).
     const pad = Math.min(70, rect.width * 0.08, rect.height * 0.08);
-    const scaleFor = (b: typeof base) => Math.min(4, Math.max(0.08, Math.min(
+    const scaleFor = (b: typeof base) => Math.min(4, Math.max(MIN_ZOOM, Math.min(
       (rect.width - pad * 2) / Math.max(1, b.maxX - b.minX), (rect.height - pad * 2) / Math.max(1, b.maxY - b.minY))));
     // Annotations (nomenclature, repères, symboles) à taille papier fixe : leur emprise dépend du
     // zoom ; quelques passes suffisent à faire tenir le tableau entier.
@@ -1140,14 +1150,14 @@ export default function CanvasView({
         }}
       >
         <defs>
-          {/* Grille : trait fin au pas choisi, trait marqué tous les dix pas ; le trait fin
-              disparaît quand il deviendrait illisible (moins de 4 px entre deux lignes). */}
+          {/* Grille : trait fin au pas choisi, trait marqué tous les dix pas ; chacun disparaît
+              quand il deviendrait illisible (moins de 4 px entre deux lignes). */}
           <pattern id="grid-min" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
             <path d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} fill="none" stroke="#131c31" strokeWidth={0.5 / tf.k} />
           </pattern>
           <pattern id="grid-maj" width={gridSize * 10} height={gridSize * 10} patternUnits="userSpaceOnUse">
             {gridSize * tf.k >= 4 && <rect width={gridSize * 10} height={gridSize * 10} fill="url(#grid-min)" />}
-            <path d={`M ${gridSize * 10} 0 L 0 0 0 ${gridSize * 10}`} fill="none" stroke="#1c2947" strokeWidth={1 / tf.k} />
+            {gridSize * 10 * tf.k >= 4 && <path d={`M ${gridSize * 10} 0 L 0 0 0 ${gridSize * 10}`} fill="none" stroke="#1c2947" strokeWidth={1 / tf.k} />}
           </pattern>
           <pattern id="hatch-diagonal" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="8" stroke="#22d3ee" strokeWidth="1" opacity="0.45" />
@@ -1275,6 +1285,17 @@ export default function CanvasView({
               fill={m.state === 'conflit' ? '#f87171' : m.state === 'à réparer' ? '#fb923c' : m.state === 'redondante' ? '#94a3b8' : '#a78bfa'}
               fontFamily="ui-monospace, monospace" style={{ pointerEvents: 'none' }}>{m.glyph}</text>
           )))}
+          {diffOverlay?.map(d => {
+            // Ajouté vert, modifié ambre, supprimé rouge en pointillé ; marge de 4 px écran.
+            const m = 4 / tf.k, color = d.kind === 'ajouté' ? '#34d399' : d.kind === 'modifié' ? '#fbbf24' : '#f87171';
+            return (
+              <g key={`diff-${d.id}`} data-surimpression={d.kind} data-surimpression-id={d.id} style={{ pointerEvents: 'none' }}>
+                <rect x={d.minX - m} y={d.minY - m} width={d.maxX - d.minX + 2 * m} height={d.maxY - d.minY + 2 * m} fill={color} fillOpacity={0.08}
+                  stroke={color} strokeWidth={1.5 / tf.k} strokeDasharray={d.kind === 'supprimé' ? `${5 / tf.k} ${3 / tf.k}` : undefined} />
+                <text x={d.minX - m} y={d.minY - m - 3 / tf.k} fontSize={10 / tf.k} fill={color} fontFamily="ui-monospace, monospace">{d.kind}</text>
+              </g>
+            );
+          })}
           {constraintPicks?.map((p, i) => <circle key={`pick-${i}`} data-designe cx={p.x} cy={p.y} r={5 / tf.k} fill="none" stroke="#a78bfa" strokeWidth={1.5 / tf.k} />)}
           {freehand && freehand.length > 1 && (
             <polyline data-apercu-main-levee points={freehand.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#22d3ee" strokeWidth={1.5 / tf.k} strokeLinejoin="round" strokeLinecap="round" />
@@ -1354,6 +1375,11 @@ export default function CanvasView({
         <button onClick={() => { viewTouched.current = true; resetView(); }} className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
           100 %
         </button>
+        {onOpen3d && (
+          <button onClick={onOpen3d} title="Vue 3D du bâtiment" aria-label="Vue 3D" className="rounded-sm border border-border bg-[#0c1220]/90 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-cyan-300">
+            3D
+          </button>
+        )}
       </div>
 
       {(tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'arcCenter' || tool === 'ellipse' || tool === 'spline' || tool === 'stretch' || tool === 'polyline' || tool === 'area' || (tool === 'slab' && slabMode !== 'piece') || tool === 'roof' || tool === 'column' || tool === 'beam' || tool === 'pdim' || tool === 'wall' || tool === 'symbol' || tool === 'measure' || tool === 'dimension' || tool === 'block' || tool === 'text') && (
@@ -1469,6 +1495,34 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   if (obj.kind === 'column' || obj.kind === 'beam') {
     // Poteau coupé (section pleine), poutre au-dessus du plan de coupe (traits interrompus) (lot 13.4).
     return <g data-structure={obj.id}>{structurePrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
+  }
+  if (obj.kind === 'projection' || obj.kind === 'elevation') {
+    // Vue projetée (lot 16.1), façade ou coupe (lot 16.2) : arêtes du noyau ; cadre en attendant le calcul.
+    const v = placedAny(obj, objects);
+    if (!v) return null;
+    const label = obj.kind === 'projection' ? VIEW_LABEL[obj.view] : elevationLabel(obj, objects);
+    return (
+      <g data-projection={obj.id} data-vue={obj.view} data-etat={v.state} data-vues={v.visible.length} data-cachees={v.hidden.length}>
+        {v.state !== 'prête' && <rect x={v.frame.x} y={v.frame.y} width={v.frame.w} height={v.frame.h} fill="none" stroke="#64748b" strokeDasharray={`${4 / zoom} ${4 / zoom}`} strokeWidth={1 / zoom} />}
+        {viewPrimitives(obj, objects).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}
+        <text x={v.frame.x} y={v.frame.y + v.frame.h} dy={14 / zoom} fontSize={11 / zoom} fill="#94a3b8">{label}{v.state === 'calcul' ? ' — calcul…' : v.state === 'erreur' ? ` — ${v.error}` : ''}</text>
+      </g>
+    );
+  }
+  if (obj.kind === 'occurrence') {
+    // Occurrence (lot 16.3) : trace de la pièce posée, et son repère.
+    const s = effectiveSolid(obj, objects), def = objects.find(o => o.id === obj.sourceId);
+    if (!s) return null;
+    return (
+      <g data-occurrence={obj.id} data-piece={obj.sourceId}>
+        {solidPrimitives(s).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}
+        {def?.kind === 'solid' && def.partDef && <text x={obj.x} y={obj.y} dy={-6 / zoom} fontSize={11 / zoom} fill="#fbbf24" data-repere={def.partDef.no}>{def.partDef.no}</text>}
+      </g>
+    );
+  }
+  if (obj.kind === 'solid') {
+    // Solide (lot 15.2) : trace des fonctions, parties retirées en traits interrompus.
+    return <g data-solide={obj.id}>{obj.partDef && <text x={obj.partDef.origin[0]} y={obj.partDef.origin[1]} dy={-6 / zoom} fontSize={11 / zoom} fill="#fbbf24" data-repere={obj.partDef.no}>{obj.partDef.no}</text>}{solidPrimitives(obj).map(p => <PrimitiveShape key={p.id} obj={p} view={view} selected={selected} zoom={zoom} showLabel={false} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={[]} />)}</g>;
   }
   if (obj.kind === 'roof') {
     // Toiture (lot 13.2) : rive, faîtage, arêtiers et flèches de pente.
@@ -1984,6 +2038,18 @@ function hitDrawing(all: CadObject[], allObjects: CadObject[], blocks: BlockDef[
     if (o.kind === 'column' && (o.section === 'circle' ? Math.hypot(x - o.x, y - o.y) <= o.d! / 2 + tol : Math.abs(x - o.x) <= o.b! / 2 + tol && Math.abs(y - o.y) <= o.h! / 2 + tol)) return o;
     if (o.kind === 'beam') {
       for (const p of structurePrimitives(o)) if (p.kind === 'line' && distanceSegment(x, y, p.x1, p.y1, p.x2, p.y2) <= tol) return o;
+    }
+    if (o.kind === 'projection' || o.kind === 'elevation') {
+      const v = placedAny(o, allObjects);
+      if (v && v.visible.concat(v.hidden).some(s => distanceSegment(x, y, s[0], s[1], s[2], s[3]) <= tol)) return o;
+    }
+    if (o.kind === 'solid' || o.kind === 'occurrence') {
+      const s = effectiveSolid(o, allObjects);
+      for (const p of s ? solidPrimitives(s) : []) {
+        if (p.kind === 'circle' && Math.abs(Math.hypot(x - p.cx, y - p.cy) - p.r) <= tol) return o;
+        const pts = p.kind === 'polyline' ? p.points : [];
+        for (let j = 0; j + 3 < pts.length; j += 2) if (distanceSegment(x, y, pts[j], pts[j + 1], pts[j + 2], pts[j + 3]) <= tol) return o;
+      }
     }
     if (o.kind === 'roof') {
       for (const p of roofPrimitives(o, roofInput(o))) {

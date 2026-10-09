@@ -268,27 +268,27 @@ Les essais suivent l'Architecture §12 : moteurs comparés sur des géométries 
 | 13.4 Poteaux et poutres | Fait (conventions §8.9) | #65 |
 | 13.5 Tableaux de quantités | Fait (conventions §8.10) | #66 |
 | 14.1 Branches | Fait (conventions §10.5) | #67 |
-| 14.2 Comparaison et fusion | À faire | — |
-| 14.3 Analyse d'impact | À faire | — |
-| 14.4 Publication | À faire | — |
-| 15.1 Vue 3D | À faire | — |
-| 15.2 Extrusion, révolution, booléens, perçage | À faire | — |
-| 15.3 Balayage et Follow Me | À faire | — |
-| 15.4 Lissage | À faire | — |
-| 15.5 Coque | À faire | — |
-| 15.6 Pousser / tirer | À faire | — |
-| 16.1 Vues projetées | À faire | — |
-| 16.2 Façades et coupes générées | À faire | — |
-| 16.3 Pièces et occurrences | À faire | — |
-| 16.4 Liaisons et nomenclature d'assemblage | À faire | — |
-| 17.1 Export IFC 4.3 | À faire | — |
-| 17.2 STEP AP242 édition 3 | À faire | — |
-| 17.3 Géoréférencement | À faire | — |
-| 18.1 API de commandes | À faire | — |
-| 18.2 Scripts isolés | À faire | — |
-| 18.3 Assistant à boucle contrôlée | À faire | — |
-| 19.1 Démonstrateur réduit bâtiment–mécanique | À faire | — |
-| 19.2 Banc de mesure | À faire | — |
+| 14.2 Comparaison et fusion | Fait (conventions §10.6) | #68 |
+| 14.3 Analyse d'impact | Fait (conventions §10.7) | #69 |
+| 14.4 Publication | Fait (conventions §10.8) | #70 |
+| 15.1 Vue 3D | Fait (conventions §8.11) | #71 |
+| 15.2 Extrusion, révolution, booléens, perçage | Fait (conventions §8.12) | #72 |
+| 15.3 Balayage et Follow Me | Fait (conventions §8.13) | #73 |
+| 15.4 Lissage | Fait (conventions §8.14) | #74 |
+| 15.5 Coque | Fait (conventions §8.15) | #75 |
+| 15.6 Pousser / tirer | Fait (conventions §8.16) | #76 |
+| 16.1 Vues projetées | Fait (conventions §8.17) | #77 |
+| 16.2 Façades et coupes générées | Fait (conventions §8.18) | #78 |
+| 16.3 Pièces et occurrences | Fait (conventions §8.19) | #79 |
+| 16.4 Liaisons et nomenclature d'assemblage | Fait (conventions §8.20) | #80 |
+| 17.1 Export IFC 4.3 | Fait (conventions §7.5) | #81 |
+| 17.2 STEP AP242 édition 3 | Fait (conventions §7.6) | #82 |
+| 17.3 Géoréférencement | Fait (conventions §7.7) | #83 |
+| 18.1 API de commandes | Fait (conventions §10.9) | #84 |
+| 18.2 Scripts isolés | Fait (conventions §10.10) | #85 |
+| 18.3 Assistant à boucle contrôlée | Fait (conventions §10.11) | #86 |
+| 19.1 Démonstrateur réduit bâtiment–mécanique | Fait (recette `e2e/demonstrateur.spec.ts` ; IFC relu par IfcOpenShell en CI ; conventions §7.5) | #87 |
+| 19.2 Banc de mesure | Fait (rapport `docs/mesures/DrawAll_Banc_de_mesure.md` ; conventions §10.12) | #88 |
 
 ## 6. Parcours de preuve final
 

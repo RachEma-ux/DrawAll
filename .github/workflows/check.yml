@@ -45,6 +45,8 @@ jobs:
           DXF_FIXTURES_DIR: ${{ runner.temp }}/dxf
           PDF_FIXTURES_DIR: ${{ runner.temp }}/pdf
           SVG_FIXTURES_DIR: ${{ runner.temp }}/svg
+          IFC_FIXTURES_DIR: ${{ runner.temp }}/ifc
+          STEP_FIXTURES_DIR: ${{ runner.temp }}/step
 
       - name: Lire les DXF exportés avec ezdxf
         run: |
@@ -58,6 +60,17 @@ jobs:
 
       - name: Lire les SVG exportés (XML strict, dimensions de la feuille)
         run: python3 scripts/check-svg.py "${{ runner.temp }}/svg"
+
+      - name: Relire l'IFC exporté avec IfcOpenShell (étages, propriétés, quantités retrouvées)
+        run: |
+          python3 -m pip install --quiet ifcopenshell==0.9.0
+          python3 scripts/check-ifc.py "${{ runner.temp }}/ifc"
+
+      - name: Relire le STEP exporté avec un lecteur tiers, gmsh (AP242 éd. 3, volumes)
+        run: |
+          sudo apt-get install -y -q libglu1-mesa libxcursor1 libxinerama1 libxft2
+          python3 -m pip install --quiet gmsh==4.15.2
+          python3 scripts/check-step.py "${{ runner.temp }}/step"
 
       - name: Build
         run: npm run build
@@ -76,6 +89,11 @@ jobs:
 
       - name: Recette navigateur (ordinateur et téléphone)
         run: npm run e2e
+        env:
+          E2E_IFC_DIR: ${{ runner.temp }}/e2e-ifc
+
+      - name: Relire l'IFC du démonstrateur (lot 19.1) avec IfcOpenShell
+        run: python3 scripts/check-ifc.py "${{ runner.temp }}/e2e-ifc"
 
       - name: Rapport de recette
         if: failure()

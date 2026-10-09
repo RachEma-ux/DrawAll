@@ -18,9 +18,10 @@ interface Props {
   onCreateVariant?: (name: string) => string | null;
   onSwitchVariant?: (id: string) => string | null;
   onRemoveVariant?: (id: string) => string | null;
+  onCompareVariants?: () => void;
 }
 
-export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, onNameVersion, compact, syncLabel, syncColor, branches, onCreateVariant, onSwitchVariant, onRemoveVariant }: Props) {
+export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, onNameVersion, compact, syncLabel, syncColor, branches, onCreateVariant, onSwitchVariant, onRemoveVariant, onCompareVariants }: Props) {
   const [variant, setVariant] = useState('');
   const [variantError, setVariantError] = useState<string | null>(null);
   const active = branches?.find(b => b.active);
@@ -87,6 +88,9 @@ export default function HistoryPanel({ versions, pointer, diagnostics, onGoTo, o
                     className="min-w-0 flex-1 rounded-sm border border-input bg-background px-1 py-0.5 text-foreground" />
                   <button type="submit" aria-label="Créer la variante" className="rounded-sm border border-border px-1.5 py-0.5 text-foreground hover:bg-white/5">Créer</button>
                 </form>
+                {branches.length > 1 && onCompareVariants && (
+                  <button type="button" onClick={onCompareVariants} className="rounded-sm border border-border px-1.5 py-0.5 text-foreground hover:bg-white/5">Comparer et fusionner…</button>
+                )}
                 {variantError && <p role="alert" className="text-red-300">{variantError}</p>}
               </div>
             )}

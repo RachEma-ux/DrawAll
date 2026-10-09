@@ -1,7 +1,7 @@
 // DrawAll v4.1 — application unique : atelier de dessin + documentation du dossier.
 // Cinq repères permanents (UX1) : navigateur, zone de travail, commandes, inspecteur,
 // panneau des modifications/problèmes.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
 import CloudProjectsPanel from '@/components/CloudProjectsPanel';
 import Header from '@/components/Header';
@@ -22,6 +22,7 @@ import ObjectComments from '@/components/ObjectComments';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
 import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
+import { validateCommand } from '@/lib/commands';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
@@ -31,13 +32,27 @@ import { beamError, columnError } from '@/lib/structure';
 import { SCHEDULE_TITLE } from '@/lib/schedules';
 import ParametersPanel from '@/components/ParametersPanel';
 import ZonesPanel from '@/components/ZonesPanel';
+import SolidsPanel from '@/components/SolidsPanel';
+import FacadesPanel from '@/components/FacadesPanel';
+import GeorefPanel from '@/components/GeorefPanel';
+import JournalPanel from '@/components/JournalPanel';
+import ScriptConsole from '@/components/ScriptConsole';
+import AssistantPanel from '@/components/AssistantPanel';
+import { formatGeoref } from '@/lib/georef';
+import MergePanel from '@/components/MergePanel';
+import PublicationsPanel from '@/components/PublicationsPanel';
+import type { Change } from '@/lib/merge';
+import { impactOf, impactSummary } from '@/lib/impact';
 import { zoneColors as zoneColorsOf } from '@/lib/zones';
 import { evaluateWith, resolveParameters } from '@/lib/params/expr';
 import { CONSTRAINT_LABEL, CONSTRAINT_PICKS, constraintAnchors, constraintGlyph, diagnose, makeConstraint, type Pick } from '@/lib/constraints/model';
 import type { GeoConstraint, PolylineObj, RoofObj } from '@/types/cad';
 import { expandToGroups } from '@/lib/groups';
-import { kernelVolume } from '@/lib/kernel/client';
-import { polarArray, rectangularArray, translation, withDependencies } from '@/lib/array';
+import { kernelExportStep, kernelImportStep, kernelProject, kernelProjectCamera, kernelVolume } from '@/lib/kernel/client';
+import { effectiveSolid } from '@/lib/solids';
+import type { SolidRecipe } from '@/lib/kernel/recipe';
+import { ensureProjections, prepareProjections, projectionsVersion, setProjectionLevels, setProjectionModel, subscribeProjections } from '@/lib/projection';
+import { polarArray, rectangularArray, withDependencies } from '@/lib/array';
 import { DISPLAY_UNITS, GRID_SIZES, formatArea, formatLength, fromMm, toMm, unitDecimals, type DisplayUnit } from '@/lib/input';
 import { fromPackage, toPackage } from '@/lib/package';
 import { encodeHistory } from '@/lib/history';
@@ -50,11 +65,20 @@ import { areaM2, detectRoom, formatM2, roomPolygons } from '@/lib/rooms';
 import ArrayDialog, { type ArrayParams } from '@/components/ArrayDialog';
 import SnapSettings from '@/components/SnapSettings';
 import SheetEditor from '@/components/SheetEditor';
-import { formatElevation, levelBelow, onLevel } from '@/lib/levels';
+import { formatElevation, levelBelow, levelIdOf, onLevel } from '@/lib/levels';
 import { DXF_UNITS, dxfUnitByKey, exportDxf as exportDxfFile, formatExchangeReport, parseDxf } from '@/lib/dxf';
-import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint, mirrorObject, moveObject, objectBounds, offsetObject, rotateObject, scaleObject, selectionCenter, unionBounds } from '@/lib/geometry';
+import { exportIfc } from '@/lib/ifc';
+import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPoint, objectBounds, selectionCenter, unionBounds } from '@/lib/geometry';
+
+// Vue 3D (lot 15.1) : three.js chargé à la demande.
+const View3D = lazy(() => import('@/components/View3D'));
 
 /** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
+/**
+ * Projet et variante actifs : la génération du projet (changée à chaque ouverture, projet neuf…) et
+ * l'identifiant de la variante. Un calcul lancé sur l'un ne s'applique jamais à un autre.
+ */
+const activeBranchId = (p: { generation: number; branches: { id: string; active: boolean }[] }) => `${p.generation}|${p.branches.find(b => b.active)?.id ?? ''}`;
 const COMPACT_BREAKPOINT = 1024;
 
 /** Outils toujours visibles sur petit écran ; les autres sont regroupés dans « Plus ». */
@@ -109,6 +133,10 @@ export default function App() {
 
 function Workbench() {
   const project = useProject();
+  // Projet du dernier rendu : les opérations asynchrones (noyau, import STEP) appliquent leur
+  // résultat à l'état courant, jamais à celui du moment où elles ont commencé.
+  const latestProject = useRef(project);
+  useEffect(() => { latestProject.current = project; }, [project]);
   const auth = useAuth();
   const utils = trpc.useUtils();
   const createCloudProject = trpc.projects.create.useMutation();
@@ -199,6 +227,7 @@ function Workbench() {
   // Navigateur du projet : toujours présent, pliable ; plié par défaut sur petit écran.
   const [navOpen, setNavOpen] = useState(() => !(typeof window !== 'undefined' && window.innerWidth < COMPACT_BREAKPOINT));
   const dxfInputRef = useRef<HTMLInputElement>(null);
+  const stepInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const onResize = () => {
@@ -224,32 +253,35 @@ function Workbench() {
   );
 
   const nudgeSelection = useCallback((dx: number, dy: number) => {
-    project.transformObjects(selection, o => moveObject(o, dx, dy), 'Déplacer');
+    if (selection.length === 0) return;
+    project.transform(selection, { kind: 'move', dx, dy }, 'Déplacer');
   }, [project, selection]);
 
   const rotateSelection = useCallback((deg: number) => {
     const c = pivot();
     if (!c) return;
-    project.transformObjects(selection, o => rotateObject(o, c.x, c.y, deg), `Rotation ${deg}°`);
+    project.transform(selection, { kind: 'rotate', cx: c.x, cy: c.y, deg }, `Rotation ${deg}°`);
   }, [project, selection, pivot]);
 
   const mirrorSelection = useCallback((axis: 'x' | 'y') => {
     const c = pivot();
     if (!c) return;
-    project.transformObjects(selection, o => mirrorObject(o, axis, axis === 'x' ? c.x : c.y), axis === 'x' ? 'Miroir vertical' : 'Miroir horizontal');
+    project.transform(selection, { kind: 'mirror', axis, value: axis === 'x' ? c.x : c.y }, axis === 'x' ? 'Miroir vertical' : 'Miroir horizontal');
   }, [project, selection, pivot]);
 
   const scaleSelection = useCallback((factor: number) => {
     const c = pivot();
     if (!c) return;
-    project.transformObjects(selection, o => scaleObject(o, c.x, c.y, factor), `Échelle ×${factor}`);
+    project.transform(selection, { kind: 'scale', cx: c.x, cy: c.y, factor }, `Échelle ×${factor}`);
   }, [project, selection, pivot]);
 
   const offsetSelection = useCallback((d: number) => {
-    project.transformObjects(selection, o => offsetObject(o, d), `Décalage ${d > 0 ? '+' : ''}${d} mm`);
+    if (selection.length === 0) return;
+    project.transform(selection, { kind: 'offset', d }, `Décalage ${d > 0 ? '+' : ''}${d} mm`);
   }, [project, selection]);
 
   const duplicateSelection = useCallback(() => {
+    if (selection.length === 0) return;
     project.duplicateObjects(selection);
   }, [project, selection]);
 
@@ -259,6 +291,16 @@ function Workbench() {
     window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(null), 3500);
   }, []);
+
+  // Commande refusée (calque verrouillé…) : annoncée sur le canevas, jamais passée sous silence.
+  const seenJournal = useRef(project.journal?.entries.length ?? 0);
+  useEffect(() => {
+    const entries = project.journal?.entries ?? [];
+    const fresh = entries.slice(Math.min(seenJournal.current, entries.length));
+    seenJournal.current = entries.length;
+    const last = [...fresh].reverse().find(e => e.refused);
+    if (last) flash(`Commande ${last.type} refusée : ${last.refused}.`);
+  }, [project.journal, flash]);
 
   // Presse-papiers interne : instantané des objets copiés (et des cotes qui les suivent).
   const [clipboard, setClipboard] = useState<CadObject[] | null>(null);
@@ -288,7 +330,7 @@ function Workbench() {
       pasteCount.current += 1;
       dx = dy = 20 * pasteCount.current;
     }
-    project.addCopies(pastable, [translation(dx, dy)], 'Coller');
+    project.addCopies(pastable, [{ kind: 'translate', dx, dy }], 'Coller');
   }, [clipboard, cursor, project, flash]);
 
   const [arrayMode, setArrayMode] = useState<'rect' | 'polar' | null>(null);
@@ -334,7 +376,88 @@ function Workbench() {
     flash(`Projet restauré depuis ${file.name} : ${result.summary}.`);
   }, [project, flash]);
 
-  const exportDxf = useCallback(() => {
+  // Vues projetées (lot 16.1) : calculées par le noyau à chaque changement de leur solide ;
+  // le rendu suit l'arrivée des résultats.
+  useSyncExternalStore(subscribeProjections, projectionsVersion);
+  // Façades et coupes (lot 16.2) : hauteurs d'étage tirées des niveaux du projet.
+  setProjectionLevels(project.levels);
+  // Façades et coupes : tout le bâtiment, quel que soit le niveau affiché (même clé que le calcul).
+  setProjectionModel(project.allObjects);
+  useEffect(() => {
+    if (project.allObjects.some(o => o.kind === 'projection' || o.kind === 'elevation')) void ensureProjections(project.allObjects, kernelProject, kernelProjectCamera);
+  }, [project.allObjects, project.levels]);
+
+  // Export IFC 4.3 (lot 17.1) : tout le projet, tous niveaux, rapport de ce qui n'est pas exporté.
+  const exportIfcFile = useCallback(() => {
+    const { content, report } = exportIfc({ objects: project.allObjects, levels: project.levels, projectName: cloudName.trim() || 'drawall-projet', date: new Date(), ...(project.georef ? { georef: project.georef } : {}) });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: 'application/x-step' }));
+    a.download = `${cloudName.trim() || 'drawall-projet'}.ifc`;
+    a.click();
+    const href = a.href;
+    window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+    const lines = [
+      'Export IFC 4.3 (IFC4X3_ADD2, millimètres)',
+      `Exporté : ${Object.entries(report.exported).map(([k, n]) => `${n} ${k}`).join(', ') || 'rien'}.`,
+      ...(report.notExported.length ? ['Non exporté ou exporté sans volume :', ...report.notExported.map(t => `– ${t}`)] : []),
+      ...(report.adjusted.length ? ['Exporté après ajustement :', ...report.adjusted.map(t => `– ${t}`)] : []),
+    ];
+    window.setTimeout(() => window.alert(lines.join('\n')), 0);
+  }, [project.allObjects, project.levels, project.georef, cloudName]);
+
+  // STEP AP242 édition 3 (lot 17.2) : solides et occurrences, à l'altitude de leur niveau.
+  const exportStepFile = useCallback(async () => {
+    const name = cloudName.trim() || 'drawall-projet';
+    const parts = project.allObjects.flatMap(o => {
+      const s = effectiveSolid(o, project.allObjects);
+      if (!s) return [];
+      const z = (project.levels ?? []).find(l => l.id === levelIdOf(o))?.elevation ?? 0;
+      return [{ name: o.name, recipe: z ? { op: 'translate' as const, of: s.recipe, by: [0, 0, z] as [number, number, number] } : s.recipe }];
+    });
+    if (!parts.length) { window.alert('Export STEP : aucun solide dans le projet.'); return; }
+    try {
+      const content = await kernelExportStep(parts, `${name}.step`, new Date());
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([content], { type: 'model/step' }));
+      a.download = `${name}.step`;
+      a.click();
+      const href = a.href;
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+      window.setTimeout(() => window.alert(`Export STEP AP242 édition 3 (millimètres) : ${parts.length} solide(s).`), 0);
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }, [project.allObjects, project.levels, cloudName]);
+  const importStepFile = useCallback(async (file: File) => {
+    try {
+      // Variante où l'import a été lancé : les solides n'iront jamais dans une autre.
+      // Calque et niveau de destination : ceux du début de l'import, pas ceux devenus actifs ensuite.
+      const branch = activeBranchId(latestProject.current);
+      const dest = { layerId: latestProject.current.activeLayerId, levelId: latestProject.current.activeLevelId };
+      const r = await kernelImportStep(await file.text());
+      if (activeBranchId(latestProject.current) !== branch) { window.alert('Import STEP abandonné : le projet ou la variante active a changé pendant la lecture.'); return; }
+      const items = r.solids.flatMap((s, i) => (s.recipe ? [{ name: `${file.name.replace(/\.[^.]+$/, '')} ${i + 1}`, recipe: s.recipe as SolidRecipe }] : []));
+      // État du projet au retour du noyau (l'atelier est resté utilisable pendant la lecture).
+      const made = items.length ? latestProject.current.addSolids(items, 'Importer STEP', dest) : [];
+      if (typeof made === 'string' || made === undefined) { window.alert(`Import STEP refusé : ${made ?? 'commande refusée'}.`); return; }
+      const lines = [`Import STEP : ${r.status}${r.error ? ` — ${r.error}` : ''}`, `${items.length} solide(s) importé(s).`, ...r.losses.map(l => `– ${l}`)];
+      window.alert(lines.join('\n'));
+    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+  }, []);
+
+  // Publication (lot 14.4) : les vues projetées, façades et coupes sont calculées avant que les PDF
+  // ne soient figés. L'atelier est gelé pendant ce calcul (panneau des publications) ; si les objets
+  // ont tout de même changé entre-temps, le calcul est repris sur les nouveaux avant de publier.
+  const publishDossier = useCallback(async (name: string) => {
+    let prepared: CadObject[];
+    do {
+      prepared = latestProject.current.allObjects;
+      await prepareProjections(prepared, kernelProject, kernelProjectCamera);
+    } while (prepared !== latestProject.current.allObjects);
+    return latestProject.current.publish(name);
+  }, []);
+
+  const exportDxf = useCallback(async () => {
+    // Une vue que le noyau n'a pas pu calculer refuse l'export, avec sa raison.
+    try { await prepareProjections(project.allObjects, kernelProject, kernelProjectCamera); } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); return; }
     // Pas de hachure papier : convertis à l'échelle de la première fenêtre de feuille, sinon 1:1.
     const vp = project.sheets.flatMap(sh => sh.viewports)[0];
     const { content, report } = exportDxfFile(shownObjects, project.layers, shownBlocks, { hatchPaperScale: vp ? vp.scale.model / vp.scale.paper : 1 });
@@ -355,7 +478,7 @@ function Workbench() {
     if (report.transformed.length > 0 || report.lost.length > 0) {
       window.setTimeout(() => window.alert(formatExchangeReport('Export DXF (R2000, millimètres)', report)), 0);
     }
-  }, [cloudName, shownObjects, shownBlocks, project.layers, project.sheets, project.levels, project.activeLevelId]);
+  }, [cloudName, shownObjects, shownBlocks, project.allObjects, project.layers, project.sheets, project.levels, project.activeLevelId]);
 
   const importDxfFile = useCallback(async (file: File) => {
     // DWG : reconnu à sa signature et refusé avec la marche à suivre (convertisseur à décider, §7).
@@ -506,13 +629,16 @@ function Workbench() {
     const g = roofGeometry(roofInput(roof as RoofObj));
     flash(`Toiture créée : faîtage à ${fmt(g.ridgeHeight)} mm au-dessus de l’égout${g.hipLengths.length ? `, arêtiers de ${fmt(g.hipLengths[0])} mm` : ''}.`);
   }, [project, flash, roofParams]);
-  const [wallParams, setWallParams] = useState<{ thickness: string; justification: WallObj['justification'] }>({ thickness: '200', justification: 'axe' });
+  const [wallParams, setWallParams] = useState<{ thickness: string; justification: WallObj['justification']; height: string }>({ thickness: '200', justification: 'axe', height: '' });
   const addWall = useCallback((x1: number, y1: number, x2: number, y2: number) => {
     const layer = project.layers.find(l => l.id === project.activeLayerId);
     if (!layer || layer.locked) { flash('Calque actif verrouillé : mur non créé.'); return; }
     const t = Number(wallParams.thickness.replace(',', '.'));
     if (!(t > 0)) { flash('Épaisseur de mur invalide.'); return; }
-    project.addObject({ kind: 'wall', classification: 'architecture', layerId: layer.id, hatch: 'none', x1, y1, x2, y2, thickness: t, justification: wallParams.justification });
+    // Hauteur facultative (lot 15.1) : vide = hauteur d'étage.
+    const hRaw = wallParams.height.trim(), h = Number(hRaw.replace(',', '.'));
+    if (hRaw !== '' && !(h > 0 && Number.isFinite(h))) { flash('Hauteur de mur invalide.'); return; }
+    project.addObject({ kind: 'wall', classification: 'architecture', layerId: layer.id, hatch: 'none', x1, y1, x2, y2, thickness: t, justification: wallParams.justification, ...(hRaw !== '' ? { height: h } : {}) });
   }, [project, wallParams, flash]);
 
   // Outil Ouverture : type, largeur, charnière et côté d'ouverture.
@@ -767,6 +893,43 @@ function Workbench() {
   // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
   const [paramsOpen, setParamsOpen] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
+  const [view3dOpen, setView3dOpen] = useState(false);
+  const [solidsOpen, setSolidsOpen] = useState(false);
+  const [facadesOpen, setFacadesOpen] = useState(false);
+  const [georefOpen, setGeorefOpen] = useState(false);
+  const [journalOpen, setJournalOpen] = useState(false);
+  const [scriptsOpen, setScriptsOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
+  const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
+  const deleteWithImpact = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    // Même validation que la commande : une suppression refusée (objet associatif emporté sur un calque
+    // verrouillé…) est annoncée comme telle, jamais comme faite.
+    const refused = validateCommand('removeObjects', [ids], project.allObjects, project.layers, { levels: project.levels, blocks: project.blocks, zones: project.zones });
+    if (refused) { flash(`Suppression refusée : ${refused}.`); return; }
+    const summary = impactSummary(impactOf(ids, 'suppression', impactContext));
+    project.removeObjects(ids);
+    if (summary) flash(`Supprimé — ${summary}. Ctrl+Z pour annuler.`);
+  }, [project, impactContext, flash]);
+  // Comparaison et fusion de variantes (lot 14.2).
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [overlay, setOverlay] = useState<{ changes: Change[]; otherId: string } | null>(null);
+  const diffOverlay = useMemo(() => {
+    if (!overlay) return undefined;
+    const other = project.state.branches?.find(b => b.id === overlay.otherId);
+    const theirs = other ? other.versions[other.pointer].objects : [];
+    // Objets de l'autre variante mesurés avec ses propres définitions de blocs.
+    const theirBlocks = other ? other.versions[other.pointer].blocks : project.blocks;
+    return overlay.changes.flatMap(c => {
+      const mine = c.kind === 'supprimé';
+      const src = mine ? project.allObjects : theirs;
+      const o = src.find(x => x.id === c.id);
+      const b = o ? objectBounds(o, mine ? project.blocks : theirBlocks, src) : null;
+      return b ? [{ id: c.id, kind: c.kind, ...b }] : [];
+    });
+  }, [overlay, project.state.branches, project.allObjects, project.blocks]);
   const zoneColors = useMemo(() => zoneColorsOf(project.objects, project.zones), [project.objects, project.zones]);
   const [constraintType, setConstraintType] = useState<GeoConstraint['type']>('horizontal');
   const [constraintValue, setConstraintValue] = useState('');
@@ -1044,6 +1207,15 @@ function Workbench() {
     { id: 'redo', title: 'Rétablir', hint: 'Revenir à la microversion suivante', keywords: ['retablir', 'redo'], run: project.redo },
     { id: 'sel-all', title: 'Tout sélectionner', hint: 'Sélectionne tous les objets visibles (Ctrl+A)', keywords: ['selection', 'tout', 'all'], run: selectAll },
     { id: 'sel-clear', title: 'Effacer la sélection', hint: 'Désélectionne tous les objets', keywords: ['selection', 'effacer', 'deselec'], run: () => project.setSelectedIds([]) },
+    { id: 'publish', title: 'Publier le dossier / dossiers publiés', hint: 'Version nommée + PDF des feuilles, figés ; état publié ou modifié depuis', keywords: ['publier', 'publication', 'dossier', 'diffusion', 'emission', 'pdf', 'fige'], run: () => setPublishOpen(true) },
+    { id: 'merge', title: 'Comparer et fusionner des variantes', hint: 'Changements d’une autre variante en surimpression, fusion à trois voies, conflits tranchés', keywords: ['fusion', 'fusionner', 'merge', 'comparer', 'variante', 'branche', 'differences', 'conflit'], run: () => setMergeOpen(true) },
+    { id: 'journal', title: 'Journal des commandes', hint: 'Commandes exécutées depuis l’ouverture du projet ; rejeu de vérification', keywords: ['journal', 'commandes', 'historique', 'rejouer', 'api', 'audit'], run: () => setJournalOpen(true) },
+    { id: 'scripts', title: 'Console de scripts', hint: 'Script exécuté à part, sans accès au stockage, par l’API de commandes ; annulé en entier s’il échoue', keywords: ['script', 'scripts', 'console', 'javascript', 'api', 'automatiser', 'programme', 'macro'], run: () => setScriptsOpen(true) },
+    { id: 'assistant', title: 'Assistant', hint: 'Opérations proposées, validées par les moteurs, aperçues, exécutées après accord ; journal des hypothèses', keywords: ['assistant', 'ia', 'copilote', 'demande', 'proposer', 'hypotheses', 'generer', 'automatique'], run: () => setAssistantOpen(true) },
+    { id: 'georef', title: 'Géoréférencement', hint: 'Point de base (E, N, altitude), système de coordonnées (EPSG), nord du quadrillage ; transmis à l’IFC', keywords: ['georeferencement', 'coordonnees', 'epsg', 'nord', 'point de base', 'carte', 'sig', 'lambert', 'altitude'], run: () => setGeorefOpen(true) },
+    { id: 'facades', title: 'Façades et coupes', hint: 'Générées depuis le modèle 3D du bâtiment, posées sur les feuilles', keywords: ['facade', 'facades', 'elevation', 'coupe', 'coupes', 'batiment', 'feuille', 'nord', 'sud', 'est', 'ouest'], run: () => setFacadesOpen(true) },
+    { id: 'solids', title: 'Solides 3D', hint: 'Extrusion, révolution, union, différence, intersection, perçage (noyau OCCT)', keywords: ['solide', 'extrusion', 'extruder', 'revolution', 'booleen', 'union', 'difference', 'intersection', 'percage', 'percer', 'trou', '3d', 'volume'], run: () => setSolidsOpen(true) },
+    { id: 'view3d', title: 'Vue 3D', hint: 'Maquette en volume dérivée du plan : murs, dalles, poteaux, poutres, toitures ; orbite et cadrage', keywords: ['3d', 'volume', 'maquette', 'perspective', 'orbite', 'webgl'], run: () => setView3dOpen(true) },
     { id: 'zones', title: 'Zones', hint: 'Regrouper des pièces : nom, couleur, surface cumulée', keywords: ['zone', 'zones', 'regrouper', 'pieces', 'surface cumulee', 'logement', 'lot', 'secteur'], run: () => setZonesOpen(true) },
     { id: 'parameters', title: 'Paramètres du projet', hint: 'Table des paramètres nommés (nom, expression, unité) ; les cotes de contrainte peuvent les citer', keywords: ['parametre', 'parametres', 'variable', 'expression', 'formule', 'cote pilotante'], run: () => setParamsOpen(true) },
     { id: 'kernel-trial', title: 'Essai du noyau 3D (P0)', hint: 'Charge OCCT (≈ 7 Mo compressés, une fois) et calcule un pavé percé', keywords: ['noyau', '3d', 'occt', 'essai', 'volume', 'p0'], run: () => { void kernelTrial(); } },
@@ -1072,6 +1244,10 @@ function Workbench() {
       id: `schedule-${t}`, title: `Insérer le ${SCHEDULE_TITLE[t].toLowerCase()}`, hint: 'Tableau de quantités calculé depuis le modèle, mis à jour à chaque modification ; à poser sur une feuille par une fenêtre',
       keywords: ['tableau', 'quantites', 'metre', 'quantitatif', t, t === 'pieces' ? 'surfaces' : t === 'murs' ? 'longueurs' : 'portes fenetres'], run: () => { setMode('atelier'); project.addBom(t); },
     })),
+    { id: 'schedule-assemblage', title: 'Insérer la nomenclature d’assemblage', hint: 'Repère, désignation et quantité de chaque pièce (pièce type et occurrences), mise à jour à chaque modification', keywords: ['nomenclature', 'assemblage', 'pieces', 'occurrences', 'repere', 'quantite', 'bom'], run: () => { setMode('atelier'); project.addBom('assemblage'); } },
+    { id: 'export-ifc', title: 'Exporter en IFC 4.3', hint: 'Étages, murs, dalles, baies, portes, fenêtres, espaces, toitures, poteaux, poutres, propriétés et quantités (IFC4X3_ADD2)', keywords: ['ifc', 'bim', 'export', 'ifc4', 'openbim', 'maquette numerique'], run: exportIfcFile },
+    { id: 'export-step', title: 'Exporter les solides en STEP (AP242 édition 3)', hint: 'Solides et occurrences de pièces, en millimètres, relisibles par les modeleurs 3D', keywords: ['step', 'stp', 'ap242', 'export', 'solides', '3d', 'cao'], run: () => { void exportStepFile(); } },
+    { id: 'import-step', title: 'Importer des solides STEP', hint: 'Chaque solide du fichier devient un solide du projet ; pertes signalées', keywords: ['step', 'stp', 'ap242', 'ap214', 'import', 'solides', '3d', 'cao'], run: () => stepInputRef.current?.click() },
     { id: 'export-dxf', title: 'Exporter en DXF', hint: 'Exporte les primitives, calques, cotes aplaties et blocs aplatis', keywords: ['dxf', 'export', 'autocad', 'interoperabilite'], run: exportDxf },
     { id: 'export', title: 'Exporter le paquet du projet', hint: 'Projet entier : historique, niveaux, feuilles, styles, ressources (JSON, relu à l’identique)', keywords: ['exporter', 'export', 'paquet', 'sauvegarder', 'json', 'sauvegarde'], run: exportPackage },
     { id: 'import-package', title: 'Restaurer un projet depuis son paquet', hint: 'Remplace le projet courant par celui du paquet DrawAll (historique compris)', keywords: ['restaurer', 'importer', 'paquet', 'json', 'sauvegarde', 'ouvrir'], run: () => packageInputRef.current?.click() },
@@ -1103,7 +1279,7 @@ function Workbench() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { e.preventDefault(); if (e.shiftKey) ungroupSelection(); else groupSelection(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); return; }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && project.selectedIds.length > 0) { project.removeObjects(project.selectedIds); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && project.selectedIds.length > 0) { deleteWithImpact(project.selectedIds); return; }
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && project.selectedIds.length > 0) {
         e.preventDefault();
         const step = e.shiftKey ? 100 : 10;
@@ -1118,7 +1294,7 @@ function Workbench() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, copySelection, pasteClipboard, nudgeSelection, groupSelection, ungroupSelection]);
+  }, [paletteOpen, mode, level, project, selectAll, duplicateSelection, copySelection, pasteClipboard, nudgeSelection, groupSelection, ungroupSelection, deleteWithImpact]);
 
   const visibleTools = TOOLS.filter(t => t.levels.includes(level));
   const primaryTools = visibleTools.filter(t => PRIMARY_TOOLS.includes(t.id));
@@ -1154,8 +1330,11 @@ function Workbench() {
   );
   const inspectorEl = (
     <Inspector
+      impact={selected ? { modification: impactOf([selected.id], 'modification', impactContext), suppression: impactOf([selected.id], 'suppression', impactContext) } : undefined}
       zones={project.zones}
       onOpenZones={() => setZonesOpen(true)}
+      onOpenSolids={() => setSolidsOpen(true)}
+      onOpenFacades={() => setFacadesOpen(true)}
       obj={selected}
       issues={selected ? project.diagnostics.filter(d => d.level === 'avertissement' && new RegExp(`\\b${selected.id}\\b`).test(d.text)).map(d => d.text) : []}
       objects={project.objects}
@@ -1194,6 +1373,7 @@ function Workbench() {
       onCreateVariant={name => project.createVariant(name)}
       onSwitchVariant={project.switchVariant}
       onRemoveVariant={project.removeVariant}
+      onCompareVariants={() => setMergeOpen(true)}
       compact={level === 'essentiel'}
       syncLabel={SYNC_META[syncStatus].label}
       syncColor={SYNC_META[syncStatus].color}
@@ -1240,6 +1420,7 @@ function Workbench() {
           onAddViewport={project.addViewport}
           onUpdateViewport={project.updateViewport}
           onRemoveViewport={project.removeViewport}
+          onPublish={() => setPublishOpen(true)}
           versions={project.versions}
           pointer={project.pointer}
           onNameVersion={project.nameVersion}
@@ -1458,7 +1639,7 @@ function Workbench() {
                 { label: 'Décaler −10', hint: 'Contraction de 10 mm', run: () => offsetSelection(-10) },
                 { label: '×2', hint: 'Échelle ×2 depuis le centre de la sélection', run: () => scaleSelection(2) },
                 { label: '÷2', hint: 'Échelle ÷2 depuis le centre de la sélection', run: () => scaleSelection(0.5) },
-                { label: 'Supprimer', hint: 'Suppr / Retour arrière', run: () => project.removeObjects(selection) },
+                { label: 'Supprimer', hint: 'Suppr / Retour arrière', run: () => deleteWithImpact(selection) },
               ]).map(a => (
                 <button
                   key={a.label}
@@ -1477,6 +1658,7 @@ function Workbench() {
 
             <div className="relative min-h-0 flex-1">
               <CanvasView
+                onOpen3d={() => setView3dOpen(true)}
                 objects={shownObjects}
                 underlay={underlayObjects}
                 layers={project.layers}
@@ -1508,6 +1690,7 @@ function Workbench() {
                 onAddColumn={addColumn}
                 onAddBeam={addBeam}
                 zoneColors={zoneColors}
+                diffOverlay={diffOverlay}
                 constraintMarks={constraintMarks}
                 constraintPicks={constraintPicks.map(p => p.at)}
                 onMeasureArea={measureArea}
@@ -1529,7 +1712,7 @@ function Workbench() {
                 snapTypes={snapTypes}
                 colorMode={colorMode}
                 displayUnit={displayUnit}
-                onMoveMany={(ids, dx, dy) => project.transformObjects(ids, o => moveObject(o, dx, dy), 'Déplacer')}
+                onMoveMany={(ids, dx, dy) => project.transform(ids, { kind: 'move', dx, dy }, 'Déplacer')}
                 onCursor={(x, y) => setCursor({ x, y })}
                 onSnapChange={setCurrentSnap}
                 onZoomChange={setZoom}
@@ -1573,10 +1756,15 @@ function Workbench() {
                 </div>
               )}
               {tool === 'wall' && (
-                <div role="group" aria-label="Paramètres du mur" className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg sm:top-12">
+                <div role="group" aria-label="Paramètres du mur" className="absolute left-3 right-3 top-12 z-10 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-[#0c1220]/95 px-2 py-1.5 font-mono text-[11px] text-muted-foreground shadow-lg sm:right-auto">
                   <label className="flex items-center gap-1">Épaisseur
                     <input aria-label="Épaisseur du mur (mm)" inputMode="decimal" value={wallParams.thickness}
                       onChange={e => setWallParams(p => ({ ...p, thickness: e.target.value }))}
+                      className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
+                  </label>
+                  <label className="flex items-center gap-1">Hauteur
+                    <input aria-label="Hauteur du mur (mm)" inputMode="decimal" placeholder="d’étage" value={wallParams.height}
+                      onChange={e => setWallParams(p => ({ ...p, height: e.target.value }))}
                       className="w-16 rounded-sm border border-border bg-background px-1 py-0.5 text-foreground" /> mm
                   </label>
                   <select aria-label="Justification du mur" value={wallParams.justification} onChange={e => setWallParams(p => ({ ...p, justification: e.target.value as WallObj['justification'] }))}
@@ -1924,7 +2112,7 @@ function Workbench() {
               <span>v{project.current.seq}{project.current.named ? ` · ${project.current.named}` : ''}</span>
               <span>zoom {(zoom * 100).toFixed(0)} %</span>
               <span>{orthoEnabled ? 'ORTHO' : 'libre'} · {snapEnabled ? 'SNAP objet' : 'SNAP grille'}</span>
-              <span className="ml-auto hidden lg:inline">modèle en millimètres · affichage en {displayUnit} · référentiel : local projet · DXF : Y ascendant</span>
+              <span className="ml-auto hidden lg:inline">modèle en millimètres · affichage en {displayUnit} · référentiel : {project.georef ? formatGeoref(project.georef) : 'local projet'} · DXF : Y ascendant</span>
             </div>
           </main>
 
@@ -1985,6 +2173,18 @@ function Workbench() {
         }}
       />
       <input
+        ref={stepInputRef}
+        type="file"
+        accept=".step,.stp"
+        aria-label="Fichier STEP à importer"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (file) void importStepFile(file);
+          e.currentTarget.value = '';
+        }}
+      />
+      <input
         ref={dxfInputRef}
         type="file"
         accept=".dxf,.dwg,text/plain"
@@ -2018,6 +2218,41 @@ function Workbench() {
       {snapPanelOpen && <SnapSettings active={snapTypes} onChange={setSnapTypes} onClose={() => setSnapPanelOpen(false)} />}
       {arrayMode && (
         <ArrayDialog mode={arrayMode} center={pivot() ?? { x: 0, y: 0 }} onApply={applyArray} onClose={() => setArrayMode(null)} />
+      )}
+      {publishOpen && (
+        <PublicationsPanel state={project.state} publications={project.publications} onPublish={publishDossier} onClose={() => setPublishOpen(false)} />
+      )}
+      {mergeOpen && (
+        <MergePanel state={project.state} branches={project.branches} onOverlay={setOverlay} onMerge={project.mergeVariant} onClose={() => setMergeOpen(false)} />
+      )}
+      {assistantOpen && <AssistantPanel project={project} onClose={() => setAssistantOpen(false)} />}
+      {scriptsOpen && <ScriptConsole project={project} onClose={() => setScriptsOpen(false)} />}
+      {journalOpen && <JournalPanel journal={project.journal} replay={project.replay} onReplay={project.replayJournal} onClose={() => setJournalOpen(false)} />}
+      {georefOpen && <GeorefPanel georef={project.georef} onSave={project.setGeoref} onClose={() => setGeorefOpen(false)} />}
+      {facadesOpen && (
+        <FacadesPanel objects={project.allObjects} sheets={project.sheets} onGenerate={project.addElevations}
+          onPlace={(sheetId, e, center, scale, name) => project.addViewport(sheetId, { center, scale, name, ...(e.levelId ? { levelId: e.levelId } : {}) })}
+          onClose={() => setFacadesOpen(false)} />
+      )}
+      {solidsOpen && (
+        <SolidsPanel objects={project.allObjects} branchId={activeBranchId(project)} selectedIds={project.selectedIds}
+          onCreate={(from, recipe, label) => latestProject.current.addObject({ kind: 'solid', classification: from.classification, layerId: from.layerId, hatch: 'none', recipe, levelId: levelIdOf(from) }, undefined, label)}
+          onUpdate={(id, recipe, label) => latestProject.current.updateObject(id, { recipe }, label)}
+          onCombine={(a, b, op) => latestProject.current.combineSolids(a, b, op)} onProject={project.addProjections} onMakePart={project.makePart} onAddOccurrence={project.addOccurrence} onSetMate={project.setMate} onClose={() => setSolidsOpen(false)} />
+      )}
+      {view3dOpen && (
+        <Suspense fallback={(
+          // Retour immédiat pendant le chargement du moteur 3D (module chargé à la demande).
+          <div role="dialog" aria-label="Vue 3D" data-chargement="" className="fixed inset-0 z-50 flex flex-col bg-[#0b1120] font-mono text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+              <h2 className="text-sm text-foreground">Vue 3D</h2>
+              <span role="status">Chargement du moteur 3D…</span>
+              <button type="button" onClick={() => setView3dOpen(false)} aria-label="Fermer la vue 3D" className="ml-auto rounded-sm px-2 py-0.5 hover:text-foreground">×</button>
+            </div>
+          </div>
+        )}>
+          <View3D objects={project.allObjects} layers={project.layers} levels={project.levels} onClose={() => setView3dOpen(false)} />
+        </Suspense>
       )}
       {zonesOpen && (
         <ZonesPanel zones={project.zones} objects={project.allObjects} selectedRoomIds={project.selectedIds.filter(id => project.objects.find(o => o.id === id)?.kind === 'room')}

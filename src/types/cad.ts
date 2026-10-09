@@ -2,9 +2,14 @@
 // Identités stables, classifications métier (ontologies), représentations multiples.
 import type { Parameter } from '@/lib/params/expr';
 import type { PropertySet } from '@/lib/properties';
+import type { Publication } from '@/lib/publication';
+import type { ProjView, SolidRecipe } from '@/lib/kernel/recipe';
+import type { Mate } from '@/lib/assembly';
+import type { Journal } from '@/lib/commands';
 import { deviations, formatClass, formatDeviation, parseClass } from '@/lib/iso286';
+import { recipeBounds } from '@/lib/solids';
 
-export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'column' | 'beam' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
+export type ObjectKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline' | 'dimension' | 'pdim' | 'blockRef' | 'text' | 'wall' | 'opening' | 'room' | 'slab' | 'roof' | 'column' | 'beam' | 'solid' | 'occurrence' | 'projection' | 'elevation' | 'north' | 'section' | 'levelMark' | 'roughness' | 'views' | 'cut' | 'bom' | 'balloon' | 'underlay' | 'note';
 export type TextAlign = 'left' | 'center' | 'right';
 export type PrimitiveKind = 'line' | 'rect' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'polyline';
 export type HatchStyle = 'none' | 'diagonal' | 'cross' | 'solid';
@@ -174,6 +179,8 @@ export interface WallObj extends Base {
   x1: number; y1: number; x2: number; y2: number;
   thickness: number;
   justification: 'axe' | 'gauche' | 'droite';
+  /** Hauteur du mur (mm, lot 15.1) ; absente = hauteur d'étage (jusqu'au niveau suivant). */
+  height?: number;
 }
 
 /**
@@ -188,6 +195,9 @@ export interface OpeningObj extends Base {
   width: number;
   hinge: 'debut' | 'fin';
   side: 'gauche' | 'droite';
+  /** Hauteur de baie et hauteur d'allège (mm, lot 17.1) ; absentes = non saisies, baie sans volume en IFC. */
+  height?: number;
+  sill?: number;
 }
 
 /**
@@ -218,6 +228,55 @@ export interface BeamObj extends Base {
   kind: 'beam';
   x1: number; y1: number; x2: number; y2: number;
   b: number; h: number;
+}
+
+/**
+ * Solide (lot 15.2) : recette du noyau 3D (extrusion, révolution, booléens, perçage, transformations),
+ * évaluée par OCCT ; en plan, sa trace (contours des fonctions, parties retirées en interrompu).
+ */
+export interface SolidObj extends Base {
+  kind: 'solid';
+  recipe: SolidRecipe;
+  /**
+   * Pièce (lot 16.3) : repère `no` et repère local (point de base `origin`, orientation `angle`,
+   * degrés) qui suivent les déplacements du solide ; ses occurrences reprennent sa forme.
+   */
+  partDef?: { no: number; origin: [number, number, number]; angle: number };
+}
+
+/** Occurrence d'une pièce (lot 16.3) : la forme de la pièce `sourceId`, posée en (x, y, z), tournée de `angle`. */
+export interface OccurrenceObj extends Base {
+  kind: 'occurrence';
+  sourceId: string;
+  x: number; y: number; z: number;
+  angle: number;
+  /** Liaison (lot 16.4) : la position et l'angle sont recalculés à chaque version. */
+  mate?: Mate;
+}
+
+/**
+ * Vue projetée (lot 16.1) d'un solide : dessus, face ou côté, calculée par le noyau (arêtes cachées
+ * en interrompu), coin haut gauche de son cadre en (x, y). Associative : elle suit le solide.
+ */
+export interface ProjectionObj extends Base {
+  kind: 'projection';
+  sourceId: string;
+  view: ProjView;
+  x: number; y: number;
+}
+
+/** Façade (vue depuis un point cardinal) ou coupe de bâtiment par un repère de coupe (lot 16.2). */
+export type ElevationView = 'nord' | 'sud' | 'est' | 'ouest' | 'coupe';
+
+/**
+ * Façade ou coupe générée (lot 16.2) depuis le modèle 3D du bâtiment (§8.11), arêtes vues seulement,
+ * coin haut gauche de son cadre en (x, y). Une coupe suit son repère `markId`.
+ */
+export interface ElevationObj extends Base {
+  kind: 'elevation';
+  view: ElevationView;
+  markId?: string;
+  x: number; y: number;
 }
 
 /** Zone (lot 13.3) : regroupement nommé de pièces, couleur de remplissage (#rrggbb). */
@@ -369,11 +428,11 @@ export interface Asset {
   source: 'image' | 'pdf';
 }
 
-export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | ColumnObj | BeamObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
+export type CadObject = PrimitiveObject | DimensionObj | PointDimensionObj | BlockRefObj | TextObj | WallObj | OpeningObj | RoomObj | SlabObj | RoofObj | ColumnObj | BeamObj | SolidObj | OccurrenceObj | ProjectionObj | ElevationObj | NorthObj | SectionMarkObj | LevelMarkObj | RoughnessObj | ViewsObj | CutObj | BomObj | BalloonObj | UnderlayObj | NoteObj;
 
 /** Objet dont dépend un objet associatif (cote → cible, ouverture → mur, vues → face), ou null. */
 export function parentOf(o: CadObject): string | null {
-  return o.kind === 'dimension' || o.kind === 'balloon' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' ? o.sourceId : o.kind === 'note' ? o.targetId ?? null : null;
+  return o.kind === 'dimension' || o.kind === 'balloon' ? o.targetId : o.kind === 'opening' ? o.hostId : o.kind === 'views' || o.kind === 'cut' || o.kind === 'projection' || o.kind === 'occurrence' ? o.sourceId : o.kind === 'note' ? o.targetId ?? null : o.kind === 'elevation' ? o.markId ?? null : null;
 }
 
 /**
@@ -383,6 +442,31 @@ export function parentOf(o: CadObject): string | null {
 export function parentsOf(o: CadObject): string[] {
   const p = parentOf(o);
   return [...(p ? [p] : []), ...(o.kind === 'cut' ? [o.markId] : [])];
+}
+
+/** Identifiants donnés et, de proche en proche, ceux des objets associatifs qui en dépendent. */
+export function withDependents(objects: CadObject[], ids: Iterable<string>): Set<string> {
+  const out = new Set(ids);
+  for (let changed = true; changed;) {
+    changed = false;
+    // Tous les parents (une coupe dépend de sa source et de son repère de coupe).
+    for (const o of objects) if (!out.has(o.id) && parentsOf(o).some(p => out.has(p))) { out.add(o.id); changed = true; }
+  }
+  return out;
+}
+
+/**
+ * Après une suppression : une occurrence liée (liaison d'assemblage) à une occurrence disparue garde sa
+ * place mais perd sa liaison, au lieu d'une liaison pendante jamais satisfaite.
+ */
+export function withoutDanglingMates(objects: CadObject[]): CadObject[] {
+  const present = new Set(objects.map(o => o.id));
+  return objects.map(o => {
+    if (o.kind !== 'occurrence' || !o.mate || present.has(o.mate.to)) return o;
+    const { mate: _m, ...rest } = o;
+    void _m;
+    return rest as CadObject;
+  });
 }
 
 /** Même objet rattaché aux copies de tous ses parents, ou null si l'un d'eux n'est pas copié. */
@@ -398,7 +482,8 @@ export function withParents<T extends CadObject>(o: T, copyOf: (id: string) => s
 export function withParent<T extends CadObject>(o: T, parent: string): T {
   if (o.kind === 'dimension' || o.kind === 'balloon' || o.kind === 'note') return { ...o, targetId: parent };
   if (o.kind === 'opening') return { ...o, hostId: parent };
-  if (o.kind === 'views' || o.kind === 'cut') return { ...o, sourceId: parent };
+  if (o.kind === 'views' || o.kind === 'cut' || o.kind === 'projection' || o.kind === 'occurrence') return { ...o, sourceId: parent };
+  if (o.kind === 'elevation') return { ...o, markId: parent };
   return o;
 }
 
@@ -500,7 +585,15 @@ export interface MicroVersion {
   constraints?: GeoConstraint[]; // contraintes géométriques (lot 12.1) ; absent = aucune
   parameters?: Parameter[];      // paramètres nommés (lot 12.2) ; absent = aucun
   zones?: Zone[];                // zones (lot 13.3) ; absent = aucune
+  georef?: Georef;               // géoréférencement (lot 17.3) ; absent = repère local seul
 }
+
+/**
+ * Géoréférencement (lot 17.3) : le point (0 ; 0 ; 0) du modèle est en (E, N) mètres du système `crs`
+ * (code EPSG déclaré), à l'altitude `h` mètres ; `north` : angle du nord du quadrillage depuis le haut
+ * du plan, en degrés, sens horaire.
+ */
+export interface Georef { e: number; n: number; h: number; crs: string; north: number }
 
 /**
  * Branche (variante, lot 14.1) rangée pendant qu'une autre est active : son historique complet, sa
@@ -522,12 +615,34 @@ export interface ProjectState {
   branch?: { id: string; name: string; from?: { branchId: string; seq: number } };
   /** Autres branches, rangées. */
   branches?: Branch[];
+  /** Dossiers publiés (lot 14.4), figés, hors historique. */
+  publications?: Publication[];
   counter: number;         // compteur d'identifiants OBJ-
   layerCounter: number;    // compteur d'identifiants LAY-
   blockCounter: number;    // compteur d'identifiants BLQ-
   activeLayerId: string;
   activeLevelId?: string;  // niveau affiché et édité (lot 4.4)
   assets?: Record<string, Asset>; // images des fonds de plan (lot 6.2), hors historique
+  /** Journal des commandes (lot 18.1) : état de base et commandes exécutées depuis, rejouables. */
+  journal?: Journal;
+  /** Journal des hypothèses de l'assistant (lot 18.3) : demandes, hypothèses, décision. */
+  assistantLog?: AssistantLogEntry[];
+}
+
+/** Entrée du journal des hypothèses de l'assistant (lot 18.3, annexe D4). */
+export interface AssistantLogEntry {
+  n: number;
+  /** Date ISO de la décision. */
+  time: string;
+  request: string;
+  generator: string;
+  hypotheses: string[];
+  /** Opérations proposées et corrections nécessaires avant validation. */
+  steps: number;
+  corrections: number;
+  decision: 'executee' | 'rejetee' | 'echec';
+  /** Raison de l'échec à l'exécution (projet rétabli). */
+  error?: string;
 }
 
 export function createDefaultLayers(): Layer[] {
@@ -566,6 +681,10 @@ export const KIND_LABEL: Record<ObjectKind, string> = {
   roof: 'Toiture',
   column: 'Poteau',
   beam: 'Poutre',
+  solid: 'Solide',
+  occurrence: 'Occurrence',
+  projection: 'Vue projetée',
+  elevation: 'Façade',
   north: 'Nord',
   section: 'Repère de coupe',
   levelMark: 'Cote de niveau',
@@ -633,6 +752,8 @@ export function readingFor(obj: CadObject, view: ViewReading): { title: string; 
   }
 }
 
+const VIEW_NAMES: Record<ProjView, string> = { dessus: 'Vue de dessus', face: 'Vue de face', cote: 'Vue de côté' };
+
 export function dimensionOf(obj: CadObject): string {
   switch (obj.kind) {
     case 'line': {
@@ -664,6 +785,10 @@ export function dimensionOf(obj: CadObject): string {
     }
     case 'roof': return `Toiture ${obj.roofType === 'un-pan' ? 'à un pan' : obj.roofType === 'deux-pans' ? 'à deux pans' : 'à quatre pans'} · pente ${fmt(obj.pitch)}° · ${fmt(obj.w)} × ${fmt(obj.h)} mm`;
     case 'column': return obj.section === 'circle' ? `Poteau Ø ${fmt(obj.d ?? 0)} mm` : `Poteau ${fmt(obj.b ?? 0)} × ${fmt(obj.h ?? 0)} mm`;
+    case 'projection': return `${VIEW_NAMES[obj.view]} de ${obj.sourceId}`;
+    case 'occurrence': return `Occurrence de ${obj.sourceId} en (${fmt(obj.x)} ; ${fmt(obj.y)} ; ${fmt(obj.z)}), ${fmt(obj.angle)}°`;
+    case 'elevation': return obj.view === 'coupe' ? `Coupe selon ${obj.markId ?? '?'}` : `Façade ${obj.view}`;
+    case 'solid': { const b = recipeBounds(obj.recipe); return `Encombrement ${fmt(b.max[0] - b.min[0])} × ${fmt(b.max[1] - b.min[1])} × ${fmt(b.max[2] - b.min[2])} mm`; }
     case 'beam': return `Poutre ${fmt(obj.b)} × ${fmt(obj.h)} mm · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;
     case 'north': return `Nord à ${fmt(obj.rotation)}°`;
     case 'section': return `Coupe ${obj.label} · L ${fmt(Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1))} mm`;

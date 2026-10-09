@@ -1,20 +1,23 @@
 // État du projet : microversions Git-like, calques, blocs, cotes associatives,
 // annulation, versions nommées, persistance locale (brouillon explicite — Concept §8).
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   createDefaultLayers,
   type BlockDef,
   type CadObject,
+  type OccurrenceObj,
   type DimensionStyle,
   type GeoConstraint,
   type PolylineObj,
   type Zone,
+  type Georef,
   type Branch,
   type Asset,
   type Layer,
   type Level,
   type MicroVersion,
   type NewCadObject,
+  type AssistantLogEntry,
   type PrimitiveObject,
   type ProjectState,
   type Sheet,
@@ -23,6 +26,8 @@ import {
   type Orientation,
   KIND_LABEL,
   parentOf,
+  withDependents,
+  withoutDanglingMates,
   withParent,
   polylineExtents,
   supportedDimensionStyles,
@@ -32,7 +37,7 @@ import { loadProject, quotaWarning, saveProject, shouldResume, storageUsage } fr
 import { arcBounds } from '@/lib/arc';
 import { ellipseBounds } from '@/lib/ellipse';
 import { splineBounds } from '@/lib/spline';
-import { cloneAll, translation, withDependencies, type Placement } from '@/lib/array';
+import { cloneAll, withDependencies, type PlacementSpec } from '@/lib/array';
 import { groupPatches, nextGroupId, ungroupIds } from '@/lib/groups';
 import { LINE_TYPES } from '@/lib/linestyle';
 import { profileById } from '@/lib/materials';
@@ -48,8 +53,17 @@ import { isValidName, resolveParameters, type Parameter } from '@/lib/params/exp
 import { bindConstraintValues, constraintExprError, usesOf } from '@/lib/params/bind';
 import { isIfcClass, normalizePsets } from '@/lib/properties';
 import { isHexColor } from '@/lib/zones';
+import { georefError, normalizeGeoref } from '@/lib/georef';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
+import { merge3, mergedMateError, mergedConstraintError, mergedParameterError, mergeInputs, resolve, type Choice } from '@/lib/merge';
+import { buildPublication, normalizePublications, type Publication } from '@/lib/publication';
+import { applyTransform, decodeArgs, encodeArgs, mergedReferenceError, scriptCommandError, transformTargetsError, updateSettledError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
+import { MATE_LABEL, isMate, mateLoop, placeMate, resolveMates, type Mate } from '@/lib/assembly';
+import { BOOLEAN_LABEL, isRecipe, nextPartNo, recipeBounds, renumberParts, type BooleanOp } from '@/lib/solids';
+import { VIEW_LABEL, defaultPlacement, elevationPlacement } from '@/lib/projection';
+import type { ProjView, SolidRecipe } from '@/lib/kernel/recipe';
+import type { ElevationView } from '@/types/cad';
 
 const STORAGE_KEY = 'drawall-projet-v1';
 /** Date du dernier enregistrement réussi dans le stockage local (reprise hors ligne, lot 7.2). */
@@ -171,8 +185,22 @@ function normalizeObject(raw: unknown, layers: Layer[]): CadObject | null {
   // Propriétés et classe IFC (lot 12.3) : formes reconnues seulement.
   if ('psets' in base) { const ps = normalizePsets(base.psets); if (ps) base.psets = ps; else delete base.psets; }
   if ('ifcClass' in base && !isIfcClass(base.ifcClass)) delete base.ifcClass;
+  // Solide (lot 15.2) : recette mal formée = objet écarté (le noyau ne l'évaluerait pas).
+  if (base.kind === 'solid' && !isRecipe(base.recipe)) return null;
+  // Pièce (lot 16.3) : repère entier positif, repère local fini ; sinon le solide n'est plus une pièce.
+  if (base.kind === 'solid' && base.partDef !== undefined) {
+    const p = base.partDef as { no?: unknown; origin?: unknown; angle?: unknown };
+    const ok = Number.isInteger(p.no) && (p.no as number) > 0 && Array.isArray(p.origin) && p.origin.length === 3 && p.origin.every(Number.isFinite) && Number.isFinite(p.angle);
+    if (!ok) delete base.partDef;
+  }
+  if (base.kind === 'occurrence' && (typeof base.sourceId !== 'string' || ![base.x, base.y, base.z, base.angle].every(Number.isFinite))) return null;
+  // Vue projetée (lot 16.1) : vue connue, position finie.
+  if (base.kind === 'elevation' && (!['nord', 'sud', 'est', 'ouest', 'coupe'].includes(base.view) || (base.view === 'coupe' && typeof base.markId !== 'string') || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
+  if (base.kind === 'projection' && (!['dessus', 'face', 'cote'].includes(base.view) || typeof base.sourceId !== 'string' || !Number.isFinite(base.x) || !Number.isFinite(base.y))) return null;
   // Tableau de quantités (lot 13.5) : type inconnu = nomenclature.
-  if (base.kind === 'bom' && base.table !== undefined && !['pieces', 'ouvertures', 'murs'].includes(base.table)) delete base.table;
+  if (base.kind === 'bom' && base.table !== undefined && !['pieces', 'ouvertures', 'murs', 'assemblage'].includes(base.table)) delete base.table;
+  // Liaison (lot 16.4) : forme reconnue seulement, sinon l'occurrence reste libre.
+  if (base.kind === 'occurrence' && base.mate !== undefined && !isMate(base.mate)) delete base.mate;
   return base;
 }
 
@@ -247,6 +275,36 @@ export function normalizeParameters(raw: unknown): Parameter[] | undefined {
   return out.length ? out : undefined;
 }
 
+/** Journal relu (lot 18.1) : base présente, entrées nommées aux arguments en liste. */
+function normalizeJournal(raw: unknown): Journal | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const j = raw as Journal;
+  if (!j.base || !Array.isArray(j.entries)) return undefined;
+  // Base : un historique de projet relisible (au moins une version), sinon le rejeu échouerait.
+  const versions = (j.base as { versions?: unknown }).versions;
+  if (!Array.isArray(versions) || !versions.length) return undefined;
+  // … et dont une version au moins se relit (sinon le rejeu repartirait d'un projet neuf).
+  try {
+    const decoded = decodeHistory(j.base as { versions: unknown[] }).versions as Partial<MicroVersion>[];
+    if (!decoded.some(v => !!v && typeof v.seq === 'number' && typeof v.label === 'string' && Array.isArray(v.objects))) return undefined;
+  } catch { return undefined; }
+  // Entrées dont les arguments se décodent (sinon le rejeu échouerait sur elles).
+  const decodable = (args: unknown[]) => { try { decodeArgs(args); return true; } catch { return false; } };
+  const entries = j.entries.filter(e => e && typeof e.type === 'string' && Array.isArray(e.args) && Number.isInteger(e.n) && decodable(e.args));
+  return { base: j.base, entries };
+}
+
+/** Journal des hypothèses relu (lot 18.3) : entrées complètes seulement. */
+export function normalizeAssistantLog(raw: unknown): AssistantLogEntry[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const strs = (v: unknown) => Array.isArray(v) && v.every(x => typeof x === 'string');
+  const out = raw.filter((e): e is AssistantLogEntry => !!e && typeof e === 'object' && Number.isInteger(e.n) && typeof e.time === 'string' && typeof e.request === 'string'
+    && typeof e.generator === 'string' && strs(e.hypotheses) && Number.isInteger(e.steps) && Number.isInteger(e.corrections)
+    && ['executee', 'rejetee', 'echec'].includes(e.decision) && (e.error === undefined || typeof e.error === 'string'))
+    .map(e => ({ n: e.n, time: e.time, request: e.request, generator: e.generator, hypotheses: [...e.hypotheses], steps: e.steps, corrections: e.corrections, decision: e.decision, ...(e.error ? { error: e.error } : {}) }));
+  return out.length ? out : undefined;
+}
+
 export function normalizeProjectState(raw: unknown): ProjectState {
   const p = raw as Partial<ProjectState> | null;
   if (p && Array.isArray(p.versions) && p.versions.length > 0) {
@@ -281,7 +339,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         const vRest: MicroVersion = { ...v };
         delete vRest.levels;
         // Collections relues par leur normalisation : la valeur brute ne passe jamais telle quelle.
-        for (const k of ['constraints', 'parameters', 'zones'] as const) delete (vRest as unknown as Record<string, unknown>)[k];
+        for (const k of ['constraints', 'parameters', 'zones', 'georef'] as const) delete (vRest as unknown as Record<string, unknown>)[k];
         return {
           ...vRest,
           ...(levels ? { levels } : {}),
@@ -297,6 +355,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
           ...(normalizeConstraints(v.constraints) ? { constraints: normalizeConstraints(v.constraints) } : {}),
           ...(normalizeParameters(v.parameters) ? { parameters: normalizeParameters(v.parameters) } : {}),
           ...(normalizeZones(v.zones) ? { zones: normalizeZones(v.zones) } : {}),
+          ...(normalizeGeoref(v.georef) ? { georef: normalizeGeoref(v.georef) } : {}),
           ...(typeof v.profileId === 'string' ? { profileId: v.profileId } : {}),
           ...(v.surfaceRule === 'carrez' || v.surfaceRule === 'sia-416' ? { surfaceRule: v.surfaceRule } : {}),
         };
@@ -338,6 +397,9 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         ...(normalizeAssets(p.assets) ? { assets: normalizeAssets(p.assets) } : {}),
         ...(branch ? { branch } : {}),
         ...(branches.length ? { branches } : {}),
+        ...(normalizePublications(p.publications) ? { publications: normalizePublications(p.publications) } : {}),
+        ...((journal => (journal ? { journal } : {}))(normalizeJournal(p.journal))),
+        ...(normalizeAssistantLog(p.assistantLog) ? { assistantLog: normalizeAssistantLog(p.assistantLog) } : {}),
       };
     }
   }
@@ -355,15 +417,8 @@ export function normalizeLevels(raw: unknown): Level[] | undefined {
   return out.length ? out : undefined;
 }
 
-/** Identifiants donnés et, de proche en proche, ceux des objets associatifs qui en dépendent. */
-export function withDependents(objects: CadObject[], ids: Iterable<string>): Set<string> {
-  const out = new Set(ids);
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const o of objects) { const p = parentOf(o); if (p && out.has(p) && !out.has(o.id)) { out.add(o.id); changed = true; } }
-  }
-  return out;
-}
+/** Suppression en cascade (fonction pure, partagée avec la validation à blanc de l'assistant). */
+export { withDependents };
 
 /** Images des fonds de plan : seules les images en data URL avec leurs dimensions sont gardées. */
 export function normalizeAssets(raw: unknown): Record<string, Asset> | undefined {
@@ -396,6 +451,8 @@ interface SnapshotPatch {
   constraints?: GeoConstraint[];
   parameters?: Parameter[];
   zones?: Zone[];
+  /** `null` retire le géoréférencement (lot 17.3). */
+  georef?: Georef | null;
   layers?: Layer[];
   blocks?: BlockDef[];
   counter?: number;
@@ -464,6 +521,10 @@ export function useProject() {
   // Hors ligne (lot 7.2) : au démarrage, la copie IndexedDB reprend la main si le stockage local a
   // manqué le dernier enregistrement (plein) ou n'a pas de projet ; rien n'est enregistré avant.
   const [hydrated, setHydrated] = useState(false);
+  // Génération du projet : change chaque fois qu'un autre projet le remplace (ouverture, paquet
+  // restauré, projet neuf, rejeu du journal). Une opération asynchrone lancée sur l'un ne s'applique
+  // jamais à un autre, même s'ils partagent identifiants de variante, de calque ou de niveau.
+  const [generation, setGeneration] = useState(0);
   useEffect(() => {
     let alive = true;
     let localHasProject = false, localSavedAt = 0;
@@ -474,7 +535,7 @@ export function useProject() {
     loadProject()
       .then(saved => {
         if (!alive || !shouldResume(saved, localHasProject, localSavedAt)) return;
-        try { setState(normalizeProjectState(decodeHistory(JSON.parse(saved!.json)))); } catch { /* copie illisible : état local gardé */ }
+        try { setState(normalizeProjectState(decodeHistory(JSON.parse(saved!.json)))); setGeneration(g => g + 1); } catch { /* copie illisible : état local gardé */ }
       })
       .catch(() => { /* IndexedDB indisponible : stockage local seul */ })
       .finally(() => { if (alive) setHydrated(true); });
@@ -528,6 +589,8 @@ export function useProject() {
       const parameters = patch.parameters ?? cur.parameters;
       const constraints = bindConstraintValues(pruneConstraints(objects, patch.constraints ?? cur.constraints), parameters);
       if (constraints?.length && (objects !== cur.objects || constraints !== cur.constraints)) objects = enforceConstraints(cur.objects, objects, constraints).objects;
+      // Liaisons d'assemblage (lot 16.4) : chaque occurrence liée suit sa référence.
+      if (objects !== cur.objects) objects = resolveMates(objects).objects;
       const mv: MicroVersion = {
         seq,
         label,
@@ -542,6 +605,7 @@ export function useProject() {
         ...(constraints?.length ? { constraints } : {}),
         ...(parameters?.length ? { parameters } : {}),
         ...((patch.zones ?? cur.zones)?.length ? { zones: patch.zones ?? cur.zones } : {}),
+        ...(patch.georef === null ? {} : (patch.georef ?? cur.georef) ? { georef: patch.georef ?? cur.georef } : {}),
       };
       return {
         ...s,
@@ -556,10 +620,12 @@ export function useProject() {
     });
   }, []);
 
-  const addObject = useCallback((partial: NewCadObject, name?: string) => {
+  const addObject = useCallback((partial: NewCadObject, name?: string, label?: string) => {
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
-    const obj = stampLevel({ ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject);
-    commit(`Créer ${KIND_LABEL[obj.kind].toLowerCase()} ${id}`, {
+    // Niveau demandé explicitement (script, assistant) : gardé ; sinon le niveau actif.
+    const raw = { ...partial, id, createdSeq: current.seq, name: name ?? id } as CadObject;
+    const obj = raw.levelId ? (raw.levelId === DEFAULT_LEVEL.id ? (({ levelId: _l, ...rest }) => { void _l; return rest as CadObject; })(raw) : raw) : stampLevel(raw);
+    commit(label ? `${label} ${id}` : `Créer ${KIND_LABEL[obj.kind].toLowerCase()} ${id}`, {
       objects: [...allObjects, obj],
       counter: state.counter + 1,
     });
@@ -569,6 +635,8 @@ export function useProject() {
 
   const updateObject = useCallback((id: string, patch: Partial<CadObject>, label = 'Modifier') => {
     commit(`${label} ${id}`, { objects: allObjects.map(o => (o.id === id ? ({ ...o, ...patch } as CadObject) : o)) });
+    // Vrai : appliquée (la commande refusée rend undefined).
+    return true;
   }, [allObjects, commit]);
 
   /** Grouper (lot 10.5) : les objets désignés forment un groupe neuf, en une version. */
@@ -596,7 +664,7 @@ export function useProject() {
     // Les objets associatifs (cotes, ouvertures, vues liées) partent avec leur parent.
     const removed = withDependents(allObjects, ids);
     commit(ids.length === 1 ? `Supprimer ${ids[0]}` : `Supprimer ${ids.length} objets`, {
-      objects: allObjects.filter(o => !removed.has(o.id)),
+      objects: withoutDanglingMates(allObjects.filter(o => !removed.has(o.id))),
     });
     setSelectedIds([]);
   }, [allObjects, commit, setSelectedIds]);
@@ -633,14 +701,15 @@ export function useProject() {
    * pose, en une seule version, avec des identifiants neufs. Une copie dont le calque n'existe
    * plus va sur le calque actif ; rien n'est copié vers un calque verrouillé.
    */
-  const addCopies = useCallback((sources: CadObject[], placements: Placement[], label: string) => {
+  const addCopies = useCallback((sources: CadObject[], placements: PlacementSpec[], label: string) => {
     const active = layers.find(l => l.id === activeLayerId);
     const usable = sources
       .map(o => (layers.some(l => l.id === o.layerId) || !active ? o : ({ ...o, layerId: active.id } as CadObject)))
       .filter(o => !layers.find(l => l.id === o.layerId)?.locked);
     if (usable.length === 0 || placements.length === 0) return [];
-    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks, taken => nextGroupId(allObjects, taken));
-    const clones = cloned.map(stampLevel);
+    const { objects: cloned, counter } = cloneAll(usable, placements, state.counter, current.seq, blocks, taken => nextGroupId(allObjects, taken), allObjects);
+    // Pièce copiée : nouvelle pièce, nouveau repère (sur toutes les variantes), pour une nomenclature sans doublon.
+    const clones = renumberParts(cloned.map(stampLevel), allVersions(state).flatMap(v => v.objects));
     if (clones.length === 0) return [];
     commit(`${label} — ${clones.length} objet${clones.length > 1 ? 's' : ''}`, {
       objects: [...allObjects, ...clones],
@@ -648,11 +717,11 @@ export function useProject() {
     });
     setSelectedIds(clones.map(c => c.id));
     return clones.map(c => c.id);
-  }, [allObjects, layers, blocks, activeLayerId, state.counter, current.seq, commit, setSelectedIds, stampLevel]);
+  }, [allObjects, layers, blocks, activeLayerId, state, current.seq, commit, setSelectedIds, stampLevel]);
 
   /** Duplique la sélection avec de nouveaux identifiants, décalée de (dx, dy). */
   const duplicateObjects = useCallback((ids: string[], dx = 20, dy = 20) => {
-    return addCopies(withDependencies(allObjects, ids), [translation(dx, dy)], 'Dupliquer');
+    return addCopies(withDependencies(allObjects, ids), [{ kind: 'translate', dx, dy }], 'Dupliquer');
   }, [allObjects, addCopies]);
 
   /**
@@ -676,7 +745,7 @@ export function useProject() {
     const next = allObjects
       .filter(o => !removed.has(o.id))
       .map(o => (o.id === id && edit.patch ? ({ ...o, ...edit.patch } as CadObject) : o));
-    commit(`${label} ${id}`, { objects: [...next, ...added], counter });
+    commit(`${label} ${id}`, { objects: withoutDanglingMates([...next, ...added]), counter });
     if (edit.remove) setSelectedIds(added.map(o => o.id));
     return true;
   }, [allObjects, state.counter, current.seq, commit, setSelectedIds]);
@@ -701,6 +770,21 @@ export function useProject() {
     setSelectedIds(created.map(o => o.id));
     return true;
   }, [allObjects, state.counter, current.seq, commit, setSelectedIds]);
+
+  /**
+   * Booléen de deux solides (lot 15.2) : le premier reçoit la recette combinée, le second est retiré,
+   * en une seule version.
+   */
+  const combineSolids = useCallback((aId: string, bId: string, op: BooleanOp) => {
+    const a = allObjects.find(o => o.id === aId), b = allObjects.find(o => o.id === bId);
+    if (a?.kind !== 'solid' || b?.kind !== 'solid' || aId === bId) return false;
+    const removed = withDependents(allObjects, [bId]);
+    commit(`${BOOLEAN_LABEL[op]} ${aId} ${op === 'cut' ? '−' : op === 'union' ? '+' : '∩'} ${bId}`, {
+      objects: allObjects.filter(o => !removed.has(o.id)).map(o => (o.id === aId ? ({ ...o, recipe: { op, a: a.recipe, b: b.recipe } } as CadObject) : o)),
+    });
+    setSelectedIds([aId]);
+    return true;
+  }, [allObjects, commit, setSelectedIds]);
 
   const removeObject = useCallback((id: string) => {
     removeObjects([id]);
@@ -787,6 +871,104 @@ export function useProject() {
     return id;
   }, [allObjects, state.counter, current.seq, commit, setSelectedId]);
 
+  /** Vues projetées d'un solide (lot 16.1), posées à droite de lui, en une seule version. */
+  const addProjections = useCallback((sourceId: string, views: ProjView[]) => {
+    const source = allObjects.find(o => o.id === sourceId);
+    if (source?.kind !== 'solid' || !views.length) return [];
+    let counter = state.counter;
+    const made = defaultPlacement(source, views).map(({ view, x, y }) => {
+      counter += 1;
+      const id = `OBJ-${String(counter).padStart(4, '0')}`;
+      return {
+        id, name: `${VIEW_LABEL[view]} de ${source.name}`, kind: 'projection', classification: source.classification, layerId: source.layerId, hatch: 'none',
+        createdSeq: current.seq, ...(source.levelId ? { levelId: source.levelId } : {}), sourceId, view, x, y,
+      } as CadObject;
+    });
+    commit(`Vues projetées de ${sourceId}`, { objects: [...allObjects, ...made], counter });
+    return made.map(o => o.id);
+  }, [allObjects, state.counter, current.seq, commit]);
+
+  /** Pièce (lot 16.3) : le solide reçoit le repère suivant et son repère local (base de son encombrement). */
+  const makePart = useCallback((id: string) => {
+    const o = allObjects.find(x => x.id === id);
+    if (o?.kind !== 'solid' || o.partDef) return null;
+    // Repère attribué sur toutes les variantes : deux variantes ne numérotent pas deux pièces pareil.
+    const no = nextPartNo(allVersions(state).flatMap(v => v.objects)), b = recipeBounds(o.recipe);
+    commit(`Pièce n° ${no} ${id}`, { objects: allObjects.map(x => (x.id === id ? ({ ...x, partDef: { no, origin: [b.min[0], b.min[1], b.min[2]], angle: 0 } } as CadObject) : x)) });
+    return no;
+  }, [allObjects, state, commit]);
+
+  /** Occurrence d'une pièce posée en (x, y, z), tournée de `angle` degrés. */
+  const addOccurrence = useCallback((defId: string, x: number, y: number, z: number, angle: number) => {
+    const def = allObjects.find(o => o.id === defId);
+    if (def?.kind !== 'solid' || !def.partDef || ![x, y, z, angle].every(Number.isFinite)) return null;
+    const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
+    const occ = { id, name: `${def.name} (rep. ${def.partDef.no})`, kind: 'occurrence', classification: def.classification, layerId: def.layerId, hatch: 'none', createdSeq: current.seq, ...(def.levelId ? { levelId: def.levelId } : {}), sourceId: defId, x, y, z, angle } as CadObject;
+    commit(`Occurrence ${id} de la pièce n° ${def.partDef.no}`, { objects: [...allObjects, occ], counter: state.counter + 1 });
+    return id;
+  }, [allObjects, state.counter, current.seq, commit]);
+
+  /** Liaison d'une occurrence (lot 16.4) ; `undefined` la délie. La version résout la liaison. */
+  const setMate = useCallback((occId: string, mate: Mate | undefined) => {
+    const o = allObjects.find(x => x.id === occId);
+    if (o?.kind !== 'occurrence') return 'Liaison : une occurrence est attendue.';
+    if (mate) {
+      if (mateLoop(occId, mate.to, allObjects)) return 'Liaison refusée : elle formerait une boucle de liaisons.';
+      const p = placeMate(o, mate, allObjects);
+      if ('error' in p) return `Liaison refusée : ${p.error}.`;
+    }
+    commit(mate ? `Liaison ${MATE_LABEL[mate.type].toLowerCase()} ${occId} → ${mate.to}` : `Délier ${occId}`, {
+      objects: allObjects.map(x => { if (x.id !== occId) return x; const { mate: _m, ...rest } = x as OccurrenceObj; void _m; return (mate ? { ...rest, mate } : rest) as CadObject; }),
+    });
+    return null;
+  }, [allObjects, commit]);
+
+  /** Géoréférencement (lot 17.3) : point de base, système, nord ; `null` le retire. */
+  const setGeoref = useCallback((g: Georef | null) => {
+    if (g) { const err = georefError(g); if (err) return err; }
+    commit(g ? `Géoréférencement ${g.crs}` : 'Retirer le géoréférencement', { georef: g });
+    return null;
+  }, [commit]);
+
+  /**
+   * Solides importés (lot 17.2), en une seule version : sur le calque et le niveau donnés (ceux du
+   * début de l'import), sinon les actifs. Rend les identifiants, ou un message si la destination est
+   * refusée (calque verrouillé ou absent, niveau absent), comme `addObject`.
+   */
+  const addSolids = useCallback((items: { name: string; recipe: SolidRecipe }[], label: string, dest?: { layerId: string; levelId: string }): string[] | string => {
+    if (!items.length) return [];
+    const layerId = dest?.layerId ?? activeLayerId, levelId = dest?.levelId ?? activeLevelId;
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer) return `calque ${layerId} absent`;
+    if (layer.locked) return `calque ${layer.name} verrouillé : déverrouillez-le pour importer`;
+    if (!levels.some(l => l.id === levelId)) return `niveau ${levelId} absent`;
+    let counter = state.counter;
+    const made = items.map(({ name, recipe }) => {
+      counter += 1;
+      const id = `OBJ-${String(counter).padStart(4, '0')}`;
+      return { id, name, kind: 'solid', classification: 'non-classifie', layerId, hatch: 'none', createdSeq: current.seq, recipe, ...(levelId === DEFAULT_LEVEL.id ? {} : { levelId }) } as CadObject;
+    });
+    commit(`${label} ${made.map(o => o.id).join(', ')}`, { objects: [...allObjects, ...made], counter });
+    setSelectedIds(made.map(o => o.id));
+    return made.map(o => o.id);
+  }, [allObjects, state.counter, current.seq, commit, activeLayerId, activeLevelId, layers, levels, setSelectedIds]);
+
+  /** Façades et coupes du bâtiment (lot 16.2), posées sous lui, en une seule version. */
+  const addElevations = useCallback((views: { view: ElevationView; markId?: string }[]) => {
+    const placed = elevationPlacement(allObjects, views);
+    if (!placed.length) return [];
+    let counter = state.counter;
+    const made = placed.map(({ view, markId, x, y }) => {
+      counter += 1;
+      const id = `OBJ-${String(counter).padStart(4, '0')}`;
+      const mark = allObjects.find(o => o.id === markId);
+      const name = view === 'coupe' ? `Coupe ${mark?.kind === 'section' ? mark.label || 'A' : ''}` : `Façade ${view}`;
+      return { id, name, kind: 'elevation', classification: 'architecture', layerId: activeLayerId, hatch: 'none', createdSeq: current.seq, view, ...(markId ? { markId } : {}), x, y } as CadObject;
+    });
+    commit(`Façades et coupes ${made.map(o => o.id).join(', ')}`, { objects: [...allObjects, ...made.map(o => stampLevel(o))], counter });
+    return made.map(o => o.id);
+  }, [allObjects, state.counter, current.seq, commit, activeLayerId, stampLevel]);
+
   /**
    * Vue en coupe d'une face par un repère de coupe ; elle prend la place de la vue liée qui occuperait
    * le même emplacement (une coupe A–A vue du dessus remplace la vue de dessus).
@@ -833,14 +1015,15 @@ export function useProject() {
    * Note de terrain (lot 7.3) au point (x, y) : jointe à `targetId` (position relative au coin de son
    * emprise, elle le suit) ou au point. Datée de l'instant de sa création.
    */
-  const addNote = useCallback((x: number, y: number, text: string, targetId?: string) => {
+  /** `time` : date de la note, fixée à l'appel et journalisée (le rejeu la reprend telle quelle). */
+  const addNote = useCallback((x: number, y: number, text: string, targetId?: string, time = Date.now()) => {
     const target = targetId ? allObjects.find(o => o.id === targetId && o.kind !== 'note') : undefined;
     const b = target ? objectBounds(target, blocks, allObjects) : null;
     const id = `OBJ-${String(state.counter + 1).padStart(4, '0')}`;
     const count = allObjects.filter(o => o.kind === 'note').length + 1;
     const note = stampLevel({
       id, name: `Note ${count}`, kind: 'note', classification: target?.classification ?? 'non-classifie', layerId: target?.layerId ?? activeLayerId, hatch: 'none', createdSeq: current.seq,
-      x: round3(b ? x - b.minX : x), y: round3(b ? y - b.minY : y), ...(b && target ? { targetId: target.id } : {}), text, time: Date.now(),
+      x: round3(b ? x - b.minX : x), y: round3(b ? y - b.minY : y), ...(b && target ? { targetId: target.id } : {}), text, time,
     } as CadObject);
     commit(`Note ${target ? `sur ${target.id}` : 'sur un point'}`, { objects: [...allObjects, note], counter: state.counter + 1 });
     setSelectedId(id);
@@ -1036,6 +1219,7 @@ export function useProject() {
 
   const reset = useCallback(() => {
     setState(seedProject());
+    setGeneration(g => g + 1);
     setSelectedId(null);
   }, [setSelectedId]);
 
@@ -1043,6 +1227,7 @@ export function useProject() {
     // Historique entier ou par différences (lot 8.1).
     const decoded = next && typeof next === 'object' && Array.isArray((next as { versions?: unknown }).versions) ? decodeHistory(next as { versions: unknown[] }) : next;
     setState(normalizeProjectState(decoded));
+    setGeneration(g => g + 1);
     setSelectedId(null);
   }, [setSelectedId]);
 
@@ -1051,6 +1236,7 @@ export function useProject() {
 
   const diagnostics = useMemo(() => {
     const out: { level: 'info' | 'avertissement'; text: string }[] = [];
+    const mateErrors = new Map(resolveMates(allObjects).errors.map(e => [e.id, e.text]));
     const unclassified = allObjects.filter(o => o.classification === 'non-classifie' && o.kind !== 'dimension' && o.kind !== 'underlay');
     if (unclassified.length > 0) {
       out.push({ level: 'avertissement', text: `${unclassified.length} objet(s) sans classification métier — lectures indisponibles (${unclassified.map(o => o.id).join(', ')}).` });
@@ -1072,6 +1258,12 @@ export function useProject() {
       }
       if (o.kind === 'cut' && !allObjects.some(t => t.id === o.markId)) {
         out.push({ level: 'avertissement', text: `${o.id} : coupe orpheline — repère ${o.markId} absent.` });
+      }
+      if (o.kind === 'occurrence' && o.mate && mateErrors.has(o.id)) {
+        out.push({ level: 'avertissement', text: `${o.id} : liaison ${MATE_LABEL[o.mate.type].toLowerCase()} non satisfaite — ${mateErrors.get(o.id)}.` });
+      }
+      if (o.kind === 'projection' && !allObjects.some(t => t.id === o.sourceId && t.kind === 'solid')) {
+        out.push({ level: 'avertissement', text: `${o.id} : vue projetée orpheline — solide ${o.sourceId} absent.` });
       }
       if (o.kind === 'views' && !allObjects.some(t => t.id === o.sourceId)) {
         out.push({ level: 'avertissement', text: `${o.id} : vues orphelines — face ${o.sourceId} absente.` });
@@ -1191,7 +1383,7 @@ export function useProject() {
     const rest = levels.filter(l => l.id !== id);
     // Un objet associatif qui dépendait d'un objet supprimé part avec lui.
     const gone = withDependents(allObjects, allObjects.filter(o => levelIdOf(o) === id).map(o => o.id));
-    const objectsLeft = allObjects.filter(o => !gone.has(o.id));
+    const objectsLeft = withoutDanglingMates(allObjects.filter(o => !gone.has(o.id)));
     commit(`Supprimer niveau ${id}`, {
       levels: rest,
       objects: objectsLeft,
@@ -1206,7 +1398,9 @@ export function useProject() {
   const copyLevel = useCallback((fromId: string, name: string, elevation: number) => {
     if (!levels.some(l => l.id === fromId)) return null;
     const id = nextId('NIV', allLevelIds);
-    const { objects: copies, counter } = copyLevelObjects(allObjects, fromId, id, state.counter, current.seq);
+    const { objects: copied, counter } = copyLevelObjects(allObjects, fromId, id, state.counter, current.seq);
+    // Pièces du niveau copié : nouvelles pièces, nouveaux repères (comme un collage).
+    const copies = renumberParts(copied, allVersions(state).flatMap(v => v.objects));
     commit(`Copier niveau ${levels.find(l => l.id === fromId)!.name} vers ${name}`, {
       levels: [...levels, { id, name, elevation }],
       objects: [...allObjects, ...copies],
@@ -1215,7 +1409,7 @@ export function useProject() {
     });
     setSelectedIds([]);
     return id;
-  }, [levels, allLevelIds, allObjects, state.counter, current.seq, commit, setSelectedIds]);
+  }, [levels, allLevelIds, allObjects, state, current.seq, commit, setSelectedIds]);
 
   // ─── Contraintes (lot 12.1) ─────────────────────────────────────────────────
   const constraints = useMemo(() => current.constraints ?? [], [current.constraints]);
@@ -1373,22 +1567,223 @@ export function useProject() {
   const switchVariant = useCallback((id: string) => apply(switchBranch(state, id)), [state, apply]);
   const removeVariant = useCallback((id: string) => apply(removeBranch(state, id)), [state, apply]);
 
+  /**
+   * Fusion de la variante `otherId` dans l'active (lot 14.2) : nouvelle microversion de la variante
+   * active ; chaque conflit doit être tranché. Renvoie un message d'erreur, ou null.
+   */
+  const mergeVariant = useCallback((otherId: string, choices: Record<string, Choice>): string | null => {
+    const inputs = mergeInputs(state, otherId);
+    if ('error' in inputs) return inputs.error;
+    const out = resolve(merge3(inputs.base, inputs.ours, inputs.theirs), choices);
+    if ('error' in out) return out.error;
+    const paramError = mergedParameterError(out.parameters, inputs.ours.parameters, inputs.theirs.parameters)
+      ?? mergedMateError(out.objects, inputs.ours.objects, inputs.theirs.objects)
+      ?? mergedConstraintError(
+        { objects: out.objects ?? inputs.ours.objects, constraints: bindConstraintValues(out.constraints ?? inputs.ours.constraints, out.parameters ?? inputs.ours.parameters) },
+        { objects: inputs.ours.objects, constraints: bindConstraintValues(inputs.ours.constraints, inputs.ours.parameters) },
+        { objects: inputs.theirs.objects, constraints: bindConstraintValues(inputs.theirs.constraints, inputs.theirs.parameters) },
+      );
+    if (paramError) return paramError;
+    // Références des objets fusionnés (pièce source, parent, liaison, ouverture dans son mur…) : une
+    // erreur qu'aucune des deux variantes n'avait fait refuser la fusion.
+    const broken = mergedReferenceError(out as Partial<MicroVersion>, inputs.ours, inputs.theirs);
+    if (broken) return broken;
+    const name = state.branches?.find(b => b.id === otherId)?.name ?? otherId;
+    commit(`Fusion de la variante « ${name} »`, out as SnapshotPatch);
+    return null;
+  }, [state, commit]);
+
+  // ─── Publication (lot 14.4) ──────────────────────────────────────────────────
+  /** Publie la version courante : la nomme et fige le PDF de chaque feuille. */
+  const publish = useCallback((name: string): string | null => {
+    const ids = (state.publications ?? []).map(p => p.id);
+    const pub = buildPublication(state, nextId('PUB', ids), name, new Date());
+    if ('error' in pub) return pub.error;
+    setState(s => ({
+      ...s,
+      versions: s.versions.map((v, i) => (i === s.pointer && !v.named ? { ...v, named: pub.name } : v)),
+      publications: [...(s.publications ?? []), pub],
+    }));
+    return null;
+  }, [state]);
+
+  // ——— API de commandes (lot 18.1) ———
+  // Toute opération qui modifie le projet passe par `cmd` : validée, journalisée, puis exécutée.
+  const record = useCallback((type: string, args: unknown[], refused?: string) => {
+    setState(s => {
+      const { journal, ...rest } = s;
+      const base = journal?.base ?? encodeHistory(rest as ProjectState);
+      const entries = journal?.entries ?? [];
+      const entry: JournalEntry = { n: entries.length + 1, type, args: encodeArgs(args) as unknown[], ...(refused ? { refused } : {}) };
+      return { ...s, journal: { base, entries: [...entries, entry] } };
+    });
+  }, []);
+  /** Repères de pièce pris, sur toutes les variantes et toutes les versions (identifiants des pièces). */
+  const partMarks = () => {
+    const m = new Map<number, string[]>();
+    for (const v of allVersions(state)) for (const o of v.objects) if (o.kind === 'solid' && o.partDef && !m.get(o.partDef.no)?.includes(o.id)) m.set(o.partDef.no, [...(m.get(o.partDef.no) ?? []), o.id]);
+    return m;
+  };
+  /**
+   * Création sur un calque verrouillé : refusée, comme `addObject`. Calque actif pour les créations
+   * qui s'y posent (façades, fond de plan, tableau, bloc, note libre) ; calque de l'objet désigné pour
+   * celles qui le reprennent (cote, repère, vues liées, vues projetées, coupe, occurrence, note jointe).
+   */
+  const lockedDestinationError = (type: string, args: unknown[]): string | null => {
+    const ON_ACTIVE = ['addElevations', 'addUnderlay', 'addBom', 'insertBlock', 'addLibraryBlock'];
+    const FROM_FIRST: Record<string, number> = { addDimension: 0, addBalloon: 0, addViews: 0, addProjections: 0, addCut: 0, addOccurrence: 0, addNote: 3 };
+    let layerId: string | undefined;
+    if (ON_ACTIVE.includes(type)) layerId = activeLayerId;
+    else if (type in FROM_FIRST) {
+      const ref = args[FROM_FIRST[type]];
+      layerId = typeof ref === 'string' ? allObjects.find(o => o.id === ref)?.layerId : type === 'addNote' ? activeLayerId : undefined;
+    }
+    const layer = layerId ? layers.find(l => l.id === layerId) : undefined;
+    return layer?.locked ? `calque ${layer.name} verrouillé : déverrouillez-le d’abord` : null;
+  };
+  const cmd = <A extends unknown[], R>(type: string, fn: (...a: A) => R) => (...args: A): R => {
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks(), activeLevelId }) ?? lockedDestinationError(type, args);
+    if (err) {
+      let safe: unknown[] = [];
+      try { encodeArgs(args); safe = args; } catch { /* arguments non journalisables : non gardés */ }
+      record(type, safe, err);
+      return undefined as R;
+    }
+    record(type, args);
+    return fn(...args);
+  };
+  /**
+   * Commande dont l'échec n'apparaît qu'à l'exécution (fusion refusée, publication sans feuille…) :
+   * son entrée du journal est marquée refusée, si bien que le rejeu ne la refait pas comme réussie.
+   */
+  const checked = <A extends unknown[], R>(type: string, fn: (...a: A) => R, failed: (r: R) => string | null) => (...args: A): R => {
+    const r = cmd(type, fn)(...args);
+    const why = r === undefined ? null : failed(r);
+    if (why) setState(s => {
+      const entries = s.journal?.entries ?? [];
+      const last = entries[entries.length - 1];
+      if (!s.journal || !last || last.type !== type || last.refused) return s;
+      return { ...s, journal: { ...s.journal, entries: [...entries.slice(0, -1), { ...last, refused: why }] } };
+    });
+    return r;
+  };
+  /** Commandes qui rendent un message d'erreur, ou null si elles ont abouti. */
+  const failedWith = (r: unknown) => (typeof r === 'string' ? r : null);
+  /** Transformation déclarative de la sélection (remplace les fonctions, non journalisables). */
+  const transform = useCallback((ids: string[], op: TransformOp, label = 'Transformer') => transformObjects(ids, applyTransform(op), label), [transformObjects]);
+  // Repartir de zéro commence un nouveau journal ; ouvrir un projet reprend le journal enregistré
+  // avec lui (un paquet restauré se réexporte à l'identique, lot 8.2).
+  const resetWithJournal = useCallback(() => { reset(); setState(s => { const { journal: _j, ...rest } = s; void _j; return rest as ProjectState; }); }, [reset]);
+
+  const commands = {
+    publish: checked('publish', publish, failedWith),
+    createVariant: checked('createVariant', createVariant, failedWith), switchVariant: checked('switchVariant', switchVariant, failedWith),
+    removeVariant: checked('removeVariant', removeVariant, failedWith), mergeVariant: checked('mergeVariant', mergeVariant, failedWith),
+    addZone: checked('addZone', addZone, failedWith), updateZone: checked('updateZone', updateZone, failedWith), removeZone: cmd('removeZone', removeZone), setRoomZone: cmd('setRoomZone', setRoomZone),
+    addConstraint: cmd('addConstraint', addConstraint), removeConstraint: cmd('removeConstraint', removeConstraint), setConstraintExpr: checked('setConstraintExpr', setConstraintExpr, failedWith),
+    addParameter: checked('addParameter', addParameter, failedWith), updateParameter: checked('updateParameter', updateParameter, failedWith), removeParameter: checked('removeParameter', removeParameter, failedWith),
+    setActiveLevelId: cmd('setActiveLevelId', setActiveLevelId), addLevel: cmd('addLevel', addLevel), updateLevel: cmd('updateLevel', updateLevel),
+    removeLevel: checked('removeLevel', removeLevel, r => (r === false ? 'niveau inconnu ou dernier niveau' : null)), copyLevel: checked('copyLevel', copyLevel, r => (r === null ? 'niveau source inconnu' : null)),
+    setProfileId: cmd('setProfileId', setProfileId), setSurfaceRule: cmd('setSurfaceRule', setSurfaceRule),
+    addSheet: cmd('addSheet', addSheet), updateSheet: cmd('updateSheet', updateSheet), removeSheet: cmd('removeSheet', removeSheet),
+    addViewport: cmd('addViewport', addViewport), updateViewport: cmd('updateViewport', updateViewport), removeViewport: cmd('removeViewport', removeViewport),
+    addObject: cmd('addObject', addObject), updateObject: cmd('updateObject', updateObject), removeObject: cmd('removeObject', removeObject), removeObjects: cmd('removeObjects', removeObjects),
+    combineSolids: checked('combineSolids', combineSolids, r => (r === false ? 'deux solides distincts attendus' : null)), addProjections: cmd('addProjections', addProjections), addElevations: cmd('addElevations', addElevations),
+    makePart: checked('makePart', makePart, r => (r === null ? 'solide attendu, pas déjà une pièce' : null)), addOccurrence: checked('addOccurrence', addOccurrence, r => (r === null ? 'pièce attendue, position finie' : null)), setMate: checked('setMate', setMate, failedWith), addSolids: checked('addSolids', addSolids, failedWith), setGeoref: checked('setGeoref', setGeoref, failedWith),
+    transform: cmd('transform', transform), duplicateObjects: cmd('duplicateObjects', duplicateObjects), addCopies: cmd('addCopies', addCopies),
+    applyEdit: cmd('applyEdit', applyEdit), applyPatches: cmd('applyPatches', applyPatches), groupObjects: cmd('groupObjects', groupObjects), ungroupObjects: cmd('ungroupObjects', ungroupObjects),
+    addLayer: cmd('addLayer', addLayer), updateLayer: cmd('updateLayer', updateLayer), removeLayer: cmd('removeLayer', removeLayer), setActiveLayerId: cmd('setActiveLayerId', setActiveLayerId),
+    addDimension: cmd('addDimension', addDimension), addViews: cmd('addViews', addViews), addCut: cmd('addCut', addCut), addBalloon: cmd('addBalloon', addBalloon),
+    addBom: cmd('addBom', addBom), addUnderlay: cmd('addUnderlay', addUnderlay), // Date fixée avant la journalisation : le rejeu redonne la même note, date comprise.
+    addNote: (x: number, y: number, text: string, targetId?: string, time?: number) => cmd('addNote', addNote)(x, y, text, targetId, time ?? Date.now()), addNotePhoto: cmd('addNotePhoto', addNotePhoto),
+    removeNotePhoto: cmd('removeNotePhoto', removeNotePhoto), createBlockFromObject: cmd('createBlockFromObject', createBlockFromObject), insertBlock: cmd('insertBlock', insertBlock),
+    importObjects: cmd('importObjects', importObjects), removeBlock: cmd('removeBlock', removeBlock), addLibraryBlock: cmd('addLibraryBlock', addLibraryBlock),
+    // Sans argument : un bouton qui passe son événement ne fait pas refuser la commande.
+    undo: () => cmd('undo', undo)(), redo: () => cmd('redo', redo)(), goTo: cmd('goTo', goTo), nameVersion: cmd('nameVersion', nameVersion), issueIndex: cmd('issueIndex', issueIndex),
+  };
+  type CommandName = keyof typeof commands;
+
+  /** Exécution d'une commande par son nom (scripts, lot 18.2) : refus en clair, jamais d'exception. */
+  const execute = (type: string, args: unknown[]): { ok: true; result: unknown } | { ok: false; error: string; /** Refus journalisé (un rendu suit). */ journaled: boolean } => {
+    if (!(type in commands)) return { ok: false, error: `commande inconnue « ${type} »`, journaled: false };
+    // Une commande dont les arguments ne sont pas entièrement validés reste réservée à l'interface.
+    const closed = scriptCommandError(type, args);
+    if (closed) return { ok: false, error: closed, journaled: false };
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks(), activeLevelId }) ?? lockedDestinationError(type, args);
+    // Transformation : chaque objet désigné doit l'accepter, sinon le script la croirait faite.
+    const bound = bindConstraintValues(constraints, parameters);
+    const blocked = err ? null
+      : type === 'transform' ? transformTargetsError(args[0] as string[], args[1] as TransformOp, allObjects, layers, bound)
+      // Modification que les contraintes ou la liaison annuleraient : le script la croirait faite.
+      : type === 'updateObject' ? updateSettledError(args[0] as string, args[1] as Record<string, unknown>, allObjects, bound)
+      : null;
+    if (err || blocked) { record(type, [], (err ?? blocked)!); return { ok: false, error: `${type} : ${err ?? blocked}`, journaled: true }; }
+    return { ok: true, result: (commands[type as CommandName] as (...a: unknown[]) => unknown)(...args) };
+  };
+
+  // Rejeu du journal : état de base rechargé, puis une commande par rendu (chacune voit l'état
+  // laissé par la précédente), enfin comparaison du contenu obtenu avec celui d'avant le rejeu.
+  const replayRef = useRef<{ queue: JournalEntry[]; before: string; total: number; frozen: Publication[] } | null>(null);
+  const [replay, setReplay] = useState<{ running: boolean; done: number; total: number; identical?: boolean } | null>(null);
+  const replayJournal = useCallback(() => {
+    const j = state.journal;
+    if (!j) return 'Journal vide : aucune commande depuis l’ouverture du projet.';
+    const queue = j.entries.filter(e => !e.refused);
+    // Le journal des hypothèses (lot 18.3) reste celui du moment : le rejeu ne réécrit pas les décisions.
+    let base: ProjectState;
+    try { base = normalizeProjectState(decodeHistory(j.base as { versions: unknown[] })); } catch { return 'Journal endommagé : son état de départ ne se relit pas.'; }
+    const { assistantLog: _l, ...replayBase } = base;
+    // Dossiers publiés depuis le début du journal : figés, ils sont repris tels quels au rejeu, jamais refaits.
+    const frozen = (state.publications ?? []).slice((replayBase.publications ?? []).length);
+    replayRef.current = { queue: [...queue], before: versionDigest(current), total: queue.length, frozen };
+    void _l;
+    setState({ ...replayBase, ...(state.assistantLog ? { assistantLog: state.assistantLog } : {}), journal: { base: j.base, entries: [] } });
+    setGeneration(g => g + 1);
+    setReplay({ running: true, done: 0, total: queue.length });
+    return null;
+  }, [state.journal, state.assistantLog, state.publications, current]);
+  useEffect(() => {
+    const r = replayRef.current;
+    if (!r) return;
+    const next = r.queue.shift();
+    if (!next) {
+      replayRef.current = null;
+      setReplay({ running: false, done: r.total, total: r.total, identical: versionDigest(current) === r.before });
+      return;
+    }
+    const op = commands[next.type as CommandName] as ((...a: unknown[]) => unknown) | undefined;
+    const pub = next.type === 'publish' ? r.frozen.shift() : undefined;
+    if (pub) {
+      // Publication : le dossier figé est repris (mêmes PDF, même date), la version nommée comme alors.
+      record('publish', decodeArgs(next.args) as unknown[]);
+      setState(s => ({
+        ...s,
+        versions: s.versions.map((v, i) => (i === s.pointer && !v.named ? { ...v, named: pub.name } : v)),
+        publications: [...(s.publications ?? []), pub],
+      }));
+    } else if (op) op(...(decodeArgs(next.args) as unknown[])); else record(next.type, [], 'commande inconnue au rejeu');
+    setReplay({ running: true, done: r.total - r.queue.length, total: r.total });
+    // Une commande par rendu : l'effet suit chaque nouvel état.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  /**
+   * Retour à un état antérieur, journal compris (lot 18.2) : un script fautif est annulé en entier.
+   * Ce n'est pas une commande : rien n'est journalisé.
+   */
+  const restore = useCallback((snapshot: ProjectState) => setState(snapshot), []);
+  /** Journal des hypothèses de l'assistant (lot 18.3) : une entrée par décision ; hors historique, non journalisé. */
+  const logAssistant = useCallback((entry: Omit<AssistantLogEntry, 'n'>) => {
+    setState(s => ({ ...s, assistantLog: [...(s.assistantLog ?? []), { ...entry, n: (s.assistantLog?.length ?? 0) + 1 }] }));
+  }, []);
+
   return {
-    branches, createVariant, switchVariant, removeVariant,
-    zones, addZone, updateZone, removeZone, setRoomZone,
-    constraints, addConstraint, removeConstraint, setConstraintExpr,
-    parameters, addParameter, updateParameter, removeParameter,
-    levels, activeLevelId, setActiveLevelId, addLevel, updateLevel, removeLevel, copyLevel, allObjects,
-    profile, setProfileId, surfaceRule, setSurfaceRule,
-    state, objects, layers, blocks, activeLayerId, sheets,
-    addSheet, updateSheet, removeSheet, addViewport, updateViewport, removeViewport,
+    ...commands, execute, restore, logAssistant, assistantLog: state.assistantLog ?? [], journal: state.journal, replayJournal, replay,
+    publications: state.publications ?? [], generation, branches, zones, constraints, parameters, levels, activeLevelId, allObjects,
+    profile, surfaceRule, state, objects, layers, blocks, activeLayerId, sheets,
     current, versions: state.versions, pointer: state.pointer,
-    selectedId, selectedIds, setSelectedId, setSelectedIds,
-    addObject, updateObject, removeObject, removeObjects,
-    transformObjects, duplicateObjects, addCopies, applyEdit, applyPatches, groupObjects, ungroupObjects,
-    addLayer, updateLayer, removeLayer, setActiveLayerId,
-    addDimension, addViews, addCut, addBalloon, addBom, addUnderlay, addNote, addNotePhoto, removeNotePhoto, assets, storageFull, storageWarning, hydrated, createBlockFromObject, insertBlock, importObjects, removeBlock, addLibraryBlock,
-    undo, redo, goTo, canUndo, canRedo, nameVersion, issueIndex, reset, loadState,
+    selectedId, selectedIds, setSelectedId, setSelectedIds, georef: current.georef,
+    assets, storageFull, storageWarning, hydrated, canUndo, canRedo, reset: resetWithJournal, loadState,
     diagnostics,
   };
 }

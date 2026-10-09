@@ -23,7 +23,7 @@ export interface Supports {
 
 /** Compte rendu d'une référence résolue sur un solide. */
 export interface RefReport {
-  op: 'congé' | 'coque';
+  op: 'congé' | 'coque' | 'pousser / tirer';
   ref: string;
   status: 'conservée' | 'à réparer';
   reason?: string;
@@ -84,24 +84,108 @@ export function featureSupports(r: SolidRecipe, out: Supports = { byFeature: new
       if (!r.name) break;
       const xs = r.profile.map(p => p[0]), ys = r.profile.map(p => p[1]);
       const ur: [number, number] = [Math.min(...xs), Math.max(...xs)], vr: [number, number] = [Math.min(...ys), Math.max(...ys)];
+      const z0 = r.z ?? 0;
       const roles: [string, Support][] = [
-        ['bottom', { kind: 'plane', o: [0, 0, 0], n: mul(Z, -1), u: X, v: Y, ur, vr }],
-        ['top', { kind: 'plane', o: [0, 0, r.height], n: Z, u: X, v: Y, ur, vr }],
+        ['bottom', { kind: 'plane', o: [0, 0, z0], n: mul(Z, -1), u: X, v: Y, ur, vr }],
+        ['top', { kind: 'plane', o: [0, 0, z0 + r.height], n: Z, u: X, v: Y, ur, vr }],
       ];
       r.profile.forEach((a, i) => {
         const b = r.profile[(i + 1) % r.profile.length];
         const d: Vec3 = [b[0] - a[0], b[1] - a[1], 0], len = Math.hypot(d[0], d[1]);
         if (len === 0) return;
         const u = mul(d, 1 / len);
-        roles.push([`side:${r.segmentIds?.[i] ?? `s${i}`}`, { kind: 'plane', o: [a[0], a[1], 0], n: [u[1], -u[0], 0], u, v: Z, ur: [0, len], vr: [0, r.height] }]);
+        roles.push([`side:${r.segmentIds?.[i] ?? `s${i}`}`, { kind: 'plane', o: [a[0], a[1], z0], n: [u[1], -u[0], 0], u, v: Z, ur: [0, len], vr: [0, r.height] }]);
       });
       define(r.name, roles);
       break;
     }
     case 'union': case 'cut': case 'intersect': featureSupports(r.a, out); featureSupports(r.b, out); break;
     case 'fillet': case 'shell': featureSupports(r.of, out); break;
+    case 'pushpull': {
+      // La face poussée suit son déplacement ; les faces qu'elle borde s'allongent ou raccourcissent.
+      const inner = featureSupports(r.of);
+      for (const d of inner.duplicates) out.duplicates.add(d);
+      const moved = supportOf(inner, r.face);
+      for (const [name, roles] of inner.byFeature) {
+        define(name, [...roles].map(([role, s]): [string, Support] => {
+          if ('reason' in moved) return [role, s];
+          if (name === r.face.feature && role === r.face.role) return [role, shiftSupport(s, mul(normalOf(moved.support), r.distance))];
+          return [role, r.distance > 0 ? stretchSupport(s, moved.support, r.distance) : s];
+        }));
+      }
+      break;
+    }
+    case 'compound': for (const p of r.parts) featureSupports(p, out); break;
+    case 'sweep': case 'loft': case 'polyhedron': case 'step': break; // faces d'un balayage ou d'un lissage : pas de nom génératif
+    case 'translate': case 'rotate': case 'mirror': case 'scale': {
+      // Les supports suivent le solide déplacé, tourné, symétrisé ou mis à l'échelle.
+      const inner = featureSupports(r.of);
+      for (const d of inner.duplicates) out.duplicates.add(d);
+      const f: Motion = r.op === 'translate' ? { p: q => add(q, r.by), v: q => q }
+        : r.op === 'rotate' ? rotationZ(r.angle, r.about)
+        : r.op === 'mirror' ? reflection(r.axis, r.value)
+        : { p: q => add(r.about, mul(sub(q, r.about), r.factor)), v: q => q, k: r.factor };
+      for (const [name, roles] of inner.byFeature) define(name, [...roles].map(([role, s]) => [role, mapSupport(s, f)]));
+      break;
+    }
   }
   return out;
+}
+
+/** Mouvement : image d'un point, d'une direction ; `k` rapport des longueurs (1 par défaut). */
+type Motion = { p: (q: Vec3) => Vec3; v: (q: Vec3) => Vec3; k?: number };
+
+function reflection(axis: 'x' | 'y', value: number): Motion {
+  const i = axis === 'x' ? 0 : 1;
+  const v = (q: Vec3): Vec3 => { const r: Vec3 = [...q]; r[i] = -q[i]; return r; };
+  return { v, p: q => { const r: Vec3 = [...q]; r[i] = 2 * value - q[i]; return r; } };
+}
+
+function rotationZ(deg: number, about: [number, number]): Motion {
+  const c = Math.cos((deg * Math.PI) / 180), s = Math.sin((deg * Math.PI) / 180);
+  const v = (q: Vec3): Vec3 => [q[0] * c - q[1] * s, q[0] * s + q[1] * c, q[2]];
+  return { v, p: q => { const r = v([q[0] - about[0], q[1] - about[1], q[2]]); return [r[0] + about[0], r[1] + about[1], r[2]]; } };
+}
+
+function mapSupport(s: Support, f: Motion): Support {
+  const k = f.k ?? 1, sc = (r: [number, number]): [number, number] => [r[0] * k, r[1] * k];
+  if (s.kind === 'plane') return { ...s, o: f.p(s.o), n: f.v(s.n), u: f.v(s.u), v: f.v(s.v), ur: sc(s.ur), vr: sc(s.vr) };
+  if (s.kind === 'disc') return { ...s, o: f.p(s.o), n: f.v(s.n), r: s.r * k };
+  return { ...s, o: f.p(s.o), axis: f.v(s.axis), r: s.r * k, hr: sc(s.hr) };
+}
+
+const normalOf = (s: Support): Vec3 => (s.kind === 'cylinder' ? s.axis : s.n);
+
+function shiftSupport(s: Support, by: Vec3): Support {
+  return { ...s, o: add(s.o, by) } as Support;
+}
+
+/**
+ * Support allongé par une face poussée de `d` (> 0) : un plan qui contient la normale de la face
+ * poussée et la touche voit sa plage étendue de ce côté ; un cylindre d'axe parallèle aussi.
+ */
+function stretchSupport(s: Support, pushed: Support, d: number): Support {
+  const n = normalOf(pushed);
+  // Cote de la face poussée le long de n, avant poussée.
+  const level = dot(pushed.o, n);
+  if (s.kind === 'plane') {
+    if (Math.abs(dot(s.n, n)) > 1e-9) return s;
+    const a = dot(n, s.u), b = dot(n, s.v);
+    const ur: [number, number] = [...s.ur], vr: [number, number] = [...s.vr];
+    // Bord du support au niveau de la face poussée : étendu de d dans la direction de n.
+    const touches = (r: [number, number], k: number, comp: number) => Math.abs(dot(s.o, n) + r[k] * comp - level) < 1e-6;
+    if (Math.abs(a) > 1e-9) { const k = a > 0 ? 1 : 0; if (touches(ur, k, a)) ur[k] += d / a; }
+    if (Math.abs(b) > 1e-9) { const k = b > 0 ? 1 : 0; if (touches(vr, k, b)) vr[k] += d / b; }
+    return { ...s, ur, vr };
+  }
+  if (s.kind === 'cylinder') {
+    const c = dot(s.axis, n);
+    if (Math.abs(Math.abs(c) - 1) > 1e-9) return s;
+    const hr: [number, number] = [...s.hr], k = c > 0 ? 1 : 0;
+    if (Math.abs(dot(s.o, n) + hr[k] * c - level) < 1e-6) hr[k] += d / c;
+    return { ...s, hr };
+  }
+  return s;
 }
 
 /** Le point est-il sur le support (à `eps` mm près, bords compris) ? */

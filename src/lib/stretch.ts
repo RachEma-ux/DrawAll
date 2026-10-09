@@ -2,6 +2,7 @@
 // les autres restent. Fonctions pures ; repère modèle (Y vers le bas).
 import type { CadObject } from '@/types/cad';
 import { moveObject } from '@/lib/geometry';
+import { recipeBounds } from '@/lib/solids';
 
 export interface Window { minX: number; minY: number; maxX: number; maxY: number }
 
@@ -82,11 +83,16 @@ export function stretchObject(o: CadObject, w: Window, dx: number, dy: number): 
     case 'balloon':
     case 'room':
     case 'column':
+    case 'projection':
+    case 'elevation':
+    case 'occurrence':
       return inside(w, o.x, o.y) ? moveObject(o, dx, dy) : null;
     case 'note':
       return !o.targetId && inside(w, o.x, o.y) ? moveObject(o, dx, dy) : null;
     case 'underlay':
       return !o.locked && inside(w, o.x, o.y) && inside(w, o.x + o.w, o.y + o.h) ? moveObject(o, dx, dy) : null;
+    case 'solid': // un solide se déplace entier (son encombrement capturé en entier), il ne s'étire pas
+      return (() => { const b = recipeBounds(o.recipe); return inside(w, b.min[0], b.min[1]) && inside(w, b.max[0], b.max[1]) ? moveObject(o, dx, dy) : null; })();
     case 'dimension':
     case 'opening':
     case 'views':
@@ -113,6 +119,8 @@ function vertices(o: CadObject): { x: number; y: number }[] {
     // Toiture : son contour s'étire comme un rectangle (ses quatre coins).
     case 'rect': case 'roof': return [{ x: o.x, y: o.y }, { x: o.x + o.w, y: o.y }, { x: o.x + o.w, y: o.y + o.h }, { x: o.x, y: o.y + o.h }];
     case 'circle': case 'arc': case 'ellipse': return [{ x: o.cx, y: o.cy }];
+    // Solide : les coins de son encombrement en plan (il se déplace entier).
+    case 'solid': { const b = recipeBounds(o.recipe); return [{ x: b.min[0], y: b.min[1] }, { x: b.max[0], y: b.min[1] }, { x: b.max[0], y: b.max[1] }, { x: b.min[0], y: b.max[1] }]; }
     default: return 'x' in o && 'y' in o && typeof o.x === 'number' && typeof o.y === 'number' ? [{ x: o.x, y: o.y }] : [];
   }
 }

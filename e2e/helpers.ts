@@ -8,10 +8,13 @@ export async function openAtelier(page: Page): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.addInitScript(() => {
-    if (!sessionStorage.getItem('drawall-e2e-init')) {
-      localStorage.clear();
-      sessionStorage.setItem('drawall-e2e-init', '1');
-    }
+    // Les cadres isolés (scripts, lot 18.2) n'ont pas de stockage : rien à préparer.
+    try {
+      if (!sessionStorage.getItem('drawall-e2e-init')) {
+        localStorage.clear();
+        sessionStorage.setItem('drawall-e2e-init', '1');
+      }
+    } catch { /* cadre sans stockage */ }
   });
   await page.goto('/');
   await expect(page.getByTestId('canvas')).toBeVisible();
@@ -83,6 +86,8 @@ export async function canvasPoint(page: Page, fx: number, fy: number) {
 
 /** Remplace le projet local par des objets donnés (projet de démonstration vidé), puis recharge. */
 export async function loadObjects(page: Page, objects: Record<string, unknown>[]) {
+  // Le projet est enregistré peu après l'ouverture : l'attendre avant de le réécrire.
+  await page.waitForFunction(() => localStorage.getItem('drawall-projet-v1') !== null);
   await page.evaluate(objs => {
     const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
     const v = s.versions[s.pointer];

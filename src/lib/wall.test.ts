@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WallObj } from '@/types/cad';
-import { faceOffsets, wallsGeometry, type Pt } from './wall';
+import { faceOffsets, gridIndex, wallsGeometry, type Pt } from './wall';
 
 const base = { classification: 'non-classifie' as const, layerId: 'LAY-0001', hatch: 'none' as const, createdSeq: 0, name: 'm' };
 const wall = (id: string, x1: number, y1: number, x2: number, y2: number, thickness = 200, justification: WallObj['justification'] = 'axe'): WallObj =>
@@ -110,5 +110,17 @@ describe('murs : jonctions', () => {
     const s = segs(wallsGeometry([wall('A', 0, 0, 5000, 0, 200, 'droite'), wall('B', 5000, 0, 5000, 3000, 200, 'droite')]));
     expect(covers(s, { x: 5000, y: 0 })).toBe(true);        // angle intérieur sur le tracé
     expect(covers(s, { x: 5200, y: -200 })).toBe(true);     // angle extérieur
+  });
+});
+
+describe('index spatial (lot 19.2)', () => {
+  it('requête démesurée : les emprises ordinaires qu’elle touche sont trouvées', () => {
+    // Cent petits murs de 1 m (case de 1 m) ; requête de 100 km × 1 m : plus de 10 000 cases.
+    const items = Array.from({ length: 100 }, (_, i) => ({ id: `W${i}`, box: { minX: i * 1000, minY: 0, maxX: i * 1000 + 1000, maxY: 1000 } }));
+    const idx = gridIndex(items);
+    const found = idx.overlapping({ minX: -50_000_000, minY: 500, maxX: 50_000_000, maxY: 600 });
+    expect(found.size).toBe(100);
+    expect(idx.overlapping({ minX: -50_000_000, minY: 5000, maxX: 50_000_000, maxY: 6000 }).size).toBe(0);
+    expect([...idx.at({ x: 1500, y: 500 })].sort()).toEqual(['W1']);
   });
 });

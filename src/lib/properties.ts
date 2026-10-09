@@ -33,6 +33,7 @@ export function defaultIfcClass(o: CadObject): IfcClass {
     case 'roof': return 'IfcRoof';
     case 'column': return 'IfcColumn';
     case 'beam': return 'IfcBeam';
+    case 'solid': return 'IfcBuildingElementProxy';
     case 'blockRef': return 'IfcBuildingElementProxy';
     // Géométrie de dessin (lignes, contours…) et annotations : représentations 2D sans élément porteur.
     default: return 'IfcAnnotation';

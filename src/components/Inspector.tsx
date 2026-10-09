@@ -1,11 +1,13 @@
 // Inspecteur — repère permanent UX1 : propriétés typées, unités explicites (T03),
 // calques, hachures, cotes associatives, blocs et « un objet, deux lectures ».
+import { contourOf, recipeSteps } from '@/lib/solids';
 import type { ReactNode } from 'react';
 import { beamLength, beamVolumeM3, columnSectionArea, columnVolumeM3 } from '@/lib/structure';
 import { roofGeometry, roofInput } from '@/lib/roof';
 import { slabQuantities } from '@/lib/slab';
 import PropertiesEditor from '@/components/PropertiesEditor';
 import type { Zone } from '@/types/cad';
+import type { Impact } from '@/lib/impact';
 import type { BlockDef, CadObject, Classification, DimensionObj, DimensionStyle, DimensionTolerance, DisplayLevel, HatchParams, HatchStyle, Layer, OpeningObj, ProjectionMethod, ViewReading, WallObj, Asset } from '@/types/cad';
 import LineStyleFields from '@/components/LineStyleFields';
 import { measureObject } from '@/lib/area';
@@ -45,6 +47,12 @@ interface Props {
   /** Zones du projet (lot 13.3), pour rattacher une pièce. */
   zones?: Zone[];
   onOpenZones?: () => void;
+  /** Ouvre le panneau des solides (lot 15.2). */
+  onOpenSolids?: () => void;
+  /** Ouvre le panneau des façades et coupes (lot 16.2). */
+  onOpenFacades?: () => void;
+  /** Analyse d'impact de l'objet (lot 14.3). */
+  impact?: { modification: Impact; suppression: Impact };
   onRemove: (id: string) => void;
   onCreateBlock: (id: string) => void;
   /** Diagnostics du projet concernant cet objet (contrôles légers, pas une validation métier). */
@@ -72,7 +80,7 @@ interface Props {
   comments?: ReactNode;
 }
 
-export default function Inspector({ zones, onOpenZones, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
+export default function Inspector({ impact, zones, onOpenZones, onOpenSolids, onOpenFacades, obj, objects, layers, blocks, view, level, onUpdate, onRemove, onCreateBlock, issues = [], displayUnit = 'mm', profile = profileById(undefined), surfaceRule = 'sia-416', onSurfaceRule, onAddViews, onAddCut, onAddBalloon, onAddBom, onSelect, assets, onAddNotePhoto, onRemoveNotePhoto, comments }: Props) {
   if (!obj) {
     return (
       <div className="panel flex h-full flex-col">
@@ -234,6 +242,24 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
             ))}
           </div>
         </div>
+
+        {impact && (() => {
+          const m = impact.modification, d = impact.suppression;
+          const empty = !m.affected.length && !m.constraints.length && !m.sheets.length && !d.removedWith.length;
+          return (
+            <details data-testid="impact" className="rounded-sm border border-border px-2 py-1.5 text-[11px] text-muted-foreground">
+              <summary className="ui-label cursor-pointer">Analyse d’impact{empty ? ' — aucun élément dépendant' : ''}</summary>
+              {!empty && (
+                <div className="mt-1 space-y-1 font-mono text-[10px]">
+                  {d.removedWith.length > 0 && <p data-testid="impact-supprimes">Une suppression emporterait : {d.removedWith.map(x => `${x.id} (${x.kind.toLowerCase()})`).join(', ')}.</p>}
+                  {m.affected.length > 0 && <p data-testid="impact-touches">Une modification touche : {m.affected.map(x => `${x.id} (${x.reason})`).join(', ')}.</p>}
+                  {m.constraints.length > 0 && <p>Contraintes : {m.constraints.join(', ')}.</p>}
+                  {m.sheets.length > 0 && <p data-testid="impact-feuilles" className="text-amber-300">Feuilles à recalculer : {m.sheets.map(s => `${s.name} (${s.viewports.join(', ')})`).join(', ')}.</p>}
+                </div>
+              )}
+            </details>
+          );
+        })()}
 
         <PropertiesEditor obj={obj} onUpdate={onUpdate} />
 
@@ -651,6 +677,20 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
                   className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
               </span>
             </label>
+            <label className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              Hauteur
+              <span className="flex items-center gap-1">
+                <input key={`${obj.id}-h-${obj.height ?? ''}`} aria-label="Hauteur du mur" placeholder="d’étage" defaultValue={obj.height === undefined ? '' : String(obj.height).replace('.', ',')} inputMode="decimal"
+                  onBlur={e => {
+                    // Vide : hauteur d'étage (jusqu'au niveau suivant), lot 15.1.
+                    const t = e.target.value.trim(), v = Number(t.replace(',', '.'));
+                    if (t === '') { if (obj.height !== undefined) onUpdate(obj.id, { height: undefined }, 'Hauteur du mur retirée'); return; }
+                    if (v > 0 && Number.isFinite(v) && v !== obj.height) onUpdate(obj.id, { height: v }, 'Hauteur du mur'); else e.target.value = obj.height === undefined ? '' : String(obj.height).replace('.', ',');
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+              </span>
+            </label>
             <div className="mt-1.5 grid grid-cols-3 gap-1" role="group" aria-label="Justification du mur">
               {([['axe', 'Axe'], ['gauche', 'Nu gauche'], ['droite', 'Nu droit']] as const).map(([k, label]) => (
                 <button key={k} onClick={() => onUpdate(obj.id, { justification: k }, `Mur : ${label.toLowerCase()}`)} aria-pressed={obj.justification === k}
@@ -660,6 +700,28 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
               ))}
             </div>
           </div>
+        )}
+
+        {obj.kind === 'occurrence' && (
+          <div data-testid="inspecteur-occurrence">
+            <p className="ui-label mb-1.5">Occurrence</p>
+            <p className="text-[11px] text-muted-foreground">
+              {(() => { const d = objects.find(o => o.id === obj.sourceId); return d?.kind === 'solid' && d.partDef ? `Pièce n° ${d.partDef.no} (${d.name}) : sa forme suit la pièce type.` : 'Pièce type absente.'; })()}
+            </p>
+          </div>
+        )}
+        {obj.kind === 'solid' && (
+          <div data-testid="inspecteur-solide">
+            <p className="ui-label mb-1.5">{obj.partDef ? `Pièce n° ${obj.partDef.no}` : 'Solide'}</p>
+            <p className="text-[11px] text-muted-foreground">{recipeSteps(obj.recipe).join(' → ')}</p>
+          </div>
+        )}
+        {onOpenSolids && (obj.kind === 'solid' || !('error' in contourOf(obj))) && (
+          <button type="button" onClick={onOpenSolids} className="w-full rounded-sm border border-border px-2 py-1 text-left text-[11px] text-muted-foreground hover:text-foreground">Solides (extrusion, révolution, booléens, perçage)…</button>
+        )}
+
+        {onOpenFacades && ['wall', 'slab', 'roof', 'column', 'beam', 'section', 'elevation'].includes(obj.kind) && (
+          <button type="button" onClick={onOpenFacades} className="w-full rounded-sm border border-border px-2 py-1 text-left text-[11px] text-muted-foreground hover:text-foreground">Façades et coupes…</button>
         )}
 
         {(obj.kind === 'column' || obj.kind === 'beam') && (() => {
@@ -902,6 +964,26 @@ export default function Inspector({ zones, onOpenZones, obj, objects, layers, bl
               {toggle('type', [['porte', 'Porte'], ['fenetre', 'Fenêtre']])}
               {num('width', 'Largeur')}
               {num('position', 'Position')}
+              {(['height', 'sill'] as const).map(key => {
+                // Hauteur de baie et allège (lot 17.1) : facultatives, jamais supposées.
+                const label = key === 'height' ? 'Hauteur de baie' : 'Allège', cur = obj[key];
+                return (
+                  <label key={key} className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    {label}
+                    <span className="flex items-center gap-1">
+                      <input key={`${obj.id}-${key}-${cur ?? ''}`} aria-label={`Ouverture — ${label}`} placeholder="non saisie" defaultValue={cur === undefined ? '' : String(cur).replace('.', ',')} inputMode="decimal"
+                        onBlur={e => {
+                          const t = e.target.value.trim(), v = Number(t.replace(',', '.'));
+                          if (t === '') { if (cur !== undefined) onUpdate(obj.id, { [key]: undefined }, `Ouverture : ${label.toLowerCase()} retirée`); return; }
+                          if (Number.isFinite(v) && (key === 'sill' ? v >= 0 : v > 0) && v !== cur) onUpdate(obj.id, { [key]: v }, `Ouverture : ${label.toLowerCase()}`);
+                          else e.target.value = cur === undefined ? '' : String(cur).replace('.', ',');
+                        }}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                        className="w-20 rounded-sm border border-input bg-background px-1.5 py-1 text-right font-mono text-xs" /> mm
+                    </span>
+                  </label>
+                );
+              })}
               {obj.type === 'porte' && toggle('hinge', [['debut', 'Charnière début'], ['fin', 'Charnière fin']])}
               {obj.type === 'porte' && toggle('side', [['droite', 'Ouvre à droite'], ['gauche', 'Ouvre à gauche']])}
               <p className="font-mono text-[9px] text-muted-foreground">Position : centre de la baie depuis le début du mur. L’ouverture suit son mur.</p>

@@ -422,6 +422,48 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
   - le fond de plan est une référence de travail : il n'est exporté ni en PDF ni en DXF, et le rapport DXF le signale ;
   - le paquet du projet contient les images.
 
+### 7.5 Export IFC 4.3 (règle, lot 17.1)
+
+- **Format** : fichier STEP physique (ISO 10303-21), schéma `IFC4X3_ADD2`, en millimètres. Commande « Exporter en IFC 4.3 » de la palette ; tout le projet, tous niveaux.
+- **Repère** : X du plan → X ; Y du plan (vers le bas de l'écran) → −Y, le nord vers +Y comme l'exige IFC ; altitude → Z. Un étage IFC par niveau, avec son altitude.
+- **Éléments**, avec les mêmes éléments et les mêmes hauteurs que la vue 3D (§8.11) :
+  - murs, dalles, poteaux et poutres en volumes extrudés ;
+  - toitures en faces ;
+  - pièces en espaces (`IfcSpace`), volume seulement si la hauteur d'étage est connue.
+  La classe IFC choisie (§1.15) l'emporte sur celle du type, sauf pour les espaces, portes et fenêtres.
+- **Baies** : une ouverture (`IfcOpeningElement`) évide le mur et reçoit la porte ou la fenêtre (`IfcRelFillsElement`). Elle a un volume seulement si sa hauteur de baie est saisie, et pour une fenêtre son allège aussi ; sinon la porte ou la fenêtre est exportée sans volume, et le rapport le dit.
+- **Propriétés** : chaque jeu de propriétés saisi devient un `IfcPropertySet` (texte `IfcLabel`, nombre `IfcReal`, vrai/faux `IfcBoolean` ; l'unité en description). **Quantités de base** : `Qto_WallBaseQuantities` (longueur, épaisseur, hauteur, volumes brut et net), `Qto_SlabBaseQuantities`, `Qto_ColumnBaseQuantities`, `Qto_BeamBaseQuantities`, `Qto_SpaceBaseQuantities` (surface nette au sol, §8.3).
+- **Identifiants** : `GlobalId` déterministes (projet + objet), `Tag` = identifiant DrawAll. Deux exports du même projet donnent les mêmes identifiants.
+- **Solides et occurrences de pièces** (lot 19.1) : exportés quand leur recette se décompose exactement en prismes verticaux. Sont concernés :
+  - le pavé, le cylindre vertical et l'extrusion ;
+  - leurs déplacements, rotations autour de la verticale, symétries et homothéties ;
+  - les assemblages et les unions de parties disjointes.
+
+  Chaque prisme devient un `IfcExtrudedAreaSolid` (contour ou cercle) de la représentation Body, à la cote du solide relative à son étage.
+  - Classe : celle choisie (par exemple `IfcPlate` pour une platine, `IfcMechanicalFastener` pour un ancrage), sinon `IfcBuildingElementProxy` (un équipement comme une armoire).
+  - Attributs propres : ceux de la classe choisie sont écrits non renseignés (`$`), par exemple le diamètre et la longueur nominaux d'une fixation. Le type prédéfini vaut `NOTDEFINED` dès que la classe n'est pas celle par défaut.
+  - Volume exact : `NetVolume` (élément générique) ou `GrossVolume` (platine, membrure, semelle, poutre, poteau, dalle). Les fixations, accessoires et mobilier n'ont pas de jeu de quantités standard portant un volume ; aucun n'est écrit.
+  - Les autres solides (booléen à recouvrement, congé, coque, balayage, lissage, STEP importé) passent par STEP (lot 17.2).
+- **Rapport** : éléments exportés par classe, et ce qui ne l'est pas, avec sa raison : élément sans hauteur, baie sans hauteur, pièce non fermée, solide non prismatique (échange STEP, lot 17.2).
+- **Preuve** : en CI, le fichier de référence est relu par IfcOpenShell 0.9.0. Le schéma, les étages et les propriétés sont vérifiés ; chaque volume et chaque surface lus dans la géométrie retrouvent la quantité exportée à 10⁻⁶ près, un cylindre étant lu comme son prisme inscrit.
+
+### 7.6 STEP AP242 édition 3 (règle, lot 17.2)
+
+- **Export** : commande « Exporter les solides en STEP (AP242 édition 3) ». Chaque solide et chaque occurrence de pièce est écrit sous sa forme posée, à l'altitude de son niveau, en millimètres, nommé comme dans le projet.
+- **Édition 3** : le noyau (Open CASCADE) écrit l'AP242 sous l'identifiant de l'édition 1. DrawAll vérifie que le fichier ne contient que le sous-ensemble B-rep et produit commun aux éditions 1 à 3. Il déclare ensuite l'édition 3 : identifiant `{ 1 0 10303 442 3 1 4 }`, protocole d'application de 2022. Une entité hors de ce sous-ensemble fait refuser l'export, en la nommant : rien n'est déclaré sans être vérifié.
+- **Texte** : ASCII imprimable seulement ; les caractères accentués sont encodés en `\X2\…\X0\` (ISO 10303-21). Ni couleur ni calque n'est écrit.
+- **Import** : commande « Importer des solides STEP » (AP203, AP214 ou AP242). Chaque solide transféré devient un solide du projet, au calque actif. Sa recette garde le fichier du seul solide, avec son encombrement et sa trace de dessus relevés à l'import. Il se déplace, tourne, se perce et se combine comme les autres. Les pertes sont rapportées (lot 11.4).
+- **Preuve** : en CI, le fichier de référence est relu par un lecteur tiers, gmsh 4.15.2. Le schéma déclaré doit être celui de l'édition 3 (une édition antérieure est refusée) et chaque volume lu doit égaler celui du noyau DrawAll à 10⁻⁶ près.
+
+### 7.7 Géoréférencement (règle, lot 17.3)
+
+- **Saisie** (palette « Géoréférencement ») : système de coordonnées projeté déclaré par son code EPSG, et coordonnées du point de base : le point (0 ; 0) du dessin, à l'altitude 0, se trouve en E et N (m) à l'altitude H (m). S'y ajoute l'angle du nord du quadrillage, mesuré depuis le haut du plan dans le sens horaire. Aucune valeur n'est proposée : sans système déclaré, rien n'est enregistré.
+- **Repères séparés** : le modèle reste en millimètres, dans son repère local. La conversion vers la carte est explicite (`modelToMap`, `mapToModel`), jamais appliquée au modèle ; l'aller-retour est exact à 10⁻⁶ mm.
+- **Affichage** : la barre d'état indique le système, le point de base et le nord. Le panneau montre un point de contrôle : où tombe sur la carte le point (10 m ; 0) du dessin.
+- **IFC** : `IfcProjectedCRS` (nom = code EPSG, unité de carte : le mètre). `IfcMapConversion` relie le contexte du projet au système : E, N, H, axe X du projet sur la carte, échelle 0,001 de mm à m. Le nord du quadrillage est porté par le `TrueNorth` du contexte.
+- **Historique** : le géoréférencement est versionné avec le projet et conservé par le paquet et par les variantes.
+- **Preuve** : en CI, IfcOpenShell recalcule les coordonnées de carte de points du modèle à partir de la conversion lue dans le fichier, et retrouve celles de DrawAll à 10⁻⁶ m.
+
 ### 7.4 À décider
 
 - Version DXF visée par défaut (R2000 retenue pour sa compatibilité ; R2018 possible).
@@ -538,6 +580,99 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Échanges** : un tableau se pose sur une feuille par une fenêtre et s'exporte avec elle en PDF. À l'export DXF, il devient des traits et des textes figés : les valeurs ne sont plus recalculées, et le rapport d'export le dit.
 - Aucune grandeur n'est inventée : pas de surface de mur sans hauteur, pas d'aire de baie sans hauteur de baie.
 
+### 8.11 Vue 3D (règle, lot 15.1)
+
+- **Ouverture** : bouton « 3D » du canevas, ou commande « Vue 3D » de la palette. three.js (WebGL2) n'est chargé qu'à l'ouverture ; sans WebGL2, la vue le dit et ne montre rien.
+- **Solides dérivés du plan**, tous niveaux, calques visibles seulement, chacun posé à l'altitude de son niveau :
+  - mur : contour du mur (justification comprise) extrudé sur sa hauteur ;
+  - dalle : contour extrudé sur l'épaisseur, sous l'altitude du niveau ;
+  - poteau : section extrudée sur sa hauteur ;
+  - poutre : section b × h, dessus sous le niveau suivant ;
+  - toiture : pans plans de la géométrie §8.7, égout au-dessus des murs.
+- **Hauteurs** : celle du mur ou du poteau si elle est saisie (champ « Hauteur » de l'outil Mur ou de l'inspecteur ; vide = hauteur d'étage), sinon la hauteur d'étage, jusqu'au niveau suivant. L'égout d'une toiture est à la hauteur d'étage, sinon à la plus haute hauteur de mur saisie sur le niveau.
+- **Aucune hauteur inventée** : un élément dont la hauteur ne peut pas être déterminée n'est pas montré, et la vue le signale avec sa raison.
+- **Navigation** : orbite (glisser), zoom (molette ou pincement), déplacement (clic droit ou deux doigts) ; « Cadrer la maquette » remet tout le bâtiment dans le champ.
+- **Temps de trame** : à l'ouverture, et sur « Mesurer », 60 trames sont rendues autour du bâtiment, chacune attendue jusqu'à la fin du travail du processeur graphique. Le 95e centile est affiché.
+
+### 8.12 Solides (règle, lot 15.2)
+
+- **Panneau « Solides »** : depuis l'inspecteur (contour fermé ou solide), ou commande « Solides 3D » de la palette. Il agit sur la sélection, dans l'ordre où elle a été faite.
+- **Extrusion** : un contour fermé (rectangle, cercle, polyligne fermée dont le dernier sommet est sur le premier) monte verticalement de sa hauteur, depuis la cote de base. Le cercle donne un cylindre exact. Une polyligne ouverte, d'aire nulle ou qui se recoupe est refusée en clair.
+- **Révolution** : un contour polygonal tourne autour d'une ligne du plan (sélection : le contour puis la ligne), de 0 à 360°. Le contour doit rester d'un seul côté de l'axe.
+- **Booléens** de deux solides : union, différence (le premier désigné moins le second), intersection. Le premier solide reçoit le résultat, le second est retiré, en une seule version.
+- **Perçage** : trou cylindrique vertical (X, Y, Ø), depuis le dessus du solide, sur une profondeur ou de part en part (profondeur vide).
+- **Contrôle par le noyau** : chaque résultat est évalué par OCCT avant d'entrer au projet. Un résultat vide ou une erreur du noyau n'est pas appliqué, et la raison est donnée. Le volume affiché est celui du noyau.
+- **En plan**, la trace du solide : contours de ses fonctions, parties retirées (différence, perçage) en traits interrompus. Une révolution montre son emprise. Même dessin en DXF et en PDF.
+- **Transformations du plan** : déplacer, tourner, symétrie et échelle s'appliquent à la recette entière. Étirer déplace le solide seulement s'il est entièrement capturé.
+- **Vue 3D** : chaque solide est maillé par le noyau et posé à l'altitude de son niveau.
+- **Relecture** : une recette mal formée est écartée.
+- **Classe IFC** par défaut : `IfcBuildingElementProxy`.
+
+### 8.13 Balayage et Follow Me (règle, lot 15.3)
+
+- **Sélection** : le profil d'abord (contour fermé : rectangle, cercle, polyligne fermée), puis le trajet (ligne, arc, polyligne ouverte ou fermée, spline). Bouton « Balayer » du panneau Solides, avec la cote du trajet.
+- **Profil redressé** : le contour dessiné en plan est lu comme vu en élévation (le haut de l'écran vers le haut). Le milieu de sa largeur est posé sur le trajet, sa base à la cote du trajet. Il est placé dans le plan vertical perpendiculaire au départ du trajet ; sa droite à l'écran est à droite du sens de parcours. Un cercle donne un tube plein posé sur le trajet.
+- **Trajet** : droites et arcs exacts. Une spline est échantillonnée à 10⁻⁴ mm, puis approchée par le noyau à 10⁻³ mm. Les sommets d'une polyligne sont des angles vifs (onglets). Un trajet fermé donne un anneau.
+- **Longueur du trajet** affichée à la création ; en plan, la trace du balayage est son trajet.
+- **Contrôle** par le noyau (volume non nul), comme au §8.12. Le volume d'un profil centré vaut l'aire du profil × la longueur du trajet ; c'est la preuve du lot.
+
+### 8.14 Lissage (règle, lot 15.4)
+
+- **Sections** : contours fermés (rectangle, cercle, polyligne fermée) désignés dans l'ordre, une cote par section (« 0 ; 1000 ; 2500 »). Les cotes croissent ou décroissent strictement. Un nombre de cotes différent du nombre de sections est refusé, sans valeur inventée.
+- **Surfaces** : réglées (droites d'une section à la suivante, par défaut) ou lisses.
+- **Contrôle** : en plus du volume non nul (§8.12), le noyau vérifie que le solide passe par chaque section : sommets, milieux des côtés, huit points par cercle, à 10⁻⁶ mm du bord. Sinon le lissage est refusé et l'écart est donné.
+- **En plan**, la trace du lissage montre le contour de chaque section.
+
+### 8.15 Coque (règle, lot 15.5)
+
+- **Faces désignables** : une extrusion prend, à sa création, le nom de l'objet source (`OBJ-0001`). Ses faces se désignent alors par ce nom et leur rôle : dessus, dessous, côté *n* avec ses extrémités. Les noms suivent le solide déplacé, tourné, symétrisé ou mis à l'échelle (références du lot 11.3). Les faces des deux opérandes d'un booléen restent désignables.
+- **Coque** : évidement vers l'intérieur à l'épaisseur saisie. Une face ouverte au moins est désignée, sans face choisie par défaut.
+- **Référence non résolue** : une face disparue, partagée en morceaux, ou un nom en double, est signalée « à réparer ». La coque n'est alors pas appliquée, et rien n'est réattribué en silence.
+- **Contrôle** : volume de matière non nul, calculé par le noyau (§8.12).
+
+### 8.16 Pousser / tirer (règle, lot 15.6)
+
+- **Face** : une face plane désignée par son nom (§8.15) : dessus, dessous ou côté d'une extrusion, base ou dessus d'un cylindre. Distance positive : la face est tirée (matière ajoutée) ; négative : elle est poussée (matière retirée), selon sa normale sortante.
+- **Références suivies** : la face déplacée garde son nom, et les faces qu'elle borde s'allongent avec elle. Une coque ou un nouveau pousser / tirer peut donc viser la face après modification. Une face devenue introuvable est « à réparer », et rien n'est appliqué (lot 11.3).
+- **En plan** : une face latérale tirée ajoute l'emprise de la tranche ; poussée, cette emprise est en traits interrompus. Le dessus ou le dessous ne change pas la trace.
+- **Contrôle** par le noyau (volume non nul), comme au §8.12.
+
+### 8.17 Vues projetées (règle, lot 16.1)
+
+- **Vues** : dessus (regard vers le bas), face (depuis le bas de l'écran, vers le haut) et côté (depuis la droite). Les axes suivent le plan : en face, X à droite et l'altitude vers le haut de l'écran ; en côté, le haut de l'écran du plan à droite.
+- **Calcul** : élimination des arêtes cachées par le noyau (HLR d'OCCT), dans le Worker. Arêtes vues en trait continu ; arêtes cachées en interrompu. Une arête cachée confondue avec une arête vue n'est pas tracée, et un cercle vu par la tranche devient un segment.
+- **Pose** : panneau Solides, « Poser les vues ». Les vues choisies sont posées en ligne à droite du solide, espacées d'un cinquième de la plus grande, en une seule version. Chaque vue se déplace librement ensuite.
+- **Associativité** : la vue est liée à son solide. Modifier le solide (perçage, pousser / tirer, booléen, déplacement…) la recalcule ; le supprimer la supprime. Pendant le calcul, le cadre de la vue est tracé avec la mention « calcul… ». Une erreur du noyau est affichée à la place de la vue.
+- **Échanges** : DXF et PDF écrivent les arêtes en lignes, cachées en interrompu, après avoir attendu le calcul de toutes les vues.
+
+### 8.18 Façades et coupes de bâtiment (règle, lot 16.2)
+
+- **Source** : le modèle 3D du bâtiment, avec les mêmes éléments et hauteurs que la vue 3D (§8.11) : murs, dalles, poteaux, poutres, pans de toiture, plus les solides du projet. Un élément sans hauteur déterminable n'y figure pas.
+- **Façades** : nord, sud, est, ouest. La façade sud se regarde depuis le sud (le nord est en haut du plan) ; l'altitude est vers le haut de l'écran.
+- **Coupes** : par un repère de coupe (§4.5), dans le sens de ses flèches (à gauche du trait parcouru, à droite si « inverser »). Seul ce qui est au-delà du plan est gardé. Un plan qui ne traverse pas le bâtiment est refusé en clair.
+- **Rendu** : arêtes vues seulement (élimination des arêtes cachées par le noyau). Les surfaces coupées ne sont pas hachurées dans ce lot ; c'est signalé, rien n'est simulé.
+- **Pose** : panneau « Façades et coupes » (palette, ou inspecteur d'un mur, d'une dalle, d'une toiture, d'un poteau, d'une poutre, d'un repère de coupe). Les vues générées sont posées en ligne sous le bâtiment ; « Poser » crée sur la feuille choisie une fenêtre centrée sur la vue, à l'échelle choisie.
+- **Associativité** : modifier le modèle (hauteur d'un mur, ajout d'une dalle…) recalcule les façades et les coupes. Supprimer le repère de coupe supprime sa coupe. DXF et PDF attendent le calcul.
+
+### 8.19 Pièces et occurrences (règle, lot 16.3)
+
+- **Pièce** : un solide devient une pièce par « Définir comme pièce » (panneau Solides). Il reçoit le repère suivant (1, 2, 3…), affiché près de son point de base, et un repère local : point de base au coin bas de son encombrement, orientation nulle.
+- **Occurrence** : la forme de la pièce posée en (X, Y, Z) et tournée d'un angle. X et Y sont saisis ; Z vide vaut la cote de base de la pièce. Elle porte le même repère que sa pièce ; le panneau compte les exemplaires, pièce type comprise.
+- **Associativité** : modifier la pièce type (perçage, pousser / tirer, coque, booléen…) met à jour toutes ses occurrences. Déplacer ou tourner la pièce type déplace son repère local avec elle : ses occurrences ne bougent pas. Supprimer la pièce type supprime ses occurrences, après l'analyse d'impact.
+- **Occurrence seule** : elle se déplace et tourne. Elle ne se modifie pas : sa forme est celle de la pièce, donc pas de mise à l'échelle et pas de symétrie propre.
+- **Partout** : plan, accrochage, DXF, PDF, vue 3D, façades et coupes reprennent la forme posée de chaque occurrence.
+
+### 8.20 Liaisons, nomenclature d'assemblage et vue éclatée (règle, lot 16.4)
+
+- **Liaison** : une occurrence (désignée d'abord) suit sa référence, pièce type ou autre occurrence (désignée ensuite) :
+  - **fixe** : position et angle relatifs à la référence, figés à la création ;
+  - **coaxiale** : axes de deux faces cylindriques verticales confondus ; glissement le long de l'axe et rotation libres ;
+  - **appui plan** : une face plane contre une face plane de la référence, à l'écart saisi (0 par défaut), normales opposées. Pour des faces latérales, l'occurrence tourne autour de la verticale ; le glissement dans le plan reste libre.
+- **Résolution** à chaque version, références d'abord : modifier ou déplacer la référence (pièce type épaissie, occurrence déplacée…) replace les occurrences liées, en chaîne.
+- **Liaison non satisfaite** : faces non opposables par une rotation autour de la verticale, face disparue, référence absente ou boucle. L'occurrence reste en place et le diagnostic le signale. Dans une boucle, chaque membre est signalé et laissé en place, de même que toute occurrence liée à la boucle. Une liaison impossible est refusée à la création, avec sa raison.
+- **Nomenclature d'assemblage** (palette) : une ligne par pièce, avec son repère, sa désignation (désignation de pièce saisie, sinon nom) et sa quantité (pièce type + occurrences), plus le total. Elle est recalculée à chaque modification.
+- **Vue éclatée** (vue 3D, au-delà d'un solide) : les solides et les occurrences s'écartent du centre de l'ensemble, proportionnellement au curseur. Les positions du modèle ne changent pas.
+
 ## 9. Terrain et mobile
 
 ### 9.1 Réticule décalé et loupe (règle, lot 7.1)
@@ -605,6 +740,135 @@ Référence : **ISO 128-3:2022** (vues, coupes et sections ; remplace ISO 128-3:
 - **Suppression** : une variante rangée se supprime avec son historique, après confirmation ; la variante active ne se supprime pas.
 - **Enregistrement** : les branches sont enregistrées (historique par différences, §10.1) et conservées par le paquet natif (aller-retour octet pour octet).
 - Se placer sur une version antérieure puis modifier abandonne les versions en avance de la branche, et le diagnostic le rappelle. Pour les garder, créer d'abord une variante.
+
+### 10.6 Comparaison et fusion de variantes (règle, lot 14.2)
+
+- **Ancêtre commun.**
+  - Pour une variante et la branche dont elle est partie : la version de départ.
+  - Pour deux variantes sœurs : la plus ancienne de leurs versions de départ.
+  - Sinon, la fusion est refusée et la raison est donnée.
+- **Comparaison** (palette, ou « Comparer et fusionner… » dans l'historique) : nombre d'éléments ajoutés, modifiés et supprimés de chaque côté depuis l'ancêtre commun. En surimpression sur le dessin, les changements de l'autre variante sont encadrés : ajouté en vert, modifié en ambre, supprimé en rouge pointillé.
+- **Fusion à trois voies**, par identifiant, sur les objets, calques, blocs, feuilles, niveaux, contraintes, paramètres et zones, ainsi que sur le profil de dessin et la règle de surface.
+- **Dépendances** : un élément supprimé d'un côté mais encore désigné dans le résultat est gardé provisoirement, et sa suppression devient un conflit qui nomme les objets dépendants. Pour un objet, une feuille ou une contrainte en conflit, ses deux valeurs possibles comptent. Les contrôles sont répétés jusqu'à stabilité : un objet gardé pour un dépendant voit à son tour son calque, son bloc, son niveau vérifiés. Une suppression retenue n'emporte que ce qui en dépend encore dans les valeurs retenues. C'est le cas :
+  - d'un calque, d'un bloc ou d'un niveau ;
+  - d'une pièce désignée par une occurrence ;
+  - d'un mur désigné par une ouverture ;
+  - d'une source de vue ;
+  - de la cible d'une cote ou d'une note ;
+  - d'un objet désigné par une contrainte ;
+  - d'une zone à laquelle une pièce est rattachée ;
+  - d'un paramètre cité par une expression (contrainte cotée ou autre paramètre) ; retenir sa suppression avec une expression qui le cite encore est refusé (choix incompatibles) ;
+  - d'un niveau montré par une fenêtre de feuille (retenue, la suppression ramène la fenêtre au premier niveau, comme dans l'atelier).
+
+  Retenir la suppression retire aussi, de proche en proche, ce qui en dépend (objets et contraintes) : aucune référence orpheline. Une zone fait exception : ses pièces restent, sans zone, comme lorsqu'on supprime une zone dans l'atelier. Après les choix, un objet rétabli dont un parent n'est plus dans le résultat suit ce parent, de proche en proche. Une liaison d'assemblage n'est pas une dépendance : si sa cible disparaît, l'occurrence liée reste, sans liaison. Après les choix, une pièce retenue dont la zone n'existe plus reste sans zone.
+- **Géoréférencement** : il est fusionné comme un réglage. Son ajout, son retrait (valeur absente) et sa modification sont repris d'un côté, ou mis en conflit s'ils sont faits des deux côtés.
+  - Un changement fait d'un seul côté est repris.
+  - Un même changement fait des deux côtés est accepté.
+  - Des changements différents d'un même élément (modifié des deux côtés, supprimé d'un côté et modifié de l'autre) sont un **conflit**. Le panneau les liste, et chacun doit être tranché (« garder » l'une ou l'autre variante) avant de fusionner. Rien n'est tranché en silence.
+- **Résultat** : la fusion crée une microversion de la variante active, « Fusion de la variante « … » ». Elle s'annule comme toute modification ; l'autre variante reste intacte.
+
+### 10.7 Analyse d'impact (règle, lot 14.3)
+
+- L'inspecteur d'un objet présente son **analyse d'impact**, avant toute action.
+  - **Une suppression emporterait** : les objets associés, de proche en proche : cotes, ouvertures d'un mur, vues liées, coupes, notes, repères.
+  - **Une modification touche** :
+    - les objets associés, qui le suivent ;
+    - les pièces dont le contour s'appuie sur un mur touché (même niveau) ;
+    - les tableaux de quantités et la nomenclature recalculés ;
+    - les contraintes qui visent un élément touché.
+  - **Feuilles à recalculer** : une fenêtre du même niveau montre un élément touché (emprise dans la vue, calque non masqué dans la fenêtre). Elles sont à réimprimer ou à republier (lot 14.4).
+- **Après une suppression**, un message résume ce qui est parti avec l'objet, ce qui a été recalculé et les feuilles à recalculer ; Ctrl+Z annule le tout.
+- Le graphe est calculé sur le modèle à chaque sélection : il ne garde aucune donnée propre.
+
+### 10.8 Publication (règle, lot 14.4)
+
+- **Publier** (bouton « Publier… » de l'éditeur de feuilles, ou palette) fige un dossier :
+  - un nom ;
+  - la version courante, nommée à cette occasion si elle ne l'était pas, et sa variante ;
+  - la date ;
+  - le PDF de chaque feuille, produit à cet instant et conservé tel quel. Les vues projetées, façades et coupes sont d'abord calculées, comme pour un export : un PDF figé ne peut pas en être privé. Pendant ce calcul l'atelier est gelé, et le dossier porte sur l'état préparé. Une vue que le noyau n'a pas pu calculer est recalculée une fois ; une façade impossible à régler (plus aucun élément en volume, repère de longueur nulle) est en erreur aussi ; si une vue reste en erreur, la publication (comme l'export PDF, SVG ou DXF) est refusée avec sa raison.
+- **Figé** : le dossier ne change plus quand le projet évolue. Son PDF se télécharge identique octet pour octet, et il est conservé avec le projet (enregistrement, paquet natif), hors de l'historique : annuler ne le retire pas.
+- **État** de chaque dossier :
+  - « publié » : la version courante est la version publiée, ou elle n'en diffère pas ;
+  - « modifié depuis » : le projet a changé depuis la publication ;
+  - « autre variante » : la variante active n'est pas celle publiée.
+- Publier est refusé sans feuille ou sans nom, avec la raison.
+
+### 10.9 API de commandes et journal (règle, lot 18.1)
+
+- **Une seule porte** : le magasin du projet n'expose que des commandes nommées (`addObject`, `updateObject`, `transform`, `addZone`, `setGeoref`…). La palette, l'interface et les scripts (lot 18.2) passent donc tous par elles. Les opérations qui prenaient une fonction sont devenues déclaratives : `transform` reçoit `{ kind: 'move' | 'rotate' | 'mirror' | 'scale' | 'offset', … }` ; les poses de copie (coller, dupliquer, réseaux) sont `{ kind: 'translate', dx, dy }` ou `{ kind: 'rotate', cx, cy, deg }`. Une commande sans argument (annuler, rétablir) ignore ce que lui passe un bouton.
+- **Validation** avant exécution :
+  - arguments journalisables (JSON ; un champ retiré `undefined` et les `Map` sont gardés sous une forme marquée ; une fonction ou un nombre non fini est refusé) ;
+  - objets désignés existants ;
+  - transformations bien formées.
+  Une commande refusée n'est pas exécutée ; elle est journalisée avec sa raison.
+- **Journal** : il part de l'état de base du projet au début de la session de commandes, puis liste les commandes dans l'ordre. Il est enregistré avec le projet. Ouvrir un projet reprend le journal enregistré avec lui (un paquet restauré se réexporte à l'identique) ; repartir de zéro commence un nouveau journal.
+- **Rejeu** (palette « Journal des commandes ») : l'état de base est rechargé, puis les commandes sont rejouées une par une, chacune sur l'état laissé par la précédente. Le contenu obtenu est comparé à celui d'avant le rejeu (objets, calques, blocs, feuilles, niveaux, contraintes, paramètres, zones, géoréférencement ; ni numéros, ni libellés, ni heures). Un dossier publié est repris figé (mêmes PDF, même date) : le rejeu ne le refait jamais. Une publication refusée (nom vide, aucune feuille) est marquée refusée au journal.
+
+### 10.10 Scripts isolés (règle, lot 18.2)
+
+- **Console** (palette « Console de scripts ») : un script JavaScript s'exécute dans un Worker à part, jamais sur le fil de l'interface.
+- **API seule** : le script ne dispose que de l'objet `drawall` :
+  - `execute(commande, …arguments)` exécute une commande de l'API (§10.9). Une commande refusée lève une erreur avec sa raison.
+  - `objects()` renvoie une copie des objets de tous les niveaux.
+  - `context()` renvoie le calque et le niveau actifs, ainsi que les calques et les niveaux du projet.
+  - `log(…)` écrit dans la sortie de la console.
+
+  Les commandes passent une à une, dans l'ordre ; chacune voit l'état laissé par la précédente et est journalisée comme celles de l'interface.
+- **Création d'objet validée** : le type doit être connu et le calque doit exister, non verrouillé. Sans cela, l'objet serait invisible ou illisible. Un niveau désigné explicitement (`levelId`) est gardé ; sinon l'objet est posé sur le niveau actif.
+- **Sans accès au stockage ni au réseau** :
+  - Le Worker est créé, depuis un Blob, dans un cadre isolé (`sandbox`, origine opaque). La politique de sécurité de ce cadre (`default-src 'none'`) n'autorise aucune source réseau, et le Worker en hérite. `import()` d'une adresse, `fetch`, `XMLHttpRequest` et `WebSocket` sont ainsi bloqués avant toute requête. La recette le vérifie : un script qui tente d'envoyer le projet par `import()` n'obtient aucune réponse.
+  - En outre, `indexedDB`, `localStorage`, `sessionStorage`, `caches`, `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `BroadcastChannel`, `importScripts`, `navigator`, les Workers et la messagerie brute sont retirés de l'objet global et de toute sa chaîne de prototypes.
+  - Le script ne lit et n'écrit les données du projet que par l'API. Retirer le cadre arrête le Worker.
+- **Commandes ouvertes** : un script (et l'assistant) n'accède qu'aux commandes dont les arguments sont entièrement validés : `addObject`, `updateObject`, `removeObject(s)`, `transform`, `duplicateObjects`, `addLayer`, `addLevel`, `setActiveLayerId`, `setActiveLevelId` (calque existant et non verrouillé, niveau existant), `nameVersion`, `goTo`, `undo`, `redo`. Les autres restent réservées à l'interface, qui ne leur passe que des arguments bien formés ; un script qui les appelle est refusé (« commande non ouverte aux scripts »). Le nombre d'arguments est borné et les arguments facultatifs de type texte (nom, libellé) sont vérifiés.
+- **Objets complets** : champs communs vérifiés (classification connue, hachure et paramètres de hachure permis, trait propre bien formé, classe IFC connue, jeux de propriétés bien formés, liaison d'assemblage complète, vers une occurrence ou une pièce ; zone existante pour une pièce ; poutre de deux points distincts ; définition de pièce complète (numéro entier positif) ; toiture de type, axe, pente et débord admissibles ; ouverture de hauteur positive et d'allège positive ou nulle, porte avec charnière et côté ; mur et repère de coupe de deux points distincts, hauteur positive ; tolérance de cote d'une variante connue ; arc d'ellipse (début et fin ensemble) ; champs facultatifs de chaque type de la forme attendue ; texte d'alignement permis ; coupe évaluable ; trous désignant des objets existants ; spline évaluable (nœuds et poids cohérents) ; occurrence d'une pièce ; vues liées d'une source à face fermée, l'une au moins demandée) ; chaque type d'objet a sa fiche (champs numériques finis, points, recette d'un solide, désignations, valeurs permises, dimensions d'un poteau selon sa section, dimensions strictement positives : rayon, largeur, épaisseur, hauteur de texte). `addObject` l'exige en plus d'un type connu et d'un calque existant. `updateObject` refuse un objet d'un calque verrouillé (ou son passage sur un tel calque) et valide l'objet résultant : le type et l'identifiant ne changent pas, et un objet complet ne peut pas le devenir moins. Les références sont vérifiées aussi : niveau et définition de bloc existants, objet désigné présent et du bon type (ouverture → mur, occurrence et vue projetée → solide, repère → coupe, liaison → occurrence). Une recette de solide refuse une direction de longueur nulle. Une ouverture doit tenir dans son mur, à la création comme en modification ; une cote vise un objet cotable (ligne, rectangle, polyligne, cercle, arc) dans un style que cet objet prend en charge. `removeObject` et `removeObjects` refusent un objet d'un calque verrouillé ; un fond de plan verrouillé ne se modifie pas, sauf pour le déverrouiller (modification portant sur `locked` seul). L'analyse d'impact annonce la nomenclature recalculée quand une pièce ou une occurrence change. Une transformation demandée par un script ou par l'assistant est refusée si l'un des objets désignés ne peut pas la subir (calque verrouillé, cote associative, fond de plan verrouillé, opération impossible pour son type, comme un rectangle tourné de 45°) : sinon elle se dirait faite sans rien changer. Une occurrence copiée, collée ou mise en réseau reste une occurrence de la pièce existante (ni la pièce ni ses autres occurrences ne sont copiées) ; sa liaison suit la copie de sa cible, ou est retirée. Un identifiant de variante n'est jamais repris, même après suppression, tant qu'une origine de variante ou un dossier publié le cite. Un solide créé par l'API doit avoir des contours constructibles (extrusion, révolution, balayage, lissage : au moins trois sommets distincts, aire non nulle, ni recoupement ni repli). `duplicateObjects` refuse un objet d'un calque verrouillé, et `goTo` une version hors de l'historique. Une dalle créée par l'API a un contour d'aire non nulle ; le nom d'un objet est un texte. La suppression est refusée si elle emporterait, avec son parent, un objet associatif d'un calque verrouillé. Le repère d'une pièce est attribué sur toutes les variantes, et une pièce copiée reçoit un nouveau repère : la nomenclature d'assemblage n'a jamais deux lignes de même repère. La date d'une note est fixée avant la journalisation : le rejeu du journal la reprend telle quelle. Dans l'en-tête d'un fichier STEP, la barre oblique inverse est doublée. Un balayage créé par l'API a un trajet aux segments de longueur non nulle et aux arcs non dégénérés. Un repère de pièce fourni par l'API ne peut pas reprendre celui d'une autre pièce, dans aucune variante ; une pièce dont dépendent des occurrences ne cesse pas d'être une pièce. Une fusion est refusée si elle mettrait en erreur un paramètre qui ne l'était dans aucune des deux variantes (référence circulaire née de deux modifications compatibles chacune de son côté). À la création par l'API, un identifiant fourni n'entre pas dans la validation (le magasin attribue le sien). Export IFC : une baie est ramenée à la hauteur de son mur (écrêtée et signalée « exportée après ajustement », ou sans évidement si elle est entièrement au-dessus) ; le volume net du mur retire l'union des baies, sans compter deux fois leur recouvrement. Une occurrence de bloc a une échelle strictement positive ; un lissage a des cotes de sections strictement croissantes ou décroissantes. Dans l'atelier, une suppression refusée (objet associatif emporté sur un calque verrouillé) est annoncée « Suppression refusée », jamais « Supprimé ». Un solide de l'API qui désigne des faces (pousser / tirer, coque, congé d'arêtes) doit les trouver nommées dans sa recette d'entrée ; une liaison d'occurrence de l'API doit être réalisable (faces existantes et compatibles), comme dans l'atelier. Une fusion qui réunirait deux paramètres de même nom est refusée. Un mur modifié doit encore contenir ses ouvertures ; pousser / tirer ne vise qu'une face plane ; le trajet d'un balayage est d'un seul tenant ; une liaison d'occurrence ne peut viser l'occurrence elle-même ni former une boucle. Ces deux dernières règles valent aussi dans l'atelier (liaison posée depuis le panneau des solides). Une transformation de mur (échelle…) est refusée si une de ses ouvertures n'y tiendrait plus ; une modification de pièce est refusée si elle rendrait impossible une liaison qui s'appuie sur ses faces. Dans un fichier STEP, la barre oblique inverse d'un nom est doublée une seule fois, par le noyau. Une transformation par script est refusée si elle rendrait un objet incomplet (dimension arrondie à zéro…) ; une fusion est refusée si les liaisons réunies formeraient une boucle. Une fusion est aussi refusée si un objet fusionné a une référence en erreur qu'il n'avait dans aucune des deux variantes (occurrence d'un solide qui n'est plus une pièce…). Une recette STEP ne vient que de l'import, jamais d'un script. Les îlots d'une hachure fournis par l'API sont des contours fermés contenus dans l'objet (ni l'objet lui-même, ni un contour extérieur), comme dans l'inspecteur ; une révolution de l'API garde son contour d'un seul côté de l'axe. Une ouverture de l'API est sur le niveau de son mur (son niveau, ou le niveau actif si elle n'en donne pas). Une transformation par script ou par l'assistant est refusée si elle laisse un îlot hors de son contour, ou si elle ne ferait rien à un objet qui suit son parent (ouverture, occurrence) sans que ce parent soit transformé avec lui. `updateObject` revérifie aussi les objets qui dépendent de l'objet modifié (ouvertures de son mur, contours dont il est l'îlot, occurrences, cotes…) : une modification qui en rendrait un invalide est refusée. `duplicateObjects` vérifie les calques de tout ce qui serait copié avec la sélection (le mur d'une ouverture…). Une transformation d'occurrence que sa liaison remettrait exactement en place est refusée (transformer aussi la référence, ou délier). Une intersection de deux solides dont les encombrements ne se recouvrent pas est refusée ; les autres vides booléens ne se détectent qu'avec le noyau (calcul asynchrone), qui les signale à la vue 3D et à l'export. Une commande qui ne ferait rien est refusée : liste vide pour `removeObjects`, `transform` ou `duplicateObjects`, modification d'objet sans champ changé ; l'atelier n'envoie pas ces commandes quand la sélection est vide. Une différence par un pavé qui contient tout le solide est refusée. Copier un niveau rattache les liaisons d'occurrences aux copies de leurs cibles (ou les retire si la cible n'est pas copiée) et donne de nouveaux repères aux pièces copiées. À l'export IFC, un pieu (`IfcPile`) porte aussi son attribut `ConstructionType` (non renseigné, `$`). Une occurrence d'une pièce d'un autre niveau est copiée avec son niveau et reste une occurrence de cette pièce. Une transformation que les contraintes géométriques remettraient exactement en place est refusée. Un script échoue (et est annulé en entier) dès qu'une de ses commandes est refusée, même s'il n'a pas attendu la réponse. Une transformation identité (déplacement nul, rotation de 0°, échelle 1…) est refusée. À l'export IFC, un réel à exposant porte son point dans la mantisse (1.E+21) ; une valeur non nulle, si petite soit-elle, garde ses chiffres significatifs (1.E-10, 5.E-13) ; seul le zéro s'écrit 0. Une ligne de l'API a deux extrémités distinctes. L'analyse d'impact calcule le contour d'une pièce avec les seuls murs de son niveau. Une fusion qui ne laisserait aucun calque (chaque variante en supprime un différent) est refusée. Une dalle de l'API a un contour simple (aucune arête qui en croise une autre). Dans un fichier STEP, les caractères au-delà du plan multilingue de base (émoji…) s'écrivent en `\X4\` sur leur point de code entier. Une fusion est refusée si les contraintes géométriques réunies seraient en conflit alors qu'elles ne l'étaient dans aucune des deux variantes (même point fixé à deux endroits…). Une dalle de l'API ne répète pas son premier sommet en dernier (le contour se ferme seul). Un congé ou une coque de l'API que l'encombrement de la recette d'entrée rend impossibles sont refusés : coque d'épaisseur au moins égale à la plus petite dimension, congé de toutes les arêtes de rayon au moins égal à la moitié de la plus petite dimension, congé d'arêtes désignées de rayon au moins égal à la plus grande ; les autres échecs ne se détectent qu'avec le noyau, qui les signale à la vue 3D et à l'export. Une coque est aussi refusée si son épaisseur atteint la moitié de l'étendue entre deux parois gardées (axe sans face ouverte qui lui soit normale, quand les faces ouvertes sont planes et normales à un axe). Un objet associatif de l'API (cote, bulle, note, vue, coupe…) est sur le niveau de ce qu'il désigne ; seule l'occurrence d'une pièce d'un autre niveau fait exception. La hauteur d'étage court jusqu'au niveau strictement plus haut : deux niveaux de même altitude ne donnent jamais un étage nul (vue 3D, export IFC). Les îlots d'une hachure sont sur le niveau de leur contour. Une façade ou une coupe montre tout le bâtiment (tous les niveaux), dans le dessin d'un niveau comme dans le PDF d'une feuille. Une commande refusée à l'exécution (fusion, publication, variante, zone, paramètre, liaison, géoréférencement, niveau, pièce, opération booléenne) est marquée refusée au journal, et le rejeu ne la refait pas. Un script ne fournit pas de recette « faces » (opération interne de la maquette du bâtiment, sans volume fermé garanti), ni de congé avec une liste d'arêtes vide. Le résultat d'un calcul asynchrone du noyau (opération de solide, import STEP) s'applique à l'état courant du projet, jamais à celui du moment où le calcul a commencé : une modification faite entre-temps est gardée ; si le solide ou le contour de départ a changé pendant le calcul, rien n'est appliqué. Fermer le panneau des solides pendant un calcul abandonne son résultat. Un solide créé depuis un contour va sur le niveau de ce contour, même si le niveau actif a changé pendant le calcul ; une commande refusée au moment d'appliquer le résultat (calque verrouillé entre-temps) est annoncée refusée, jamais faite. Un import STEP place ses solides sur le calque et le niveau actifs au début de la lecture ; il est refusé si ce calque est verrouillé (ou absent). Un calcul ou un import lancé sur un projet ne s'applique jamais à un autre : ouvrir un projet, restaurer un paquet, réinitialiser ou rejouer le journal l'abandonne. De même, une proposition de l'assistant aperçue sur un projet ne s'exécute pas sur celui qui l'a remplacé, même de contenu identique. Aucune création ne se pose sur un calque verrouillé : façades et coupes, fond de plan, tableau, bloc, note libre (calque actif), cote, repère, vues liées ou projetées, coupe, occurrence, note jointe (calque de l'objet désigné) ; la commande est refusée et le refus annoncé sur le canevas. Un calcul (opération de solide, import STEP) lancé dans une variante ne s'applique jamais à une autre : si la variante active a changé entre-temps, il est abandonné. L'analyse d'impact compte aussi les contours dont un îlot de hachure est touché. Une modification par script ou par l'assistant que les contraintes géométriques ou la liaison d'assemblage annuleraient entièrement est refusée. Une proposition de l'assistant validée dans une variante ne s'exécute pas dans une autre. L'analyse d'impact annonce les façades et coupes recalculées dès qu'un élément en volume est touché (elles montrent tout le bâtiment). Une différence d'un solide par lui-même (recettes identiques) est refusée. L'aperçu de l'assistant fait suivre aux notes jointes la transformation de leur objet, comme l'exécution, et les montre. L'ancêtre commun d'une fusion est cherché dans les histoires de la variante et de sa mère : une variante revenue avant son point de départ se fusionne encore. Un journal dont l'état de départ ne se relit pas (historique absent, vide, ou sans aucune version relisible) est écarté à l'ouverture, ainsi que toute entrée dont les arguments ne se décodent pas. À l'export IFC, une porte ou une fenêtre dont la baie est complète (hauteur et allège) reçoit un corps : le bloc de la baie, à l'épaisseur du mur (représentation simplifiée, sans cadre, ouvrant ni vitrage) ; sans baie complète, elle reste sans géométrie, comme le rapport l'indique. Sa hauteur hors tout est celle du corps exporté (baie écrêtée comprise).
+- **Tout ou rien** : un script qui échoue est annulé en entier. Les cas d'échec sont une exception, une commande refusée, un délai dépassé ou un arrêt à la main. Le projet revient à son état d'avant le script, journal compris. Pendant l'exécution, l'atelier est gelé (ni clic ni raccourci clavier ; de même pendant l'exécution d'une proposition de l'assistant) : l'annulation ne peut donc emporter aucune autre modification.
+  - Délai réglable de 1 à 120 s, 10 s par défaut. Au-delà, le Worker est arrêté.
+  - Un script réussi laisse ses commandes au journal et ses versions dans l'historique.
+
+### 10.11 Assistant à boucle contrôlée (règle, lot 18.3 ; Concept §9, annexe D4)
+
+- **Boucle** (palette « Assistant ») :
+  1. Demande en clair.
+  2. Le générateur propose une séquence d'opérations, c'est-à-dire de commandes de l'API (§10.9). Seules `addObject`, `updateObject`, `transform` et `removeObjects` sont permises.
+  3. Les moteurs la valident à blanc, chaque opération sur l'état laissé par la précédente. Ils appliquent la validation de l'API et les contrôles métier : section de poteau, poutre, mur, calque verrouillé.
+  4. En cas d'erreur, les erreurs numérotées sont renvoyées au générateur. Il dispose de **trois corrections au plus** ; au-delà, rien n'est proposé.
+  5. La séquence validée est **aperçue** : le résultat simulé complet du niveau actif, avec les objets inchangés en gris, les objets créés et modifiés en surbrillance (les modifiés encadrés en orange) et les objets supprimés pâlis et encadrés en rouge. Ses hypothèses et la liste des opérations l'accompagnent. La simulation suit la commande (contraintes géométriques re-résolues, liaisons suivies) : les objets associatifs partent avec tous leurs parents (une coupe avec son repère), et une occurrence liée à une occurrence supprimée perd sa liaison mais garde sa place ; les occurrences liées suivent leur cible, comme à l'enregistrement, et transformer un objet que la commande laisserait en place (calque verrouillé, cote associative, fond de plan verrouillé) fait refuser la proposition. Une opération peut désigner un objet créé plus tôt dans la même proposition par son identifiant provisoire (`PROP-0001`…), remplacé à l'exécution par l'identifiant réel ; pendant l'exécution, l'assistant ne se ferme pas. Si le projet, le niveau actif ou le calque actif a changé entre l'aperçu et l'accord, rien n'est exécuté : la proposition est à refaire.
+  6. Elle n'est **exécutée qu'après accord explicite** (« Accepter et exécuter »), commande par commande, par l'API.
+  7. Une commande qui échoue à l'exécution rétablit le projet dans son état d'avant (§10.10).
+- **Jamais de valeur inventée** : une donnée que la demande ne fournit pas fait l'objet d'une question. C'est le cas de la section, de l'entraxe, de l'épaisseur ou d'une unité. Les interprétations et les valeurs implicites sont rendues en **hypothèses**, par exemple l'origine au point 0;0 ou le même entraxe dans les deux directions.
+- **Journal des hypothèses** : il est enregistré avec le projet, hors historique, et n'est pas réécrit par le rejeu du journal des commandes. Chaque décision y est inscrite (exécutée, rejetée, échec) avec :
+  - la demande ;
+  - le générateur ;
+  - les hypothèses ;
+  - le nombre d'opérations et de corrections.
+- **Cache sémantique** des opérations validées : la clé est la demande normalisée (casse, espaces, ponctuation finale). Une proposition en cache est revalidée sur le projet du moment avant d'être resservie ; si elle n'est plus valide, elle est oubliée et le générateur est rappelé.
+- **Générateur** : générateur local de démonstration, sans modèle de langage ni envoi externe. Le fournisseur d'un modèle est une décision du maître d'ouvrage (feuille de route §7). Formes reconnues :
+  - « grille de N x M poteaux B x H mm (ou diamètre D mm) entraxe E m (ou entraxes E m et F m) [à partir de X;Y mm] » ;
+  - « rectangle de murs L x l m épaisseur T mm [à partir de X;Y m] ».
+
+  Un autre générateur se branche par l'interface `Generator` (`propose(demande, contexte, erreurs, essai)`). Les tests en utilisent un simulé.
+
+### 10.12 Banc de mesure (règle, lot 19.2 ; Concept §11)
+
+- **Projet de référence déclaré** (`src/lib/bench/reference.ts`) : déterministe. Il compte 2 niveaux, chacun étant une trame de 10 × 10 pièces de 4 m d'axe en axe, soit 1 082 objets au total :
+  - 440 murs, sur toutes les lignes de la trame ;
+  - 242 poteaux, un à chaque nœud ;
+  - 200 portes, une par pièce ;
+  - 200 pièces.
+- **Mesures** (`npm run bench`, `bench/banc.spec.ts`) :
+  - **temps de retour** : de l'horodatage de l'événement d'entrée à la tâche qui suit la première trame après la mise à jour du DOM. Il est mesuré pour le zoom à la molette, la sélection au clic, le déplacement au clavier (nouvelle version) et l'annulation, avec 60 mesures après 5 d'échauffement ;
+  - **temps de trame** : en plan, 120 trames consécutives, la vue zoomée à chaque trame ; dans la vue 3D, la mesure intégrée du lot 15.1.
+- **Rapport versionné** : `docs/mesures/DrawAll_Banc_de_mesure.md` et `docs/mesures/banc-19.2.json`. Ils déclarent :
+  - l'environnement : navigateur, processeur, mémoire, rendu graphique, fenêtre, réseau, état du cache ;
+  - les valeurs ;
+  - l'écart aux cibles du Concept (retour p95 < 100 ms, trame p95 ≤ 16,7 ms).
+
+  Une cible non atteinte est un résultat déclaré, jamais masqué.
+- **Corrections issues du banc** :
+  - **Zoom minimal** : 0,005 px/mm, de sorte que 1 000 px montrent 200 m ; il était de 0,08 px/mm, soit 12 m environ, et un bâtiment industriel ne tenait pas à l'écran. Le trait marqué de la grille disparaît lui aussi sous 4 px.
+  - **Index spatial** (grille uniforme) pour les jonctions de murs et le découpage des faces des pièces : seuls les éléments voisins sont comparés.
+  - **Mémoire des résultats** pour les mêmes murs : géométrie des murs et contours des pièces. Le test de clic recalculait toutes les pièces du niveau pour chaque pièce candidate.
 
 ## 11. Références
 

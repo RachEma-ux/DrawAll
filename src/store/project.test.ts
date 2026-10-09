@@ -95,5 +95,33 @@ describe('suppression en cascade (lot 5.2)', () => {
     ];
     expect([...withDependents(objs, ['OBJ-0001'])].sort()).toEqual(['OBJ-0001', 'OBJ-0002', 'OBJ-0003']);
     expect([...withDependents(objs, ['OBJ-0004'])].sort()).toEqual(['OBJ-0004', 'OBJ-0005']);
+    // Une coupe dépend aussi de son repère : le supprimer l'emporte.
+    const cut = { ...objs[0], id: 'OBJ-0090', kind: 'cut', sourceId: 'OBJ-0091', markId: 'OBJ-0092', depth: 10, gap: 5 } as unknown as CadObject;
+    expect([...withDependents([...objs, cut], ['OBJ-0092'])].sort()).toEqual(['OBJ-0090', 'OBJ-0092']);
+  });
+});
+
+describe('relecture 52e passe : journal endommagé', () => {
+  const layers = [{ id: 'LAY-0001', name: 'A', color: '#fff', visible: true, locked: false }];
+  const version = { seq: 0, label: 'v0', time: 1, layers, objects: [], blocks: [] };
+  const entries = [{ n: 1, type: 'addLayer', args: ['B'] }];
+  it('base sans historique relisible : journal écarté', () => {
+    expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: {}, entries } }).journal).toBeUndefined();
+    expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [] }, entries } }).journal).toBeUndefined();
+  });
+  it('base relisible : journal gardé', () => {
+    expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [version], pointer: 0 }, entries } }).journal?.entries).toHaveLength(1);
+  });
+});
+
+describe('relecture 53e passe : journal endommagé (suite)', () => {
+  const layers = [{ id: 'LAY-0001', name: 'A', color: '#fff', visible: true, locked: false }];
+  const version = { seq: 0, label: 'v0', time: 1, layers, objects: [], blocks: [] };
+  it('base dont aucune version ne se relit : journal écarté (jamais un projet neuf au rejeu)', () => {
+    expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [{}] }, entries: [{ n: 1, type: 'addLayer', args: ['B'] }] } }).journal).toBeUndefined();
+  });
+  it('entrée aux arguments indécodables : écartée', () => {
+    const j = normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [version], pointer: 0 }, entries: [{ n: 1, type: 'addLayer', args: [{ $map: [1] }] }, { n: 2, type: 'addLayer', args: ['B'] }] } }).journal;
+    expect(j?.entries.map(e => e.n)).toEqual([2]);
   });
 });

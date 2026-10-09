@@ -6,6 +6,8 @@ import { moveObject, notePosition, objectBounds, rotateObject } from '@/lib/geom
 
 /** Transformation appliquée à une copie : renvoie la modification, ou null si impossible. */
 export type Placement = (o: CadObject) => Partial<CadObject> | null;
+/** Pose déclarative d'une copie (sérialisable, journalisable : lot 18.1). */
+export type PlacementSpec = { kind: 'translate'; dx: number; dy: number } | { kind: 'rotate'; cx: number; cy: number; deg: number };
 
 const norm = (deg: number) => { const a = ((deg % 360) + 360) % 360; return a > 360 - 1e-9 ? 0 : a; };
 
@@ -23,7 +25,8 @@ export function withDependencies(objects: CadObject[], selected: Iterable<string
     for (const o of objects) {
       if (!ids.has(o.id)) continue;
       // Îlots de hachure : copiés avec le contour qui les désigne.
-      for (const p of [...parentsOf(o), ...(o.holes ?? [])]) if (!ids.has(p)) { ids.add(p); changed = true; }
+      // Une occurrence copiée reste une occurrence de la même pièce : sa pièce n'est pas copiée avec elle.
+      for (const p of [...(o.kind === 'occurrence' ? [] : parentsOf(o)), ...(o.holes ?? [])]) if (!ids.has(p)) { ids.add(p); changed = true; }
     }
     return changed;
   };
@@ -39,11 +42,15 @@ export function withDependencies(objects: CadObject[], selected: Iterable<string
 /** Au-delà, l'opération est refusée (protection de l'atelier). */
 export const MAX_COPIES = 5000;
 
-export type PlacementOutcome = { ok: true; placements: Placement[] } | { ok: false; error: string };
+export type PlacementOutcome = { ok: true; placements: PlacementSpec[] } | { ok: false; error: string };
 
 const isCount = (n: number) => Number.isInteger(n) && n >= 1;
 
 export const translation = (dx: number, dy: number): Placement => o => moveObject(o, dx, dy);
+
+/** Fonction de pose d'une pose déclarative. */
+export const placementOf = (p: PlacementSpec | Placement): Placement =>
+  typeof p === 'function' ? p : p.kind === 'translate' ? translation(p.dx, p.dy) : rotation(p.cx, p.cy, p.deg);
 
 /**
  * Rotation d'une copie autour de (cx, cy), en degrés dans le sens trigonométrique (antihoraire
@@ -73,11 +80,11 @@ export function rectangularArray(rows: number, cols: number, dx: number, dy: num
   if (copies < 1) return { ok: false, error: 'Le réseau doit compter au moins deux exemplaires.' };
   if ((rows > 1 && dy === 0) || (cols > 1 && dx === 0)) return { ok: false, error: 'Un pas nul superposerait les copies.' };
   if (copies * perCopy > MAX_COPIES) return { ok: false, error: `Trop de copies : ${copies * perCopy} (au plus ${MAX_COPIES}).` };
-  const placements: Placement[] = [];
+  const placements: PlacementSpec[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (r === 0 && c === 0) continue;
-      placements.push(translation(c * dx, r * dy));
+      placements.push({ kind: 'translate', dx: c * dx, dy: r * dy });
     }
   }
   return { ok: true, placements };
@@ -103,7 +110,7 @@ export function polarArray(count: number, total: number, cx: number, cy: number,
     return { ok: false, error: 'Angle total : entre −360° et 360°, non nul.' };
   }
   if ((count - 1) * perCopy > MAX_COPIES) return { ok: false, error: `Trop de copies : ${(count - 1) * perCopy} (au plus ${MAX_COPIES}).` };
-  return { ok: true, placements: polarAngles(count, total).map(a => rotation(cx, cy, a)) };
+  return { ok: true, placements: polarAngles(count, total).map(deg => ({ kind: 'rotate' as const, cx, cy, deg })) };
 }
 
 /**
@@ -115,13 +122,19 @@ export function polarArray(count: number, total: number, cx: number, cy: number,
  * `newGroupId` (lot 10.5) : identifiant de groupe libre ; les copies d'un groupe forment un groupe
  * neuf par pose (elles ne rejoignent jamais le groupe d'origine). Absent : les copies sont isolées.
  */
-export function cloneAll(sources: CadObject[], placements: Placement[], counter: number, seq: number, blocks: BlockDef[] = [], newGroupId?: (taken: string[]) => string): { objects: CadObject[]; counter: number } {
+/**
+ * `existing` : objets présents où les copies sont posées. Une occurrence copiée sans sa pièce reste
+ * rattachée à la pièce existante ; sa liaison d'assemblage suit la copie de sa cible, sinon elle est
+ * retirée (la copie, posée ailleurs, serait ramenée sur l'original).
+ */
+export function cloneAll(sources: CadObject[], placements: (Placement | PlacementSpec)[], counter: number, seq: number, blocks: BlockDef[] = [], newGroupId?: (taken: string[]) => string, existing: CadObject[] = []): { objects: CadObject[]; counter: number } {
+  const part = (id: string) => existing.some(o => o.id === id && o.kind === 'solid' && !!o.partDef);
   const out: CadObject[] = [];
   // Objets associatifs (cote, ouverture, vues) : copiés après leur parent, rattachés à sa copie.
   const shapes = sources.filter(o => parentsOf(o).length === 0);
   const dependents = sources.filter(o => parentsOf(o).length > 0);
   const takenGroups: string[] = [];
-  for (const place of placements) {
+  for (const place of placements.map(placementOf)) {
     const ids = new Map<string, string>();
     const groups = new Map<string, string>();
     const regroup = <T extends CadObject>(o: T): T => {
@@ -153,7 +166,7 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
       progress = false;
       const next: CadObject[] = [];
       for (const d of pending) {
-        let attached = withParents(d, p => ids.get(p));
+        let attached = withParents(d, p => ids.get(p) ?? (d.kind === 'occurrence' && part(p) ? p : undefined));
         if (!attached) { next.push(d); continue; }
         if (attached.kind === 'note' && d.kind === 'note' && d.targetId) {
           // Note jointe : le point noté subit la pose (rotation d'un réseau polaire…), puis est
@@ -165,6 +178,8 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
           const b = copy ? objectBounds(copy, blocks, out) : null;
           if (patch && b) attached = { ...attached, x: Math.round(((patch.x ?? abs.x) - b.minX) * 1e6) / 1e6, y: Math.round(((patch.y ?? abs.y) - b.minY) * 1e6) / 1e6 };
         }
+        // Occurrence : placée à son propre point d'insertion, elle subit la pose comme une forme.
+        if (attached.kind === 'occurrence') { const patch = place(d); if (!patch) { progress = true; continue; } attached = { ...attached, ...patch } as typeof attached; }
         counter += 1;
         const id = `OBJ-${String(counter).padStart(4, '0')}`;
         ids.set(d.id, id);
@@ -172,6 +187,14 @@ export function cloneAll(sources: CadObject[], placements: Placement[], counter:
         progress = true;
       }
       pending = next;
+    }
+    // Liaisons des occurrences copiées : vers la copie de leur cible, ou retirées.
+    for (let i = start; i < out.length; i++) {
+      const c = out[i];
+      if (c.kind !== 'occurrence' || !c.mate) continue;
+      const to = ids.get(c.mate.to);
+      if (to) out[i] = { ...c, mate: { ...c.mate, to } };
+      else { const { mate: _m, ...rest } = c; void _m; out[i] = rest as CadObject; }
     }
   }
   return { objects: out, counter };

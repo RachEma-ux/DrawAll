@@ -21,8 +21,14 @@ export function branchList(s: ProjectState): BranchInfo[] {
   ];
 }
 
+/**
+ * Identifiant jamais attribué : au-delà des variantes présentes et de toutes celles encore citées
+ * (origine d'une variante, dossier publié), même supprimées, pour qu'aucune ne reprenne l'identité
+ * d'une autre.
+ */
 const nextBranchId = (s: ProjectState) => {
-  const ids = [activeBranch(s).id, ...(s.branches ?? []).map(b => b.id)];
+  const all = [activeBranch(s), ...(s.branches ?? [])];
+  const ids = [...all.map(b => b.id), ...all.flatMap(b => (b.from ? [b.from.branchId] : [])), ...(s.publications ?? []).map(p => p.branchId)];
   const max = Math.max(0, ...ids.map(id => Number(id.match(/(\d+)$/)?.[1] ?? 0)));
   return `BR-${String(max + 1).padStart(4, '0')}`;
 };

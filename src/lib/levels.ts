@@ -54,9 +54,17 @@ export function copyLevelObjects(objects: CadObject[], fromId: string, toId: str
   const copies: CadObject[] = [];
   for (const o of source) {
     // Liens refaits vers les copies (parent et, pour une coupe, repère) ; sinon l'objet n'est pas copié.
-    const c = withParents({ ...o, id: ids.get(o.id)!, levelId: toId, createdSeq: seq } as CadObject, p => ids.get(p));
+    // Occurrence d'une pièce d'un autre niveau : elle reste une occurrence de cette pièce (comme au collage).
+    const external = (p: string) => (o.kind === 'occurrence' && objects.some(x => x.id === p && x.kind === 'solid' && !!x.partDef) ? p : undefined);
+    const c = withParents({ ...o, id: ids.get(o.id)!, levelId: toId, createdSeq: seq } as CadObject, p => ids.get(p) ?? external(p));
     if (!c) continue;
     if (c.holes) c.holes = c.holes.map(h => ids.get(h)).filter((h): h is string => !!h);
+    // Liaison d'occurrence : vers la copie de sa cible ; une cible hors du niveau copié : liaison retirée.
+    if (c.kind === 'occurrence' && c.mate) {
+      const to = ids.get(c.mate.to);
+      if (to) c.mate = { ...c.mate, to };
+      else delete (c as { mate?: unknown }).mate;
+    }
     if (c.name === o.id) c.name = c.id;
     if (c.groupId) {
       let g = groups.get(c.groupId);

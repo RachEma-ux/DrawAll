@@ -1,6 +1,8 @@
 // Éditeur de feuille (lot 2.2) : feuilles A4–A0, cadre, fenêtres placées et redimensionnées au
 // geste. Tout est dessiné en millimètres papier (viewBox de la feuille) ; chaque fenêtre est un
 // <svg> imbriqué dont la viewBox est la partie visible du modèle : le découpage est naturel.
+import { kernelProject, kernelProjectCamera } from '@/lib/kernel/client';
+import { prepareProjections, setProjectionLevels } from '@/lib/projection';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, OpeningObj, WallObj, BlockDef, CadObject, Layer, Level, MicroVersion, Orientation, PaperFormat, ProjectionMethod, Sheet, TitleBlock, ViewReading, Viewport, Zone } from '@/types/cad';
 import { fmt } from '@/types/cad';
@@ -19,6 +21,8 @@ import {
 } from '@/lib/sheet';
 
 interface Props {
+  /** Publication du dossier (lot 14.4). */
+  onPublish?: () => void;
   sheets: Sheet[];
   /** Objets de tous les niveaux : chaque fenêtre montre celui qu'elle désigne. */
   objects: CadObject[];
@@ -113,8 +117,12 @@ export default function SheetEditor(p: Props) {
   };
 
   /** PDF vectoriel aux dimensions exactes de la feuille : téléchargé, ou ouvert pour impression à 100 %. */
-  const exportPdf = (print: boolean) => {
+  const exportPdf = async (print: boolean) => {
     if (!sheet) return;
+    // Vues projetées calculées avant d'écrire la feuille (lot 16.1).
+    setProjectionLevels(p.levels);
+    // Une vue que le noyau n'a pas pu calculer refuse l'export, avec sa raison.
+    try { await prepareProjections(p.objects, kernelProject, kernelProjectCamera); } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); return; }
     const pdf = sheetToPdf({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, versions: p.versions, pointer: p.pointer, profile: p.profile });
     const blob = new Blob([pdfBytes(pdf)], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
@@ -133,6 +141,8 @@ export default function SheetEditor(p: Props) {
   /** SVG aux dimensions exactes de la feuille (lot 6.4), chargé à la demande (rendu React en chaîne). */
   const exportSvg = async () => {
     if (!sheet) return;
+    setProjectionLevels(p.levels);
+    try { await prepareProjections(p.objects, kernelProject, kernelProjectCamera); } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); return; }
     const { sheetToSvg } = await import('@/components/SheetSvg');
     const svg = sheetToSvg({ sheet, objects: p.objects, levels: p.levels, layers: p.layers, blocks: p.blocks, profile: p.profile, view: p.view, versions: p.versions, pointer: p.pointer, zones: p.zones });
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
@@ -240,6 +250,7 @@ export default function SheetEditor(p: Props) {
           <p className="text-muted-foreground/70">{fmt(size.w)} × {fmt(size.h)} mm · zone utile {fmt(area!.w)} × {fmt(area!.h)} mm</p>
           <div className="flex flex-wrap gap-1.5">
             <button onClick={() => exportPdf(false)} className={`${btn} border-cyan-400/50 text-cyan-300`}>Exporter en PDF</button>
+            {p.onPublish && <button onClick={p.onPublish} className={`${btn} border-emerald-400/50 text-emerald-300`}>Publier…</button>}
             <button onClick={() => exportPdf(true)} className={btn} title="Ouvre le PDF : imprimer à 100 % (taille réelle)">Imprimer</button>
             <button onClick={() => void exportSvg()} className={btn} title="SVG vectoriel aux dimensions de la feuille (mm)">Exporter en SVG</button>
           </div>
