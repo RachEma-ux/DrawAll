@@ -280,6 +280,10 @@ function normalizeJournal(raw: unknown): Journal | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const j = raw as Journal;
   if (!j.base || !Array.isArray(j.entries)) return undefined;
+  // Base : un historique de projet relisible (au moins une version), sinon le rejeu échouerait.
+  const versions = (j.base as { versions?: unknown }).versions;
+  if (!Array.isArray(versions) || !versions.length) return undefined;
+  try { decodeHistory(j.base as { versions: unknown[] }); } catch { return undefined; }
   const entries = j.entries.filter(e => e && typeof e.type === 'string' && Array.isArray(e.args) && Number.isInteger(e.n));
   return { base: j.base, entries };
 }
@@ -388,7 +392,7 @@ export function normalizeProjectState(raw: unknown): ProjectState {
         ...(branch ? { branch } : {}),
         ...(branches.length ? { branches } : {}),
         ...(normalizePublications(p.publications) ? { publications: normalizePublications(p.publications) } : {}),
-        ...(normalizeJournal(p.journal) ? { journal: normalizeJournal(p.journal) } : {}),
+        ...((journal => (journal ? { journal } : {}))(normalizeJournal(p.journal))),
         ...(normalizeAssistantLog(p.assistantLog) ? { assistantLog: normalizeAssistantLog(p.assistantLog) } : {}),
       };
     }
@@ -1681,7 +1685,9 @@ export function useProject() {
     if (!j) return 'Journal vide : aucune commande depuis l’ouverture du projet.';
     const queue = j.entries.filter(e => !e.refused);
     // Le journal des hypothèses (lot 18.3) reste celui du moment : le rejeu ne réécrit pas les décisions.
-    const { assistantLog: _l, ...replayBase } = normalizeProjectState(decodeHistory(j.base as { versions: unknown[] }));
+    let base: ProjectState;
+    try { base = normalizeProjectState(decodeHistory(j.base as { versions: unknown[] })); } catch { return 'Journal endommagé : son état de départ ne se relit pas.'; }
+    const { assistantLog: _l, ...replayBase } = base;
     // Dossiers publiés depuis le début du journal : figés, ils sont repris tels quels au rejeu, jamais refaits.
     const frozen = (state.publications ?? []).slice((replayBase.publications ?? []).length);
     replayRef.current = { queue: [...queue], before: versionDigest(current), total: queue.length, frozen };

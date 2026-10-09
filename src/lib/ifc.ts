@@ -251,7 +251,7 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
     const sill = o.sill ?? (o.type === 'porte' ? 0 : undefined);
     const st = storeys.get(levelIdOf(host.wall))!;
     const pl = s.add(`IFCLOCALPLACEMENT(${st.pl},${axis3([0, 0, 0])})`);
-    let filled: string | null = null;
+    let filled: string | null = null, body = '$';
     const span = openingSpan(o);
     if (o.height !== undefined && sill !== undefined && geom && !span) {
       report.notExported.push(`${o.id} : baie hors de la hauteur du mur ${host.wall.id} (allège ${sill} mm, mur ${Math.round(host.h)} mm), exportée sans évider le mur`);
@@ -261,10 +261,14 @@ export function exportIfc({ objects, levels: levelList, projectName, date, geore
       s.add(`IFCRELVOIDSELEMENT(${guid(`vide|${o.id}`)},$,$,$,${host.ref},${opening})`);
       count('IfcOpeningElement');
       filled = opening;
+      // Corps de la porte ou de la fenêtre : le bloc de la baie, à l'épaisseur du mur (représentation
+      // simplifiée ; ni cadre, ni ouvrant, ni vitrage, qui ne sont pas modélisés).
+      const ring = openingBox(o, host.wall, 0);
+      if (ring) body = extruded(ring.map(toIfc), host.z0 + span.z0, span.z1 - span.z0);
     } else report.notExported.push(`${o.id} : ${o.type === 'porte' ? 'porte' : 'fenêtre'} sans ${o.height === undefined ? 'hauteur de baie' : 'allège'} saisie, exportée sans volume et sans évider le mur`);
     const height = o.height === undefined ? '$' : stepReal(o.height);
     const pre = o.type === 'porte' ? '.DOOR.' : '.WINDOW.';
-    const door = s.add(`${cls.toUpperCase()}(${guid(o.id)},$,${stepString(o.name)},$,$,${pl},$,${stepString(o.id)},${height},${stepReal(o.width)},${pre},$,$)`);
+    const door = s.add(`${cls.toUpperCase()}(${guid(o.id)},$,${stepString(o.name)},$,$,${pl},${body},${stepString(o.id)},${height},${stepReal(o.width)},${pre},$,$)`);
     st.contents.push(door);
     count(cls);
     psetsOf(o, door);
@@ -338,7 +342,7 @@ function storeyHeightOf(levels: Level[], id: string): number | null {
   return above ? above.elevation - sorted[i].elevation : null;
 }
 
-/** Rectangle de la baie en plan, débordant de 1 mm de chaque face du mur (évidement net). */
+/** Rectangle d'une baie en élévation, le long du mur (abscisses a0–a1, cotes z0–z1). */
 type Rect = { a0: number; a1: number; z0: number; z1: number };
 
 /** Aire de l'union de rectangles (le long du mur × hauteur), par bandes verticales. */
@@ -355,7 +359,11 @@ export function unionArea(rects: Rect[]): number {
   return total;
 }
 
-function openingBox(o: OpeningObj, wall: WallObj): { x: number; y: number }[] | null {
+/**
+ * Rectangle de la baie en plan, débordant de `overflow` mm de chaque face du mur (1 mm : évidement
+ * net ; 0 : corps de la porte ou de la fenêtre, à l'épaisseur du mur).
+ */
+function openingBox(o: OpeningObj, wall: WallObj, overflow = 1): { x: number; y: number }[] | null {
   const len = Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1);
   if (!(len > 0)) return null;
   const u = { x: (wall.x2 - wall.x1) / len, y: (wall.y2 - wall.y1) / len }, n = { x: u.y, y: -u.x };
@@ -363,7 +371,7 @@ function openingBox(o: OpeningObj, wall: WallObj): { x: number; y: number }[] | 
   if (!ring) return null;
   // Décalages des faces du mur le long de n (justification comprise), depuis l'axe tracé.
   const offs = ring.map(p => (p.x - wall.x1) * n.x + (p.y - wall.y1) * n.y);
-  const lo = Math.min(...offs) - 1, hi = Math.max(...offs) + 1;
+  const lo = Math.min(...offs) - overflow, hi = Math.max(...offs) + overflow;
   const a = o.position - o.width / 2, b = o.position + o.width / 2;
   const at = (t: number, k: number) => ({ x: wall.x1 + u.x * t + n.x * k, y: wall.y1 + u.y * t + n.y * k });
   return [at(a, lo), at(b, lo), at(b, hi), at(a, hi)];

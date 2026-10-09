@@ -157,3 +157,16 @@ describe('relecture 47e passe : niveaux de même altitude', () => {
     expect(content).toMatch(/IFCEXTRUDEDAREASOLID\([^)]*,3000\.\);/);
   });
 });
+
+describe('relecture 52e passe : corps des portes et fenêtres', () => {
+  it('baie complète : la porte a un corps (bloc de la baie) ; sans hauteur, aucun', () => {
+    const { content } = exportIfc({ objects: referenceProject(), levels, projectName: 'P', date: new Date('2026-10-08T12:00:00Z') });
+    const door = content.split('\n').find(l => l.includes('=IFCDOOR('))!;
+    const win = content.split('\n').find(l => l.includes('=IFCWINDOW('))!;
+    // Placement, puis représentation : une forme pour la porte (2 100 mm saisis), « $ » pour la fenêtre sans hauteur.
+    expect(door).toMatch(/,#\d+,#\d+,'OBJ-0005',2100\.,900\.,\.DOOR\.,\$,\$\);$/);
+    expect(win).toMatch(/,#\d+,\$,'OBJ-0006',\$,1200\.,\.WINDOW\.,\$,\$\);$/);
+    const rep = door.match(/,#\d+,(#\d+),'OBJ-0005'/)![1];
+    expect(content).toMatch(new RegExp(`^${rep}=IFCPRODUCTDEFINITIONSHAPE\\(`, 'm'));
+  });
+});

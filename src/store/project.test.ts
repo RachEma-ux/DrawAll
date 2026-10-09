@@ -100,3 +100,16 @@ describe('suppression en cascade (lot 5.2)', () => {
     expect([...withDependents([...objs, cut], ['OBJ-0092'])].sort()).toEqual(['OBJ-0090', 'OBJ-0092']);
   });
 });
+
+describe('relecture 52e passe : journal endommagé', () => {
+  const layers = [{ id: 'LAY-0001', name: 'A', color: '#fff', visible: true, locked: false }];
+  const version = { seq: 0, label: 'v0', time: 1, layers, objects: [], blocks: [] };
+  const entries = [{ n: 1, type: 'addLayer', args: ['B'] }];
+  it('base sans historique relisible : journal écarté', () => {
+    expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: {}, entries } }).journal).toBeUndefined();
+    expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [] }, entries } }).journal).toBeUndefined();
+  });
+  it('base relisible : journal gardé', () => {
+    expect(normalizeProjectState({ versions: [version], pointer: 0, journal: { base: { versions: [version], pointer: 0 }, entries } }).journal?.entries).toHaveLength(1);
+  });
+});
