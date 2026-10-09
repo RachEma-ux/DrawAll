@@ -156,7 +156,7 @@ function toleranceError(t: unknown): string | null {
   return 'cote : tolérance parmi symetrique, ecarts, classe, ajustement attendue';
 }
 const SPECS: Record<string, Spec> = {
-  line: { nums: ['x1', 'y1', 'x2', 'y2'] },
+  line: { nums: ['x1', 'y1', 'x2', 'y2'], extra: distinct('ligne') },
   rect: { nums: ['x', 'y'], pos: ['w', 'h'] },
   circle: { nums: ['cx', 'cy'], pos: ['r'] },
   arc: { nums: ['cx', 'cy', 'start', 'end'], pos: ['r'] },

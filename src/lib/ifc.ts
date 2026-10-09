@@ -40,7 +40,8 @@ export function stepString(s: string): string {
 /** Réel STEP : toujours un point décimal (1000. ; 0.5 ; 1.5E-07). */
 export function stepReal(v: number): string {
   if (!Number.isFinite(v)) throw new Error(`Réel non fini dans l'export IFC : ${v}`);
-  const r = Math.abs(v) < 1e-12 ? 0 : v;
+  // Seul le zéro (y compris −0) s'écrit 0. ; une valeur non nulle, si petite soit-elle, est conservée.
+  const r = v === 0 ? 0 : v;
   // Bruit d'arrondi retiré à 10⁻⁹ près pour les valeurs courantes ; les très petites valeurs gardent
   // leurs chiffres significatifs (1e-10 n'est pas 0).
   const x = Number.isInteger(r) ? r : Math.abs(r) >= 1e-3 ? Math.round(r * 1e9) / 1e9 : Number(r.toPrecision(12));

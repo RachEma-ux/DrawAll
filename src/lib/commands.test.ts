@@ -582,3 +582,11 @@ describe('relecture 43e passe : dalle à contour croisé', () => {
   });
 });
 
+describe('relecture 44e passe : ligne de longueur nulle', () => {
+  it('création refusée ; échelle qui ramène les extrémités au même point refusée', () => {
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'line', x1: 5, y1: 5, x2: 5, y2: 5 }], [])).toBe('ligne : deux points distincts attendus');
+    const tiny = { ...line, id: 'T', x1: 0, y1: 0, x2: 0.001, y2: 0 } as CadObject;
+    expect(transformTargetsError(['T'], { kind: 'scale', cx: 0, cy: 0, factor: 0.1 }, [tiny], [])).toMatch(/^T non transformable \(ligne : deux points distincts attendus\)$/);
+  });
+});
+

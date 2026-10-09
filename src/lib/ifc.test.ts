@@ -140,3 +140,11 @@ describe('très petits réels STEP (relecture #68)', () => {
   });
 });
 
+describe('réels STEP : seul le zéro s’écrit 0. (relecture #68)', () => {
+  it('valeur non nulle sous 1e-12 conservée ; −0 et 0 donnent 0.', () => {
+    expect(stepReal(5e-13)).toBe('5.E-13');
+    expect(stepReal(-0)).toBe('0.');
+    expect(stepReal(0)).toBe('0.');
+  });
+});
+

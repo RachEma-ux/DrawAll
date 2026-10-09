@@ -75,3 +75,15 @@ describe('analyse d’impact (lot 14.3)', () => {
     expect(i.sheets.map(s => s.id)).toEqual(['FEU-0001']);
   });
 });
+
+describe('analyse d’impact : contours de pièces par niveau (relecture #68)', () => {
+  it('les murs d’un autre étage ne remplacent pas le contour de la pièce', () => {
+    const lv = (o: WallObj, levelId: string) => ({ ...o, levelId }) as CadObject;
+    const lower = [wall('W1', 0, 0, 5000, 0), wall('W2', 5000, 0, 5000, 4000), wall('W3', 5000, 4000, 0, 4000), wall('W4', 0, 4000, 0, 0)].map(w => lv(w, 'NIV-0001'));
+    const upper = [wall('U1', 2000, 1500, 3000, 1500), wall('U2', 3000, 1500, 3000, 2500), wall('U3', 3000, 2500, 2000, 2500), wall('U4', 2000, 2500, 2000, 1500)].map(w => lv(w, 'NIV-0002'));
+    const room = { ...base, id: 'R1', name: 'Séjour', kind: 'room', x: 2500, y: 2000, levelId: 'NIV-0001' } as CadObject;
+    const i = impactOf(['W1'], 'modification', { ...ctx, objects: [...lower, ...upper, room], constraints: [] });
+    expect(i.affected.map(x => [x.id, x.reason])).toContainEqual(['R1', 'contour délimité par W1']);
+  });
+});
+

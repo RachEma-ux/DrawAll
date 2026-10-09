@@ -6,7 +6,7 @@ import type { BlockDef, CadObject, GeoConstraint, Level, Sheet, WallObj } from '
 import { KIND_LABEL, parentsOf } from '@/types/cad';
 import { constraintObjects } from './constraints/model';
 import { objectBounds } from './geometry';
-import { levelIdOf, viewportLevelId } from './levels';
+import { levelIdOf, onLevel, viewportLevelId } from './levels';
 import { roomPolygons } from './rooms';
 
 export interface ImpactItem { id: string; name: string; kind: string; reason: string }
@@ -57,10 +57,12 @@ export function impactOf(ids: string[], mode: 'suppression' | 'modification', ct
   // Pièces dont le contour s'appuie sur un mur touché (même niveau).
   const walls = touched.filter((o): o is WallObj => o.kind === 'wall');
   if (walls.length) {
-    const polys = roomPolygons(objects);
+    // Contours calculés niveau par niveau : les murs d'un autre étage ne délimitent pas cette pièce.
+    const byLevel = new Map<string, ReturnType<typeof roomPolygons>>();
+    const polysOf = (lvl: string) => { const m = byLevel.get(lvl) ?? roomPolygons(onLevel(objects, lvl)); byLevel.set(lvl, m); return m; };
     for (const o of objects) {
       if (o.kind !== 'room') continue;
-      const poly = polys.get(o.id);
+      const poly = polysOf(levelIdOf(o)).get(o.id);
       const w = walls.find(w => levelIdOf(w) === levelIdOf(o) && poly?.some(p => segDist(p, w) <= w.thickness / 2 + 1));
       if (w) add(o, `contour délimité par ${w.id}`);
     }
