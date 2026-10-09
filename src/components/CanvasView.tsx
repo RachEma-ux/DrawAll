@@ -1,6 +1,6 @@
 // Zone de travail : canvas SVG 2D avec accrochage objet, intersections,
 // contrainte orthogonale, saisie de coordonnées, zoom ajusté, mesures et blocs.
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   BlockDef,
   CadObject,
@@ -199,6 +199,8 @@ const DRAG_THRESHOLD_PX = 3;
 const MIN_ZOOM = 0.005;
 /** Main levée (lot 10.6) : écart maximal du tracé simplifié au geste, en pixels d'écran. */
 const FREEHAND_TOLERANCE_PX = 1.5;
+/** Délai après le dernier pas de zoom avant de redessiner les objets à la nouvelle échelle (ms). */
+const ZOOM_SETTLE_MS = 120;
 
 export default function CanvasView({
   onOpen3d,
@@ -312,12 +314,14 @@ export default function CanvasView({
   const coarse = useRef(false);
   const isCoarseDevice = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
 
-  const layerById = new Map(layers.map(l => [l.id, l]));
+  const layerById = useMemo(() => new Map(layers.map(l => [l.id, l])), [layers]);
   const activeLayer = layerById.get(activeLayerId) ?? layers[0];
   // Fonds de plan dessinés en premier (sous le dessin) ; verrouillés, ils ne sont ni désignables ni modifiables.
-  const shownList = objects.filter(o => layerById.get(o.layerId)?.visible !== false);
-  const visibleObjects = [...shownList.filter(o => o.kind === 'underlay'), ...shownList.filter(o => o.kind !== 'underlay')];
-  const editableObjects = visibleObjects.filter(o => layerById.get(o.layerId)?.locked !== true && !(o.kind === 'underlay' && o.locked));
+  const visibleObjects = useMemo(() => {
+    const shownList = objects.filter(o => layerById.get(o.layerId)?.visible !== false);
+    return [...shownList.filter(o => o.kind === 'underlay'), ...shownList.filter(o => o.kind !== 'underlay')];
+  }, [objects, layerById]);
+  const editableObjects = useMemo(() => visibleObjects.filter(o => layerById.get(o.layerId)?.locked !== true && !(o.kind === 'underlay' && o.locked)), [visibleObjects, layerById]);
   // Murs visibles : jonctions calculées ensemble (L, T, croix).
   const roomPolys = useMemo(() => roomPolygons(objects.filter(o => layers.find(l => l.id === o.layerId)?.visible !== false)), [objects, layers]);
   const wallGeom = useMemo(() => wallsGeometry(
@@ -368,6 +372,33 @@ export default function CanvasView({
   useEffect(() => {
     onZoomChange(tf.k);
   }, [tf.k, onZoomChange]);
+
+  // Échelle de dessin des objets (épaisseurs de trait, tailles d'annotation) : elle rejoint celle de la
+  // vue à la fin d'un geste de zoom. Pendant le geste, seule la transformation du plan change et les
+  // objets ne sont pas redessinés (temps de retour et de trame, banc 19.2).
+  const [drawK, setDrawK] = useState(tf.k);
+  useEffect(() => {
+    if (drawK === tf.k) return;
+    const t = window.setTimeout(() => setDrawK(tf.k), ZOOM_SETTLE_MS);
+    return () => window.clearTimeout(t);
+  }, [tf.k, drawK]);
+
+  // Calques d'objets mémorisés : un changement de la seule vue (déplacement, zoom en cours) ne les
+  // reconstruit pas ; après une modification, seuls les objets touchés sont redessinés (ObjectShape).
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const underlayLayer = useMemo(() => underlayGeom && (
+    <g data-testid="fond-de-plan" opacity={0.22} pointerEvents="none">
+      {underlayShown.map(o => (
+        <ObjectShape key={o.id} obj={o} objects={underlayShown} blocks={blocks} view={view} selected={false}
+          zoom={drawK} unit={displayUnit} layer={layerById.get(o.layerId)} colorMode={colorMode}
+          hatchPrefix="sous-" walls={underlayGeom.walls} rooms={underlayGeom.rooms} />
+      ))}
+    </g>
+  ), [underlayGeom, underlayShown, blocks, view, drawK, displayUnit, layerById, colorMode]);
+  const objectLayer = useMemo(() => visibleObjects.map(o => (
+    <ObjectShape key={o.id} walls={wallGeom} rooms={roomPolys} zoneColors={zoneColors} obj={o} objects={objects} blocks={blocks} view={view}
+      selected={selectedSet.has(o.id)} zoom={drawK} unit={displayUnit} layer={layerById.get(o.layerId)} colorMode={colorMode} assets={assets} />
+  )), [visibleObjects, wallGeom, roomPolys, zoneColors, objects, blocks, view, selectedSet, drawK, displayUnit, layerById, colorMode, assets]);
 
   // Les brouillons incompatibles sont purgés au prochain geste utilisateur,
   // sans effet de rendu synchrone.
@@ -1183,34 +1214,9 @@ export default function CanvasView({
             </g>
           )}
 
-          {underlayGeom && (
-            <g data-testid="fond-de-plan" opacity={0.22} pointerEvents="none">
-              {underlayShown.map(o => (
-                <ObjectShape key={o.id} obj={o} objects={underlayShown} blocks={blocks} view={view} selected={false}
-                  zoom={tf.k} unit={displayUnit} layer={layerById.get(o.layerId)} colorMode={colorMode}
-                  hatchPrefix="sous-" walls={underlayGeom.walls} rooms={underlayGeom.rooms} />
-              ))}
-            </g>
-          )}
+          {underlayLayer}
 
-          {visibleObjects.map(o => (
-            <ObjectShape
-              key={o.id}
-              walls={wallGeom}
-              rooms={roomPolys}
-              zoneColors={zoneColors}
-              obj={o}
-              objects={objects}
-              blocks={blocks}
-              view={view}
-              selected={selectedIds.includes(o.id)}
-              zoom={tf.k}
-              unit={displayUnit}
-              layer={layerById.get(o.layerId)}
-              colorMode={colorMode}
-              assets={assets}
-            />
-          ))}
+          {objectLayer}
 
           {marquee && (
             <rect
@@ -1453,7 +1459,7 @@ function SnapMarker({ snap, zoom }: { snap: SnapPoint; zoom: number }) {
   );
 }
 
-export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls, rooms, assets, zoneColors }: {
+interface ObjectShapeProps {
   obj: CadObject;
   /** Couleur de zone de chaque pièce rattachée (lot 13.3). */
   zoneColors?: Map<string, string>;
@@ -1475,7 +1481,9 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   view: ViewReading;
   selected: boolean;
   zoom: number;
-}) {
+}
+
+function ObjectShapeImpl({ obj, objects, blocks, view, selected, zoom, unit, layer, colorMode, paperScale, hatchPrefix, walls, rooms, assets, zoneColors }: ObjectShapeProps) {
   if (obj.kind === 'dimension') return <DimensionShape obj={obj} objects={objects} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} />;
   if (obj.kind === 'blockRef') return <BlockRefShape obj={obj} blocks={blocks} view={view} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} />;
   if (obj.kind === 'text') return <TextShape obj={obj} selected={selected} zoom={zoom} layer={layer} colorMode={colorMode} />;
@@ -1531,6 +1539,40 @@ export function ObjectShape({ obj, objects, blocks, view, selected, zoom, unit, 
   // Dalle (lot 13.1) : dessinée comme son contour fermé.
   return <PrimitiveShape obj={obj.kind === 'slab' ? slabAsPolyline(obj) as PolylineObj : obj} view={view} selected={selected} zoom={zoom} showLabel={selected && !paperScale} unit={unit} layer={layer} colorMode={colorMode} paperScale={paperScale} hatchPrefix={hatchPrefix} islands={islands} />;
 }
+
+/** Natures dessinées d'après leurs seules données (sans lire les autres objets du projet). */
+const SELF_CONTAINED = new Set<CadObject['kind']>(['line', 'rect', 'circle', 'arc', 'ellipse', 'spline', 'polyline', 'pdim', 'blockRef', 'text', 'wall', 'room', 'slab', 'roof', 'column', 'beam', 'solid', 'underlay']);
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || !a || !b || Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  return ka.length === kb.length && ka.every(k => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+/**
+ * Un objet n'est redessiné que si ce qui le dessine a changé : ses propres données, son calque, la
+ * vue, l'échelle, la désignation ; les autres objets seulement s'il en dépend (cotes, ouvertures,
+ * vues liées, îlots…), et pour un mur ou une pièce, sa seule géométrie calculée.
+ */
+function sameShape(a: ObjectShapeProps, b: ObjectShapeProps): boolean {
+  for (const key of Object.keys({ ...a, ...b }) as (keyof ObjectShapeProps)[]) {
+    if (a[key] === b[key]) continue;
+    const o = b.obj;
+    switch (key) {
+      case 'objects': if (!SELF_CONTAINED.has(o.kind) || ('holes' in o && o.holes?.length)) return false; break;
+      case 'walls': if (o.kind === 'wall' && !sameValue(a.walls?.get(o.id), b.walls?.get(o.id))) return false; break;
+      case 'rooms': if (o.kind === 'room' && !sameValue(a.rooms?.get(o.id), b.rooms?.get(o.id))) return false; break;
+      case 'zoneColors': if (o.kind === 'room' && a.zoneColors?.get(o.id) !== b.zoneColors?.get(o.id)) return false; break;
+      case 'assets': if (o.kind === 'underlay' && a.assets?.[o.assetId] !== b.assets?.[o.assetId]) return false; break;
+      case 'blocks': if (SELF_CONTAINED.has(o.kind) && o.kind !== 'blockRef') break; return false;
+      default: return false;
+    }
+  }
+  return true;
+}
+
+export const ObjectShape = memo(ObjectShapeImpl, sameShape);
 
 /**
  * Mur : remplissage et hachures du quadrilatère (après jonctions), puis traits visibles nettoyés.
