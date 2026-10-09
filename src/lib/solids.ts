@@ -304,7 +304,13 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
       }
       return null;
     }
-    case 'loft': { for (const s of r.sections) { const e = 'points' in s ? profileError(s.points) : null; if (e) return `lissage : ${e}`; } return null; }
+    case 'loft': {
+      for (const s of r.sections) { const e = 'points' in s ? profileError(s.points) : null; if (e) return `lissage : ${e}`; }
+      // Cotes strictement croissantes ou strictement décroissantes, comme dans l'atelier.
+      const zs = r.sections.map(s => s.z);
+      const up = zs.every((z, i) => i === 0 || z > zs[i - 1]), down = zs.every((z, i) => i === 0 || z < zs[i - 1]);
+      return up || down ? null : 'lissage : les cotes des sections doivent croître (ou décroître) strictement';
+    }
     case 'compound': { for (const p of r.parts) { const e = recipeProfileError(p, depth + 1); if (e) return e; } return null; }
     default:
       if ('a' in r) return recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);

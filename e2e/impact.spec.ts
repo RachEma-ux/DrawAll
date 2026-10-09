@@ -31,3 +31,31 @@ test('lot 14.3 — analyse d’impact avant suppression : associés, pièce, feu
   expect((await currentObjects(page)).map(o => o.id)).toEqual(['OBJ-0002', 'OBJ-0003', 'OBJ-0004', 'OBJ-0006']);
   expect(errors).toEqual([]);
 });
+
+test('lot 14.3 — suppression refusée (ouverture sur un calque verrouillé) : annoncée comme refusée, rien ne disparaît', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'raccourci Suppr : recette bureau');
+  const errors = await openAtelier(page);
+  await loadObjects(page, [
+    wall('OBJ-0001', 0, 0, 5000, 0),
+    { id: 'OBJ-0005', kind: 'opening', hostId: 'OBJ-0001', type: 'porte', position: 2500, width: 900, hinge: 'debut', side: 'gauche' },
+  ]);
+  // L'ouverture passe sur un autre calque, verrouillé.
+  const locked = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('drawall-projet-v1')!);
+    const v = s.versions[s.pointer];
+    const layer = v.layers.find((l: { id: string }) => l.id !== 'LAY-0004');
+    layer.locked = true;
+    v.objects.find((o: { id: string }) => o.id === 'OBJ-0005').layerId = layer.id;
+    localStorage.setItem('drawall-projet-v1', JSON.stringify(s));
+    return layer.id as string;
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Cadrer', exact: true }).click();
+  await chooseTool(page, /^Sélection/);
+  await tapModel(page, info, 1000, 0);
+  await page.keyboard.press('Delete');
+  await expect(page.getByText(`Suppression refusée : suppression : OBJ-0005 (emporté avec son parent) sur le calque ${locked} verrouillé.`)).toBeVisible();
+  await expect(page.getByText(/^Supprimé —/)).toHaveCount(0);
+  expect((await currentObjects(page)).map(o => o.id)).toEqual(['OBJ-0001', 'OBJ-0005']);
+  expect(errors).toEqual([]);
+});

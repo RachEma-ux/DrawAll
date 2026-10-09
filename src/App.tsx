@@ -22,6 +22,7 @@ import ObjectComments from '@/components/ObjectComments';
 import type { Project } from '@contracts/types';
 import { fmt } from '@/types/cad';
 import { DEFAULT_TEXT_HEIGHT } from '@/lib/text';
+import { validateCommand } from '@/lib/commands';
 import { extendObject, trimObject } from '@/lib/edit';
 import { chamferLines, filletLines } from '@/lib/fillet';
 import { offsetObject as offsetCurve } from '@/lib/offset';
@@ -873,6 +874,10 @@ function Workbench() {
   // Analyse d'impact (lot 14.3) : ce qu'une suppression emporte et ce qu'elle oblige à recalculer.
   const impactContext = useMemo(() => ({ objects: project.allObjects, blocks: project.blocks, sheets: project.sheets, constraints: project.constraints, levels: project.levels }), [project.allObjects, project.blocks, project.sheets, project.constraints, project.levels]);
   const deleteWithImpact = useCallback((ids: string[]) => {
+    // Même validation que la commande : une suppression refusée (objet associatif emporté sur un calque
+    // verrouillé…) est annoncée comme telle, jamais comme faite.
+    const refused = validateCommand('removeObjects', [ids], project.allObjects, project.layers, { levels: project.levels, blocks: project.blocks, zones: project.zones });
+    if (refused) { flash(`Suppression refusée : ${refused}.`); return; }
     const summary = impactSummary(impactOf(ids, 'suppression', impactContext));
     project.removeObjects(ids);
     if (summary) flash(`Supprimé — ${summary}. Ctrl+Z pour annuler.`);

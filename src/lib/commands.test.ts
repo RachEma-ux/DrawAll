@@ -347,3 +347,20 @@ describe('relecture 27e passe : trajet de balayage, repères de pièce, pièce d
   });
 });
 
+describe('relecture 29e passe : échelle de bloc, cotes de lissage', () => {
+  it('occurrence de bloc : échelle strictement positive', () => {
+    const ref = (scale: number) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'blockRef', blockId: 'BLK-0001', x: 0, y: 0, scale }], [], undefined, { blocks: [{ id: 'BLK-0001' }] });
+    expect(ref(1)).toBeNull();
+    expect(ref(0)).toBe('blockRef : scale positif attendu');
+    expect(ref(-1)).toBe('blockRef : scale positif attendu');
+  });
+  it('lissage : cotes strictement monotones', () => {
+    const sec = (z: number) => ({ z, points: [[0, 0], [10, 0], [10, 10], [0, 10]] });
+    const loft = (zs: number[]) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'loft', ruled: true, sections: zs.map(sec) } }], []);
+    expect(loft([0, 500, 1000])).toBeNull();
+    expect(loft([1000, 500, 0])).toBeNull();
+    expect(loft([0, 1000, 500])).toBe('solide : lissage : les cotes des sections doivent croître (ou décroître) strictement');
+    expect(loft([0, 0])).toBe('solide : lissage : les cotes des sections doivent croître (ou décroître) strictement');
+  });
+});
+
