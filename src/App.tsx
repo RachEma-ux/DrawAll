@@ -74,8 +74,11 @@ import { DEFAULT_SNAP_TYPES, OBJECT_SNAP_TYPES, type ObjectSnapType, type SnapPo
 const View3D = lazy(() => import('@/components/View3D'));
 
 /** Largeur sous laquelle l'atelier passe en disposition compacte (tiroirs), en pixels CSS. */
-/** Identifiant de la variante active. */
-const activeBranchId = (p: { branches: { id: string; active: boolean }[] }) => p.branches.find(b => b.active)?.id ?? '';
+/**
+ * Projet et variante actifs : la génération du projet (changée à chaque ouverture, projet neuf…) et
+ * l'identifiant de la variante. Un calcul lancé sur l'un ne s'applique jamais à un autre.
+ */
+const activeBranchId = (p: { generation: number; branches: { id: string; active: boolean }[] }) => `${p.generation}|${p.branches.find(b => b.active)?.id ?? ''}`;
 const COMPACT_BREAKPOINT = 1024;
 
 /** Outils toujours visibles sur petit écran ; les autres sont regroupés dans « Plus ». */
@@ -420,7 +423,7 @@ function Workbench() {
       const branch = activeBranchId(latestProject.current);
       const dest = { layerId: latestProject.current.activeLayerId, levelId: latestProject.current.activeLevelId };
       const r = await kernelImportStep(await file.text());
-      if (activeBranchId(latestProject.current) !== branch) { window.alert('Import STEP abandonné : la variante active a changé pendant la lecture.'); return; }
+      if (activeBranchId(latestProject.current) !== branch) { window.alert('Import STEP abandonné : le projet ou la variante active a changé pendant la lecture.'); return; }
       const items = r.solids.flatMap((s, i) => (s.recipe ? [{ name: `${file.name.replace(/\.[^.]+$/, '')} ${i + 1}`, recipe: s.recipe as SolidRecipe }] : []));
       // État du projet au retour du noyau (l'atelier est resté utilisable pendant la lecture).
       const made = items.length ? latestProject.current.addSolids(items, 'Importer STEP', dest) : [];

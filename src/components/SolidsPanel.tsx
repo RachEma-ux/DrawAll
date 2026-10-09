@@ -102,7 +102,7 @@ export default function SolidsPanel({ objects, branchId, selectedIds, onCreate, 
       const extra = check ? await check(res.recipe) : null;
       if (extra && !extra.ok) { setMessage({ error: true, text: extra.text }); return; }
       if (!mounted.current) return;
-      if (latestBranch.current !== branch) { setMessage({ error: true, text: 'Variante changée pendant le calcul : rien n’est appliqué, recommencez dans la variante voulue.' }); return; }
+      if (latestBranch.current !== branch) { setMessage({ error: true, text: 'Projet ou variante changé pendant le calcul : rien n’est appliqué, recommencez dans le projet et la variante voulus.' }); return; }
       const changed = operands.find((o, i) => JSON.stringify(latest.current.find(x => x.id === o.id)) !== before[i]);
       if (changed) { setMessage({ error: true, text: `${changed.id} a changé pendant le calcul : rien n’est appliqué, recommencez.` }); return; }
       // Commande refusée au moment d'appliquer (calque verrouillé entre-temps…) : jamais annoncée faite.

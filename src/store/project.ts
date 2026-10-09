@@ -521,6 +521,10 @@ export function useProject() {
   // Hors ligne (lot 7.2) : au démarrage, la copie IndexedDB reprend la main si le stockage local a
   // manqué le dernier enregistrement (plein) ou n'a pas de projet ; rien n'est enregistré avant.
   const [hydrated, setHydrated] = useState(false);
+  // Génération du projet : change chaque fois qu'un autre projet le remplace (ouverture, paquet
+  // restauré, projet neuf, rejeu du journal). Une opération asynchrone lancée sur l'un ne s'applique
+  // jamais à un autre, même s'ils partagent identifiants de variante, de calque ou de niveau.
+  const [generation, setGeneration] = useState(0);
   useEffect(() => {
     let alive = true;
     let localHasProject = false, localSavedAt = 0;
@@ -531,7 +535,7 @@ export function useProject() {
     loadProject()
       .then(saved => {
         if (!alive || !shouldResume(saved, localHasProject, localSavedAt)) return;
-        try { setState(normalizeProjectState(decodeHistory(JSON.parse(saved!.json)))); } catch { /* copie illisible : état local gardé */ }
+        try { setState(normalizeProjectState(decodeHistory(JSON.parse(saved!.json)))); setGeneration(g => g + 1); } catch { /* copie illisible : état local gardé */ }
       })
       .catch(() => { /* IndexedDB indisponible : stockage local seul */ })
       .finally(() => { if (alive) setHydrated(true); });
@@ -1215,6 +1219,7 @@ export function useProject() {
 
   const reset = useCallback(() => {
     setState(seedProject());
+    setGeneration(g => g + 1);
     setSelectedId(null);
   }, [setSelectedId]);
 
@@ -1222,6 +1227,7 @@ export function useProject() {
     // Historique entier ou par différences (lot 8.1).
     const decoded = next && typeof next === 'object' && Array.isArray((next as { versions?: unknown }).versions) ? decodeHistory(next as { versions: unknown[] }) : next;
     setState(normalizeProjectState(decoded));
+    setGeneration(g => g + 1);
     setSelectedId(null);
   }, [setSelectedId]);
 
@@ -1715,6 +1721,7 @@ export function useProject() {
     replayRef.current = { queue: [...queue], before: versionDigest(current), total: queue.length, frozen };
     void _l;
     setState({ ...replayBase, ...(state.assistantLog ? { assistantLog: state.assistantLog } : {}), journal: { base: j.base, entries: [] } });
+    setGeneration(g => g + 1);
     setReplay({ running: true, done: 0, total: queue.length });
     return null;
   }, [state.journal, state.assistantLog, state.publications, current]);
@@ -1755,7 +1762,7 @@ export function useProject() {
 
   return {
     ...commands, execute, restore, logAssistant, assistantLog: state.assistantLog ?? [], journal: state.journal, replayJournal, replay,
-    publications: state.publications ?? [], branches, zones, constraints, parameters, levels, activeLevelId, allObjects,
+    publications: state.publications ?? [], generation, branches, zones, constraints, parameters, levels, activeLevelId, allObjects,
     profile, surfaceRule, state, objects, layers, blocks, activeLayerId, sheets,
     current, versions: state.versions, pointer: state.pointer,
     selectedId, selectedIds, setSelectedId, setSelectedIds, georef: current.georef,

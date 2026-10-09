@@ -496,3 +496,22 @@ test('relecture 60e passe — import STEP : niveau de départ gardé ; calques t
   expect((await currentObjects(page)).filter(o => o.kind === 'solid')).toHaveLength(1);
   expect(errors).toEqual([]);
 });
+
+test('relecture 61e passe — projet réinitialisé pendant un import STEP : rien n’arrive dans le nouveau projet', async ({ page }, info) => {
+  test.skip(info.project.name !== 'bureau', 'bouton Réinitialiser de l’en-tête : recette bureau');
+  test.setTimeout(150_000);
+  const errors = await openAtelier(page);
+  await loadObjects(page, [{ id: 'OBJ-0001', kind: 'rect', x: 0, y: 0, w: 1000, h: 500 }]);
+  let report = '';
+  page.on('dialog', d => { if (d.type() === 'alert') report = d.message(); d.accept().catch(() => {}); });
+  // Lecture lancée, puis le projet est remplacé (projet de démonstration) avant la fin.
+  await page.getByRole('button', { name: 'Complet', exact: true }).click();
+  await page.getByRole('button', { name: 'Menu' }).click();
+  const resetButton = page.getByRole('button', { name: 'Réinitialiser' });
+  await expect(resetButton).toBeVisible();
+  await page.getByLabel('Fichier STEP à importer').setInputFiles('e2e/fixtures/cube.step');
+  await resetButton.click();
+  await expect.poll(() => report, { timeout: 90_000 }).toContain('Import STEP abandonné');
+  expect((await currentObjects(page)).filter(o => o.kind === 'solid' && String(o.name).startsWith('cube'))).toEqual([]);
+  expect(errors).toEqual([]);
+});
