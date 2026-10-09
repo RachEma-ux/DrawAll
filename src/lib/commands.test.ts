@@ -146,6 +146,15 @@ describe('API de commandes (lot 18.1)', () => {
     const tx = { kind: 'text', x: 0, y: 0, rotation: 0, height: 2.5, content: 'A' };
     expect(add(tx)).toBe('text : align parmi left, center, right attendu');
     expect(add({ ...tx, align: 'left' })).toBeNull();
+    // Champs facultatifs : forme exigée s'ils sont présents.
+    expect(add({ kind: 'ellipse', cx: 0, cy: 0, rx: 2, ry: 1, rotation: 0, start: 'bad', end: 90 })).toBe('ellipse : start numérique fini attendu');
+    expect(add({ kind: 'ellipse', cx: 0, cy: 0, rx: 2, ry: 1, rotation: 0, start: 0 })).toBe('ellipse : début et fin d’arc ensemble');
+    expect(add({ kind: 'ellipse', cx: 0, cy: 0, rx: 2, ry: 1, rotation: 0, start: 0, end: 90 })).toBeNull();
+    expect(add({ kind: 'wall', x1: 5, y1: 5, x2: 5, y2: 5, thickness: 200, justification: 'axe' })).toBe('mur : deux points distincts attendus');
+    expect(add({ kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 5, tolerance: { kind: 'ecarts', upper: 'bad', lower: 0 } })).toBe('cote : écarts supérieur et inférieur numériques attendus');
+    expect(add({ kind: 'dimension', targetId: 'OBJ-0001', style: 'aligned', offset: 5, tolerance: { kind: 'classe', cls: 'H7' } })).toBeNull();
+    expect(add({ kind: 'column', x: 0, y: 0, section: 'circle', d: 400, height: -1 })).toBe('column : height positif attendu');
+    expect(add({ kind: 'cut', depth: 20, gap: 10, sourceId: 'OBJ-0001', markId: 'OBJ-0001', method: 'quatrieme' })).toMatch(/method parmi premier-diedre, troisieme-diedre/);
     // Trous : liste d'identifiants d'objets existants.
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: {} })).toBe('rect : trous (liste d’identifiants) attendus');
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0404'] })).toBe('rect : trou OBJ-0404 absent');
@@ -163,6 +172,10 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('setActiveLayerId', ['LAY-0009'], [], [{ id: 'LAY-0001' }])).toBe('calque LAY-0009 absent');
     expect(validateCommand('setActiveLayerId', ['LAY-0002'], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBe('calque LAY-0002 verrouillé');
     expect(validateCommand('setActiveLayerId', ['LAY-0001'], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBeNull();
+    // Modification d'un objet d'un calque verrouillé, ou vers un calque verrouillé : refusée.
+    const onLocked = { ...line, id: 'K', layerId: 'LAY-0002' } as CadObject;
+    expect(validateCommand('updateObject', ['K', { x2: 50 }], [onLocked], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBe('modification : calque LAY-0002 verrouillé');
+    expect(validateCommand('updateObject', ['OBJ-0001', { layerId: 'LAY-0002' }], [line], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBe('modification : calque LAY-0002 verrouillé');
     // Création sur un calque verrouillé : refusée ; mur de hauteur invalide : refusé.
     expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'line', layerId: 'LAY-0002', x1: 0, y1: 0, x2: 1, y2: 0 }], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBe('objet à créer : calque LAY-0002 verrouillé');
     expect(validateCommand('addObject', [{ classification: 'architecture', kind: 'wall', x1: 0, y1: 0, x2: 1, y2: 0, thickness: 200, justification: 'axe', height: 'bad' }], [])).toBe('mur : hauteur positive attendue');
