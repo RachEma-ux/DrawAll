@@ -493,3 +493,25 @@ describe('relecture 36e passe : niveau de l’ouverture, îlots et modifications
   });
 });
 
+describe('relecture 37e passe : objets dépendants revalidés, duplication avec ses parents', () => {
+  const LK = [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }];
+  const P2 = { levels: [{ id: 'NIV-0001' }, { id: 'NIV-0002' }] };
+  const w = { ...line, id: 'W', kind: 'wall', x2: 3000, thickness: 200, justification: 'axe' } as unknown as CadObject;
+  const op = { ...line, id: 'O', kind: 'opening', hostId: 'W', type: 'fenetre', position: 1000, width: 900 } as unknown as CadObject;
+  it('mur changé de niveau sans ses ouvertures : refusé', () => {
+    expect(validateCommand('updateObject', ['W', { levelId: 'NIV-0002' }], [w, op], undefined, P2)).toBe('modification : O deviendrait invalide (ouverture : niveau NIV-0001 différent de celui du mur W (NIV-0002))');
+    expect(validateCommand('updateObject', ['W', { thickness: 300 }], [w, op], undefined, P2)).toBeNull();
+  });
+  it('îlot déplacé hors de son contour : refusé', () => {
+    const rect = { ...line, id: 'R', kind: 'rect', x: 0, y: 0, w: 100, h: 100, holes: ['D'] } as unknown as CadObject;
+    const disc = { ...line, id: 'D', kind: 'circle', cx: 50, cy: 50, r: 10 } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['D', { cx: 500 }], [rect, disc])).toBe('modification : R deviendrait invalide (rect : îlot D hors du contour (contour fermé contenu dans l’objet attendu))');
+    expect(validateCommand('updateObject', ['D', { cx: 40 }], [rect, disc])).toBeNull();
+  });
+  it('duplication d’une ouverture dont le mur est sur un calque verrouillé : refusée', () => {
+    const lockedWall = { ...w, layerId: 'LAY-0002' } as CadObject;
+    expect(validateCommand('duplicateObjects', [['O'], 10, 0], [lockedWall, op], LK)).toBe('duplication : W sur le calque LAY-0002 verrouillé');
+    expect(validateCommand('duplicateObjects', [['O'], 10, 0], [w, op], LK)).toBeNull();
+  });
+});
+

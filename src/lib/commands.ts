@@ -12,6 +12,7 @@ import { faceOf } from './views';
 import { cutView } from './cuts';
 import { roofError, roofInput } from './roof';
 import { openingFits } from './opening';
+import { withDependencies } from './array';
 import { containedContours } from './hatch';
 import { levelIdOf, levelsOf } from './levels';
 import { slabContour } from './slab';
@@ -390,7 +391,21 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     }
     // Un objet déjà incomplet (projet ancien) reste modifiable ; un objet complet ne peut pas le devenir moins.
     if (objectShapeError(current)) return null;
-    return objectShapeError(next) ?? (referenceError(current, ctx) ? null : referenceError(next, ctx));
+    const own = objectShapeError(next) ?? (referenceError(current, ctx) ? null : referenceError(next, ctx));
+    if (own) return own;
+    // Objets qui dépendent de celui-ci (ouverture → mur, îlot → contour, occurrence → pièce ou cible de
+    // liaison, cote → cible…) : chacun, valide avant, doit le rester après la modification.
+    {
+      const after = objects.map(o => (o.id === id ? (next as unknown as CadObject) : o));
+      for (const d of objects) {
+        if (d.id === id || !(parentsOf(d).includes(id as string) || d.holes?.includes(id as string) || (d.kind === 'occurrence' && d.mate?.to === id))) continue;
+        const dr = d as unknown as Record<string, unknown>;
+        if (referenceError(dr, ctx)) continue;
+        const e = referenceError(dr, { ...ctx, objects: after });
+        if (e) return `modification : ${d.id} deviendrait invalide (${e})`;
+      }
+    }
+    return null;
   },
   removeObject: ([id], ctx) => (str(id) && ctx.ids.has(id as string) ? lockedError([id as string], ctx) : `objet ${String(id)} absent`),
   removeObjects: ([list], ctx) => {
@@ -405,7 +420,9 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     if (!strs(list) || (list as string[]).some(i => !ctx.ids.has(i))) return 'objets à dupliquer absents';
     if ((dx !== undefined && !finite(dx)) || (dy !== undefined && !finite(dy))) return 'décalage fini attendu';
     // Objet d'un calque verrouillé : la copie ne serait pas faite (comme dans l'atelier).
-    const locked = ctx.objects.find(o => (list as string[]).includes(o.id) && ctx.lockedLayerIds?.has(o.layerId));
+    // Les parents et associés copiés avec eux (mur d'une ouverture…) comptent aussi.
+    const closure = new Set(withDependencies(ctx.objects, list as string[]).map(o => o.id));
+    const locked = ctx.objects.find(o => closure.has(o.id) && ctx.lockedLayerIds?.has(o.layerId));
     return locked ? `duplication : ${locked.id} sur le calque ${locked.layerId} verrouillé` : null;
   },
   addLayer: ([name]) => (str(name) ? null : 'nom de calque attendu'),
