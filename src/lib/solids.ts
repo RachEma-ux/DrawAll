@@ -247,6 +247,63 @@ export function recipeSteps(r: SolidRecipe): string[] {
   return out;
 }
 
+/**
+ * Contour plan constructible : au moins trois sommets distincts, aire non nulle, aucune arête qui en
+ * croise ou touche une autre non voisine. Sinon le noyau ne bâtit aucun volume.
+ */
+export function profileError(pts: readonly (readonly [number, number])[]): string | null {
+  const p: [number, number][] = [];
+  for (const q of pts) { const l = p[p.length - 1]; if (!l || l[0] !== q[0] || l[1] !== q[1]) p.push([q[0], q[1]]); }
+  if (p.length > 1 && p[0][0] === p[p.length - 1][0] && p[0][1] === p[p.length - 1][1]) p.pop();
+  const n = p.length;
+  if (n < 3) return 'contour de moins de trois sommets distincts';
+  let area = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = p[i], [x2, y2] = p[(i + 1) % n];
+    area += x1 * y2 - x2 * y1;
+    minX = Math.min(minX, x1); minY = Math.min(minY, y1); maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1);
+  }
+  const span = Math.max(maxX - minX, maxY - minY);
+  if (!(Math.abs(area / 2) > 1e-9 * span * span)) return 'contour d’aire nulle (sommets alignés)';
+  const cross = (a: number[], b: number[], c: number[]) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const on = (a: number[], b: number[], c: number[]) => Math.min(a[0], b[0]) <= c[0] && c[0] <= Math.max(a[0], b[0]) && Math.min(a[1], b[1]) <= c[1] && c[1] <= Math.max(a[1], b[1]);
+  const meet = (a: number[], b: number[], c: number[], d: number[]) => {
+    const d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
+    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+    return (d1 === 0 && on(c, d, a)) || (d2 === 0 && on(c, d, b)) || (d3 === 0 && on(a, b, c)) || (d4 === 0 && on(a, b, d));
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      // Arêtes voisines : elles partagent un sommet, sans se croiser pour autant, sauf repli sur elles-mêmes.
+      const adjacent = j === i + 1 || (i === 0 && j === n - 1);
+      const a = p[i], b = p[(i + 1) % n], c = p[j], d = p[(j + 1) % n];
+      if (adjacent) {
+        // Repli : l'arête suivante revient sur la précédente (colinéaires, sens opposé).
+        const [u, v, w] = j === i + 1 ? [a, b, d] : [c, a, b];
+        if (cross(u, v, w) === 0 && (v[0] - u[0]) * (w[0] - v[0]) + (v[1] - u[1]) * (w[1] - v[1]) < 0) return 'contour replié sur lui-même';
+        continue;
+      }
+      if (meet(a, b, c, d)) return 'contour qui se recoupe';
+    }
+  }
+  return null;
+}
+
+/** Premier contour inconstructible d'une recette (extrusion, révolution, balayage, lissage), ou null. */
+export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
+  if (depth > 200) return null;
+  switch (r.op) {
+    case 'extrude': case 'revolve': { const e = profileError(r.profile); return e && `${r.op === 'extrude' ? 'extrusion' : 'révolution'} : ${e}`; }
+    case 'sweep': { const e = Array.isArray(r.profile) ? profileError(r.profile) : null; return e && `balayage : ${e}`; }
+    case 'loft': { for (const s of r.sections) { const e = 'points' in s ? profileError(s.points) : null; if (e) return `lissage : ${e}`; } return null; }
+    case 'compound': { for (const p of r.parts) { const e = recipeProfileError(p, depth + 1); if (e) return e; } return null; }
+    default:
+      if ('a' in r) return recipeProfileError(r.a, depth + 1) ?? recipeProfileError(r.b, depth + 1);
+      if ('of' in r) return recipeProfileError(r.of, depth + 1);
+      return null;
+  }
+}
+
 /** Recette bien formée (relecture d'un projet) : opérations connues, nombres finis, profondeur bornée. */
 export function isRecipe(r: unknown, depth = 0): r is SolidRecipe {
   if (depth > 200 || !r || typeof r !== 'object') return false;

@@ -272,3 +272,27 @@ describe('transformation demandée par un script ou l’assistant (lot 18.2)', (
   });
 });
 
+describe('relecture 24e passe : solides constructibles, duplication, retour à une version', () => {
+  const solid = (profile: number[][]) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'extrude', profile, height: 10 } }], []);
+  it('contour d’extrusion : aire non nulle, sans recoupement', () => {
+    expect(solid([[0, 0], [10, 0], [10, 10]])).toBeNull();
+    expect(solid([[0, 0], [1, 0], [2, 0]])).toBe('solide : extrusion : contour d’aire nulle (sommets alignés)');
+    expect(solid([[0, 0], [10, 10], [10, 0], [0, 5]])).toBe('solide : extrusion : contour qui se recoupe');
+    expect(solid([[0, 0], [0, 0], [5, 5]])).toBe('solide : extrusion : contour de moins de trois sommets distincts');
+    // Contour fermé explicitement (dernier sommet = premier) : admis.
+    expect(solid([[0, 0], [10, 0], [10, 10], [0, 0]])).toBeNull();
+    // Dans une opération booléenne aussi.
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'union', a: { op: 'box', x: 1, y: 1, z: 1 }, b: { op: 'revolve', profile: [[0, 0], [1, 0], [2, 0]], angle: 360 } } }], [])).toBe('solide : révolution : contour d’aire nulle (sommets alignés)');
+  });
+  it('duplication d’un objet d’un calque verrouillé : refusée', () => {
+    const K = { ...line, id: 'K', layerId: 'LAY-0002' } as CadObject;
+    const LK = [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }];
+    expect(validateCommand('duplicateObjects', [['OBJ-0001', 'K'], 10, 0], [line, K], LK)).toBe('duplication : K sur le calque LAY-0002 verrouillé');
+    expect(validateCommand('duplicateObjects', [['OBJ-0001'], 10, 0], [line, K], LK)).toBeNull();
+  });
+  it('retour à une version : rang dans l’historique', () => {
+    expect(validateCommand('goTo', [2], [], [], { versions: 3 })).toBeNull();
+    expect(validateCommand('goTo', [3], [], [], { versions: 3 })).toBe('version 3 absente (3 versions)');
+  });
+});
+

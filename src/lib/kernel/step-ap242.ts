@@ -41,8 +41,18 @@ export function entityTypes(text: string): Set<string> {
   return out;
 }
 
-/** Caractères hors ASCII imprimable d'un contenu de chaîne en \X2\…\X0\ (ISO 10303-21). */
-const encodeText = (s: string) => s.replace(/[^\x20-\x7e]+/g, run => `\\X2\\${[...run].map(c => c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')).join('')}\\X0\\`);
+/**
+ * Caractères hors ASCII imprimable d'un contenu de chaîne (ISO 10303-21) : plan multilingue de base
+ * en \X2\…\X0\ (quatre chiffres), au-delà (émoji…) en \X4\…\X0\ (huit chiffres, point de code entier).
+ */
+const encodeText = (s: string) => s.replace(/[^\x20-\x7e]+/gu, run => [...run].map(c => c.codePointAt(0)!)
+  .reduce<{ wide: boolean; codes: string[] }[]>((acc, cp) => {
+    const wide = cp > 0xffff, last = acc[acc.length - 1];
+    const hex = cp.toString(16).toUpperCase().padStart(wide ? 8 : 4, '0');
+    if (last && last.wide === wide) last.codes.push(hex); else acc.push({ wide, codes: [hex] });
+    return acc;
+  }, [])
+  .map(g => `\\${g.wide ? 'X4' : 'X2'}\\${g.codes.join('')}\\X0\\`).join(''));
 const q = (s: string) => `'${encodeText(s.replace(/'/g, "''"))}'`;
 
 /**

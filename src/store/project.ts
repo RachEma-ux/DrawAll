@@ -1574,7 +1574,7 @@ export function useProject() {
     });
   }, []);
   const cmd = <A extends unknown[], R>(type: string, fn: (...a: A) => R) => (...args: A): R => {
-    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones });
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length });
     if (err) {
       let safe: unknown[] = [];
       try { encodeArgs(args); safe = args; } catch { /* arguments non journalisables : non gardés */ }
@@ -1634,7 +1634,7 @@ export function useProject() {
     // Une commande dont les arguments ne sont pas entièrement validés reste réservée à l'interface.
     const closed = scriptCommandError(type, args);
     if (closed) return { ok: false, error: closed, journaled: false };
-    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones });
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length });
     // Transformation : chaque objet désigné doit l'accepter, sinon le script la croirait faite.
     const blocked = !err && type === 'transform' ? transformTargetsError(args[0] as string[], args[1] as TransformOp, allObjects, layers) : null;
     if (err || blocked) { record(type, [], (err ?? blocked)!); return { ok: false, error: `${type} : ${err ?? blocked}`, journaled: true }; }

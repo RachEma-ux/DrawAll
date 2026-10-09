@@ -6,7 +6,7 @@ import { CLASSIFICATION_META, KIND_LABEL, parentsOf, supportedDimensionStyles, t
 import { mirrorObject, moveObject, offsetObject, rotateObject, scaleObject } from './geometry';
 import { isMate } from './assembly';
 import { isIfcClass, normalizePsets } from './properties';
-import { isRecipe } from './solids';
+import { isRecipe, recipeProfileError } from './solids';
 import { isValidSpline, type SplineGeom } from './spline';
 import { faceOf } from './views';
 import { cutView } from './cuts';
@@ -144,6 +144,9 @@ const SPECS: Record<string, Spec> = {
   solid: {
     extra: o => {
       if (!isRecipe(o.recipe)) return 'solide : recette attendue';
+      // Contours constructibles par le noyau, comme dans l'atelier (aire non nulle, sans recoupement).
+      const prof = recipeProfileError(o.recipe);
+      if (prof) return `solide : ${prof}`;
       // Définition de pièce (facultative) : numéro, origine (x, y, z) et angle finis.
       const d = o.partDef as { no?: unknown; origin?: unknown; angle?: unknown } | undefined;
       if (d === undefined) return null;
@@ -205,7 +208,7 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
 /** Type attendu de l'objet désigné, pour les références typées (ouverture → mur, occurrence → pièce…). */
 const REF_KIND: Partial<Record<string, string>> = { opening: 'wall', occurrence: 'solid', projection: 'solid' };
 
-type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; lockedLayerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string> };
+type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; lockedLayerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string>; versions?: number };
 
 /**
  * Références d'un objet : niveau, définition de bloc, objets désignés (parent, repère de coupe, cible
@@ -308,10 +311,16 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     return null;
   },
   transform: ([list, op], { ids }) => (!strs(list) ? 'liste d’identifiants attendue' : (list as string[]).find(i => !ids.has(i)) ? `objet ${(list as string[]).find(i => !ids.has(i))} absent` : transformError(op)),
-  duplicateObjects: ([list, dx, dy], { ids }) => (!strs(list) || (list as string[]).some(i => !ids.has(i)) ? 'objets à dupliquer absents' : (dx !== undefined && !finite(dx)) || (dy !== undefined && !finite(dy)) ? 'décalage fini attendu' : null),
+  duplicateObjects: ([list, dx, dy], ctx) => {
+    if (!strs(list) || (list as string[]).some(i => !ctx.ids.has(i))) return 'objets à dupliquer absents';
+    if ((dx !== undefined && !finite(dx)) || (dy !== undefined && !finite(dy))) return 'décalage fini attendu';
+    // Objet d'un calque verrouillé : la copie ne serait pas faite (comme dans l'atelier).
+    const locked = ctx.objects.find(o => (list as string[]).includes(o.id) && ctx.lockedLayerIds?.has(o.layerId));
+    return locked ? `duplication : ${locked.id} sur le calque ${locked.layerId} verrouillé` : null;
+  },
   addLayer: ([name]) => (str(name) ? null : 'nom de calque attendu'),
   addLevel: ([name, elevation]) => (str(name) && finite(elevation) ? null : 'nom et altitude attendus'),
-  goTo: ([index]) => (Number.isInteger(index) && (index as number) >= 0 ? null : 'rang de version attendu'),
+  goTo: ([index], { versions }) => (!(Number.isInteger(index) && (index as number) >= 0) ? 'rang de version attendu' : versions !== undefined && (index as number) >= versions ? `version ${String(index)} absente (${versions} version${versions > 1 ? 's' : ''})` : null),
   // Calque et niveau désignés : existants (le changement serait sinon ignoré sans le dire).
   setActiveLayerId: ([id], { layerIds, lockedLayerIds }) => (!str(id) ? 'identifiant de calque attendu' : layerIds && !layerIds.has(id as string) ? `calque ${String(id)} absent` : lockedLayerIds?.has(id as string) ? `calque ${String(id)} verrouillé` : null),
   setActiveLevelId: ([id], { levelIds }) => (!str(id) ? 'identifiant de niveau attendu' : levelIds && !levelIds.has(id as string) ? `niveau ${String(id)} absent` : null),
@@ -380,11 +389,11 @@ export function decodeArgs(v: unknown): unknown {
 }
 
 /** Une commande est-elle valide (arguments journalisables et cohérents avec le projet) ? */
-export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[] }): string | null {
+export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[]; versions?: number }): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];
   const ids = (l: { id: string }[] | undefined) => (l ? new Set(l.map(x => x.id)) : undefined);
-  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), lockedLayerIds: layers ? new Set(layers.filter(l => l.locked).map(l => l.id)) : undefined, levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones) }) : null;
+  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), lockedLayerIds: layers ? new Set(layers.filter(l => l.locked).map(l => l.id)) : undefined, levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones), versions: project?.versions }) : null;
 }
 
 /** Empreinte comparable d'une version : contenu du projet, sans horodatage ni libellé. */
