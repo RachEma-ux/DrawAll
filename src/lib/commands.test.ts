@@ -316,3 +316,31 @@ describe('relecture 25e passe : dalle, nom, suppression en cascade', () => {
   });
 });
 
+describe('relecture 27e passe : trajet de balayage, repères de pièce, pièce dont dépendent des occurrences', () => {
+  const sq = [[0, 0], [10, 0], [10, 10], [0, 10]];
+  const sweep = (path: unknown[]) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'sweep', profile: sq, path } }], []);
+  it('balayage : segments de longueur non nulle, arcs non dégénérés', () => {
+    expect(sweep([{ kind: 'line', from: [0, 0], to: [0, 100] }])).toBeNull();
+    expect(sweep([{ kind: 'line', from: [0, 0], to: [0, 0] }])).toBe('solide : balayage : segment de trajet de longueur nulle');
+    expect(sweep([{ kind: 'line', from: [0, 0], to: [0, 100] }, { kind: 'line', from: [0, 100], to: [0, 100] }])).toBe('solide : balayage : segment de trajet de longueur nulle');
+    expect(sweep([{ kind: 'arc', from: [0, 0], via: [50, 0], to: [100, 0] }])).toBe('solide : balayage : arc de trajet aux trois points alignés');
+    expect(sweep([{ kind: 'arc', from: [0, 0], via: [50, 50], to: [100, 0] }])).toBeNull();
+  });
+  const part = (id: string, no: number) => ({ ...line, id, kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no, origin: [0, 0, 0], angle: 0 } }) as unknown as CadObject;
+  it('repère de pièce unique (projet actif ou toutes variantes)', () => {
+    const add = (no: number, objects: CadObject[], marks?: Map<number, string[]>) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'box', x: 1, y: 1, z: 1 }, partDef: { no, origin: [0, 0, 0], angle: 0 } }], objects, undefined, marks && { partMarks: marks });
+    expect(add(1, [part('P', 1)])).toBe('solide : repère de pièce 1 déjà pris par P');
+    expect(add(2, [part('P', 1)])).toBeNull();
+    // Repère pris dans une autre variante : refusé aussi.
+    expect(add(2, [part('P', 1)], new Map([[1, ['P']], [2, ['Q']]]))).toBe('solide : repère de pièce 2 déjà pris par Q');
+    // Modification : son propre repère reste permis, celui d'une autre pièce non.
+    expect(validateCommand('updateObject', ['P', { partDef: { no: 1, origin: [0, 0, 0], angle: 90 } }], [part('P', 1), part('Q', 2)])).toBeNull();
+    expect(validateCommand('updateObject', ['P', { partDef: { no: 2, origin: [0, 0, 0], angle: 0 } }], [part('P', 1), part('Q', 2)])).toBe('solide : repère de pièce 2 déjà pris par Q');
+  });
+  it('une pièce dont dépendent des occurrences reste une pièce', () => {
+    const occ = { ...line, id: 'O', kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0 } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['P', { partDef: undefined }], [part('P', 1), occ])).toBe('modification : P reste une pièce, O en dépend');
+    expect(validateCommand('updateObject', ['P', { partDef: undefined }], [part('P', 1)])).toBeNull();
+  });
+});
+

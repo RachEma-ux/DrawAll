@@ -2,7 +2,7 @@
 // supprimé, modifié) et fusion à trois voies par identifiant : une modification faite d'un seul côté
 // est reprise, des modifications différentes d'un même élément sont un conflit, listé puis tranché
 // (garder l'une ou l'autre). Rien n'est tranché en silence. Fonctions pures.
-import { parse, references, type Parameter } from './params/expr';
+import { parse, references, resolveParameters, type Parameter } from './params/expr';
 import { parentsOf, withoutDanglingMates, type CadObject, type MicroVersion, type ProjectState, type Sheet } from '@/types/cad';
 import { constraintObjects } from './constraints/model';
 import { activeBranch } from './branches';
@@ -327,6 +327,19 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
     }
   }
   return out as MergeResult['merged'];
+}
+
+/**
+ * Paramètres fusionnés : chaque modification, valable de son côté, peut former avec celle de l'autre
+ * variante une référence circulaire (a ← b d'un côté, b ← a de l'autre) ou citer un nom disparu.
+ * Renvoie l'erreur d'un paramètre en erreur après fusion qui ne l'était dans aucune des deux variantes.
+ */
+export function mergedParameterError(merged: Parameter[] | undefined, ours: Parameter[] | undefined, theirs: Parameter[] | undefined): string | null {
+  const after = resolveParameters(merged ?? []).errors;
+  if (!after.size) return null;
+  const before = new Set([...resolveParameters(ours ?? []).errors.keys(), ...resolveParameters(theirs ?? []).errors.keys()]);
+  for (const [name, msg] of after) if (!before.has(name)) return `Fusion refusée : le paramètre ${name} serait en erreur (${msg})`;
+  return null;
 }
 
 export const conflictKey = (c: Conflict) => `${c.where}:${c.id}`;

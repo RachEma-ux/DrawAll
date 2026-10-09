@@ -212,13 +212,13 @@ export function objectShapeError(o: Record<string, unknown>): string | null {
 /** Type attendu de l'objet désigné, pour les références typées (ouverture → mur, occurrence → pièce…). */
 const REF_KIND: Partial<Record<string, string>> = { opening: 'wall', occurrence: 'solid', projection: 'solid' };
 
-type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; lockedLayerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string>; versions?: number };
+type Ctx = { ids: Set<string>; objects: CadObject[]; layerIds?: Set<string>; lockedLayerIds?: Set<string>; levelIds?: Set<string>; blockIds?: Set<string>; zoneIds?: Set<string>; versions?: number; partMarks?: Map<number, string[]> };
 
 /**
  * Références d'un objet : niveau, définition de bloc, objets désignés (parent, repère de coupe, cible
  * d'une liaison) présents et du bon type. Un objet orphelin serait enregistré sans être jamais dessiné.
  */
-function referenceError(o: Record<string, unknown>, { objects, levelIds, blockIds, zoneIds }: Ctx): string | null {
+function referenceError(o: Record<string, unknown>, { objects, levelIds, blockIds, zoneIds, partMarks }: Ctx): string | null {
   const kind = o.kind as string;
   if (o.levelId !== undefined && levelIds && !(str(o.levelId) && levelIds.has(o.levelId as string))) return `${kind} : niveau ${String(o.levelId)} absent`;
   if (kind === 'blockRef' && blockIds && !blockIds.has(o.blockId as string)) return `blockRef : bloc ${String(o.blockId)} absent`;
@@ -234,6 +234,13 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
   }
   const hole = (o.holes as string[] | undefined)?.find(h => !byId.has(h));
   if (hole) return `${kind} : trou ${hole} absent`;
+  // Repère de pièce unique sur toutes les variantes (la nomenclature n'a pas deux lignes de même repère).
+  const no = (o.partDef as { no?: unknown } | undefined)?.no;
+  if (kind === 'solid' && typeof no === 'number') {
+    const holders = partMarks?.get(no) ?? objects.filter(x => x.kind === 'solid' && x.partDef?.no === no).map(x => x.id);
+    const other = holders.find(h => h !== o.id);
+    if (other) return `solide : repère de pièce ${no} déjà pris par ${other}`;
+  }
   // Occurrence : sa source est une pièce (solide défini comme pièce), sinon elle n'aurait aucune géométrie.
   if (kind === 'occurrence') { const src = byId.get(o.sourceId as string); if (src?.kind === 'solid' && !src.partDef) return `occurrence : ${src.id} n’est pas une pièce (définir la pièce d’abord)`; }
   // Coupe : évaluable comme dans l'atelier (contour fermé, repère, profondeur).
@@ -305,6 +312,11 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     const next = { ...current, ...p };
     if (layerIds && !(str(next.layerId) && layerIds.has(next.layerId as string))) return `modification : calque ${String(next.layerId)} absent`;
     if (ctx.lockedLayerIds?.has(next.layerId as string)) return `modification : calque ${String(next.layerId)} verrouillé`;
+    // Pièce dont dépendent des occurrences (source ou cible de liaison) : elle reste une pièce.
+    if (current.kind === 'solid' && current.partDef && !next.partDef) {
+      const user = objects.find(o => o.kind === 'occurrence' && (o.sourceId === id || o.mate?.to === id));
+      if (user) return `modification : ${String(id)} reste une pièce, ${user.id} en dépend`;
+    }
     // Un objet déjà incomplet (projet ancien) reste modifiable ; un objet complet ne peut pas le devenir moins.
     if (objectShapeError(current)) return null;
     return objectShapeError(next) ?? (referenceError(current, ctx) ? null : referenceError(next, ctx));
@@ -396,11 +408,11 @@ export function decodeArgs(v: unknown): unknown {
 }
 
 /** Une commande est-elle valide (arguments journalisables et cohérents avec le projet) ? */
-export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[]; versions?: number }): string | null {
+export function validateCommand(type: string, args: unknown[], objects: CadObject[], layers?: (Pick<Layer, 'id'> & { locked?: boolean })[], project?: { levels?: { id: string }[]; blocks?: { id: string }[]; zones?: { id: string }[]; versions?: number; partMarks?: Map<number, string[]> }): string | null {
   try { encodeArgs(args); } catch (e) { return e instanceof Error ? e.message : String(e); }
   const v = VALIDATORS[type];
   const ids = (l: { id: string }[] | undefined) => (l ? new Set(l.map(x => x.id)) : undefined);
-  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), lockedLayerIds: layers ? new Set(layers.filter(l => l.locked).map(l => l.id)) : undefined, levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones), versions: project?.versions }) : null;
+  return v ? v(args, { ids: new Set(objects.map(o => o.id)), objects, layerIds: ids(layers), lockedLayerIds: layers ? new Set(layers.filter(l => l.locked).map(l => l.id)) : undefined, levelIds: ids(project?.levels), blockIds: ids(project?.blocks), zoneIds: ids(project?.zones), versions: project?.versions, partMarks: project?.partMarks }) : null;
 }
 
 /** Empreinte comparable d'une version : contenu du projet, sans horodatage ni libellé. */

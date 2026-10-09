@@ -294,7 +294,16 @@ export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
   if (depth > 200) return null;
   switch (r.op) {
     case 'extrude': case 'revolve': { const e = profileError(r.profile); return e && `${r.op === 'extrude' ? 'extrusion' : 'révolution'} : ${e}`; }
-    case 'sweep': { const e = Array.isArray(r.profile) ? profileError(r.profile) : null; return e && `balayage : ${e}`; }
+    case 'sweep': {
+      const e = Array.isArray(r.profile) ? profileError(r.profile) : null;
+      if (e) return `balayage : ${e}`;
+      // Trajet : chaque segment de longueur non nulle, chaque arc défini par trois points non alignés.
+      for (const seg of r.path) {
+        if (!(pathLength([seg]) > 0)) return 'balayage : segment de trajet de longueur nulle';
+        if (seg.kind === 'arc' && !arc3(seg)) return 'balayage : arc de trajet aux trois points alignés';
+      }
+      return null;
+    }
     case 'loft': { for (const s of r.sections) { const e = 'points' in s ? profileError(s.points) : null; if (e) return `lissage : ${e}`; } return null; }
     case 'compound': { for (const p of r.parts) { const e = recipeProfileError(p, depth + 1); if (e) return e; } return null; }
     default:

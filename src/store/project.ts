@@ -56,7 +56,7 @@ import { isHexColor } from '@/lib/zones';
 import { georefError, normalizeGeoref } from '@/lib/georef';
 import { SCHEDULE_TITLE, type ScheduleKind } from '@/lib/schedules';
 import { allVersions, branchList, createBranch, purgePhoto, removeBranch, switchBranch } from '@/lib/branches';
-import { merge3, mergeInputs, resolve, type Choice } from '@/lib/merge';
+import { merge3, mergedParameterError, mergeInputs, resolve, type Choice } from '@/lib/merge';
 import { buildPublication, normalizePublications, type Publication } from '@/lib/publication';
 import { applyTransform, decodeArgs, encodeArgs, scriptCommandError, transformTargetsError, validateCommand, versionDigest, type Journal, type JournalEntry, type TransformOp } from '@/lib/commands';
 import { MATE_LABEL, isMate, placeMate, resolveMates, type Mate } from '@/lib/assembly';
@@ -1552,6 +1552,8 @@ export function useProject() {
     if ('error' in inputs) return inputs.error;
     const out = resolve(merge3(inputs.base, inputs.ours, inputs.theirs), choices);
     if ('error' in out) return out.error;
+    const paramError = mergedParameterError(out.parameters, inputs.ours.parameters, inputs.theirs.parameters);
+    if (paramError) return paramError;
     const name = state.branches?.find(b => b.id === otherId)?.name ?? otherId;
     commit(`Fusion de la variante « ${name} »`, out as SnapshotPatch);
     return null;
@@ -1582,8 +1584,14 @@ export function useProject() {
       return { ...s, journal: { base, entries: [...entries, entry] } };
     });
   }, []);
+  /** Repères de pièce pris, sur toutes les variantes et toutes les versions (identifiants des pièces). */
+  const partMarks = () => {
+    const m = new Map<number, string[]>();
+    for (const v of allVersions(state)) for (const o of v.objects) if (o.kind === 'solid' && o.partDef && !m.get(o.partDef.no)?.includes(o.id)) m.set(o.partDef.no, [...(m.get(o.partDef.no) ?? []), o.id]);
+    return m;
+  };
   const cmd = <A extends unknown[], R>(type: string, fn: (...a: A) => R) => (...args: A): R => {
-    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length });
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks() });
     if (err) {
       let safe: unknown[] = [];
       try { encodeArgs(args); safe = args; } catch { /* arguments non journalisables : non gardés */ }
@@ -1644,7 +1652,7 @@ export function useProject() {
     // Une commande dont les arguments ne sont pas entièrement validés reste réservée à l'interface.
     const closed = scriptCommandError(type, args);
     if (closed) return { ok: false, error: closed, journaled: false };
-    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length });
+    const err = validateCommand(type, args, allObjects, layers, { levels, blocks, zones, versions: state.versions.length, partMarks: partMarks() });
     // Transformation : chaque objet désigné doit l'accepter, sinon le script la croirait faite.
     const blocked = !err && type === 'transform' ? transformTargetsError(args[0] as string[], args[1] as TransformOp, allObjects, layers) : null;
     if (err || blocked) { record(type, [], (err ?? blocked)!); return { ok: false, error: `${type} : ${err ?? blocked}`, journaled: true }; }
