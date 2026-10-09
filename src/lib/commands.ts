@@ -93,7 +93,7 @@ const SPECS: Record<string, Spec> = {
   },
   blockRef: { nums: ['x', 'y', 'scale'], strs: ['blockId'] },
   text: { nums: ['x', 'y', 'rotation'], pos: ['height'], strs: ['content'], enums: { align: ['left', 'center', 'right'] } },
-  wall: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['thickness'], enums: { justification: ['axe', 'gauche', 'droite'] } },
+  wall: { nums: ['x1', 'y1', 'x2', 'y2'], pos: ['thickness'], enums: { justification: ['axe', 'gauche', 'droite'] }, extra: o => (o.height !== undefined && !positive(o.height) ? 'mur : hauteur positive attendue' : null) },
   opening: { nums: ['position'], pos: ['width'], strs: ['hostId'], enums: { type: ['porte', 'fenetre'] }, extra: o => (o.type === 'porte' && !(['debut', 'fin'].includes(o.hinge as string) && ['gauche', 'droite'].includes(o.side as string)) ? 'porte : charnière (debut, fin) et côté (gauche, droite) attendus' : o.height !== undefined && !positive(o.height) ? 'ouverture : hauteur positive attendue' : o.sill !== undefined && !(finite(o.sill) && (o.sill as number) >= 0) ? 'ouverture : allège positive ou nulle attendue' : null) },
   room: { nums: ['x', 'y'] },
   slab: { pos: ['thickness'], points: 3 },
@@ -221,6 +221,7 @@ const VALIDATORS: Record<string, (args: unknown[], ctx: Ctx) => string | null> =
     if (!n || typeof n !== 'object' || !str(n.kind)) return 'objet à créer : type attendu';
     if (!Object.prototype.hasOwnProperty.call(KIND_LABEL, n.kind as string)) return `type d’objet inconnu « ${String(n.kind)} »`;
     if (layerIds && !(str(n.layerId) && layerIds.has(n.layerId as string))) return `objet à créer : calque ${String(n.layerId)} absent`;
+    if (ctx.lockedLayerIds?.has(n.layerId as string)) return `objet à créer : calque ${String(n.layerId)} verrouillé`;
     return objectShapeError(n as Record<string, unknown>) ?? referenceError(n as Record<string, unknown>, ctx);
   },
   updateObject: ([id, patch], ctx) => {

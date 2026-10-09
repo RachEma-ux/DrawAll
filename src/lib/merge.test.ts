@@ -234,6 +234,10 @@ describe('comparaison et fusion (lot 14.2)', () => {
     const out = resolve(r, { 'constraints:CTR-0001': 'leur', 'parameters:PAR-0001': 'leur' });
     if ('error' in out) throw new Error(out.error);
     expect(out.parameters!.map(p => p.name)).toEqual(['a']);
+    // Choix incompatibles : suppression de `a` retenue, mais leur contrainte qui le cite aussi → refusé.
+    expect(resolve(r, { 'constraints:CTR-0001': 'leur', 'parameters:PAR-0001': 'nôtre' })).toEqual({ error: 'Choix incompatibles : le paramètre a est supprimé mais CTR-0001 le cite encore.' });
+    // Notre contrainte (sans expression) avec la suppression : cohérent.
+    expect('error' in resolve(r, { 'constraints:CTR-0001': 'nôtre', 'parameters:PAR-0001': 'nôtre' })).toBe(false);
   });
 
   it('comparaison : toutes les collections et les réglages sont comptés, pas seulement les objets', () => {

@@ -307,6 +307,25 @@ export function resolve(r: MergeResult, choices: Record<string, Choice>): MergeR
       return rest as CadObject;
     });
   }
+  // Choix incompatibles : un paramètre dont on retient la suppression ne peut rester cité par une
+  // expression retenue (contrainte cotée ou autre paramètre) ; la valeur cotée se figerait sans le dire.
+  const deleted = new Map<string, string>();
+  for (const c of r.conflicts) {
+    if (c.where !== 'parameters') continue;
+    const value = choices[key(c)] === 'leur' ? c.theirsValue : c.oursValue;
+    const name = ((c.oursValue ?? c.theirsValue) as Parameter | null)?.name;
+    if (value === null && name) deleted.set(name, c.id);
+  }
+  if (deleted.size) {
+    const users = [...((out.parameters as Parameter[] | undefined) ?? []).map(p => ({ id: p.id, expr: p.expr as unknown })), ...((out.constraints as { id: string; expr?: unknown }[] | undefined) ?? [])];
+    for (const u of users) {
+      if (typeof u.expr !== 'string' || !u.expr.trim()) continue;
+      let names: string[] = [];
+      try { names = [...references(parse(u.expr))]; } catch { continue; }
+      const gone = names.find(n => deleted.has(n));
+      if (gone) return { error: `Choix incompatibles : le paramètre ${gone} est supprimé mais ${u.id} le cite encore.` };
+    }
+  }
   return out as MergeResult['merged'];
 }
 

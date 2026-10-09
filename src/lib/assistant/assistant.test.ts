@@ -19,7 +19,7 @@ describe('assistant à boucle contrôlée (lot 18.3) — générateur simulé', 
     expect(ok.added.map(o => o.id)).toEqual(['PROP-0001', 'PROP-0002']);
     expect(ok.objects).toHaveLength(3);
     expect(dryRun(bad.steps, ctx).errors).toEqual(['opération 2 (addObject) : poteau rectangulaire : b et h positifs attendus']);
-    expect(dryRun([column(0, { layerId: 'LAY-0002' })], ctx).errors).toEqual(['opération 1 (addObject) : calque Figé verrouillé']);
+    expect(dryRun([column(0, { layerId: 'LAY-0002' })], ctx).errors).toEqual(['opération 1 (addObject) : objet à créer : calque LAY-0002 verrouillé']);
     expect(dryRun([column(0, { layerId: 'LAY-0009' })], ctx).errors[0]).toContain('calque LAY-0009 absent');
     expect(dryRun([{ type: 'reset', args: [] }], ctx).errors).toEqual(['opération 1 (reset) : commande non permise à l’assistant']);
     expect(dryRun([], ctx).errors).toEqual(['aucune opération proposée']);

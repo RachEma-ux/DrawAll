@@ -163,6 +163,9 @@ describe('API de commandes (lot 18.1)', () => {
     expect(validateCommand('setActiveLayerId', ['LAY-0009'], [], [{ id: 'LAY-0001' }])).toBe('calque LAY-0009 absent');
     expect(validateCommand('setActiveLayerId', ['LAY-0002'], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBe('calque LAY-0002 verrouillé');
     expect(validateCommand('setActiveLayerId', ['LAY-0001'], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBeNull();
+    // Création sur un calque verrouillé : refusée ; mur de hauteur invalide : refusé.
+    expect(validateCommand('addObject', [{ classification: 'non-classifie', kind: 'line', layerId: 'LAY-0002', x1: 0, y1: 0, x2: 1, y2: 0 }], [], [{ id: 'LAY-0001' }, { id: 'LAY-0002', locked: true }])).toBe('objet à créer : calque LAY-0002 verrouillé');
+    expect(validateCommand('addObject', [{ classification: 'architecture', kind: 'wall', x1: 0, y1: 0, x2: 1, y2: 0, thickness: 200, justification: 'axe', height: 'bad' }], [])).toBe('mur : hauteur positive attendue');
     expect(validateCommand('setActiveLevelId', ['NIV-0009'], [], [], { levels: [{ id: 'NIV-0001' }] })).toBe('niveau NIV-0009 absent');
     expect(validateCommand('setActiveLevelId', ['NIV-0001'], [], [], { levels: [{ id: 'NIV-0001' }] })).toBeNull();
     expect(scriptCommandError('addObject')).toBeNull();
