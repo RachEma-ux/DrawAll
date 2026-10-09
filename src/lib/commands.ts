@@ -12,6 +12,7 @@ import { faceOf } from './views';
 import { cutView } from './cuts';
 import { roofError, roofInput } from './roof';
 import { openingFits } from './opening';
+import { containedContours } from './hatch';
 import { levelsOf } from './levels';
 import { slabContour } from './slab';
 
@@ -247,6 +248,12 @@ function referenceError(o: Record<string, unknown>, { objects, levelIds, blockId
   }
   const hole = (o.holes as string[] | undefined)?.find(h => !byId.has(h));
   if (hole) return `${kind} : trou ${hole} absent`;
+  // Îlots : contours fermés contenus dans l'objet, comme dans l'inspecteur (ni lui-même ni un contour extérieur).
+  if ((o.holes as string[] | undefined)?.length) {
+    const inside = new Set(containedContours(c, objects));
+    const bad = (o.holes as string[]).find(h => h === o.id || !inside.has(h));
+    if (bad) return `${kind} : îlot ${bad} hors du contour (contour fermé contenu dans l’objet attendu)`;
+  }
   // Repère de pièce unique sur toutes les variantes (la nomenclature n'a pas deux lignes de même repère).
   const no = (o.partDef as { no?: unknown } | undefined)?.no;
   if (kind === 'solid' && typeof no === 'number') {

@@ -163,7 +163,14 @@ describe('API de commandes (lot 18.1)', () => {
     // Trous : liste d'identifiants d'objets existants.
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: {} })).toBe('rect : trous (liste d’identifiants) attendus');
     expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0404'] })).toBe('rect : trou OBJ-0404 absent');
-    expect(add({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, holes: ['OBJ-0001'] })).toBeNull();
+    // Îlot : contour fermé contenu dans l'objet ; une ligne, un contour extérieur ou l'objet lui-même : refusés.
+    const disc = { ...line, id: 'D', kind: 'circle', cx: 50, cy: 50, r: 10 } as unknown as CadObject;
+    const far = { ...line, id: 'F', kind: 'circle', cx: 500, cy: 500, r: 10 } as unknown as CadObject;
+    expect(add({ kind: 'rect', x: 0, y: 0, w: 100, h: 100, holes: ['D'] }, [line, disc, far])).toBeNull();
+    expect(add({ kind: 'rect', x: 0, y: 0, w: 100, h: 100, holes: ['F'] }, [line, disc, far])).toBe('rect : îlot F hors du contour (contour fermé contenu dans l’objet attendu)');
+    expect(add({ kind: 'rect', x: 0, y: 0, w: 100, h: 100, holes: ['OBJ-0001'] }, [line, disc, far])).toBe('rect : îlot OBJ-0001 hors du contour (contour fermé contenu dans l’objet attendu)');
+    const R = { ...line, id: 'R', kind: 'rect', x: 0, y: 0, w: 100, h: 100 } as unknown as CadObject;
+    expect(validateCommand('updateObject', ['R', { holes: ['R'] }], [R], L, P)).toBe('rect : îlot R hors du contour (contour fermé contenu dans l’objet attendu)');
     expect(add({ ...ln, psets: {} })).toBe('line : jeux de propriétés mal formés (nom, propriétés nommées, valeurs texte, nombre ou booléen)');
     expect(add({ ...ln, psets: [{ name: 'P', props: [{ name: 'a', value: { x: 1 } }] }] })).toMatch(/jeux de propriétés mal formés/);
     expect(add({ ...ln, psets: [{ name: 'P', props: [{ name: 'a', value: 2 }, { name: 'b', value: 'x' }] }] })).toBeNull();
@@ -450,6 +457,17 @@ describe('relecture 34e passe : recettes STEP, références revalidées à la fu
     const occ = { ...line, id: 'O', kind: 'occurrence', sourceId: 'P', x: 0, y: 0, z: 0, angle: 0 } as unknown as CadObject;
     expect(mergedReferenceError({ objects: [plain, occ] }, { objects: [plain] }, { objects: [part, occ] })).toBe('Fusion refusée : occurrence : P n’est pas une pièce (définir la pièce d’abord).');
     expect(mergedReferenceError({ objects: [part, occ] }, { objects: [part] }, { objects: [part, occ] })).toBeNull();
+  });
+});
+
+describe('relecture 35e passe : révolution d’un seul côté de l’axe', () => {
+  const rev = (profile: number[][], axis?: unknown) => validateCommand('addObject', [{ classification: 'non-classifie', kind: 'solid', recipe: { op: 'revolve', profile, angle: 360, ...(axis ? { axis } : {}) } }], []);
+  it('axe donné ou axe par défaut (Z) : contour qui traverse l’axe refusé', () => {
+    expect(rev([[10, 0], [20, 0], [20, 10], [10, 10]])).toBeNull();
+    expect(rev([[-10, 0], [20, 0], [20, 10], [-10, 10]])).toBe('solide : révolution : le contour traverse l’axe ; il doit rester d’un seul côté');
+    const axis = { origin: [0, 0], dir: [1, 0] };
+    expect(rev([[0, 10], [20, 10], [20, 20], [0, 20]], axis)).toBeNull();
+    expect(rev([[0, -10], [20, -10], [20, 20], [0, 20]], axis)).toBe('solide : révolution : le contour traverse l’axe ; il doit rester d’un seul côté');
   });
 });
 

@@ -293,7 +293,17 @@ export function profileError(pts: readonly (readonly [number, number])[]): strin
 export function recipeProfileError(r: SolidRecipe, depth = 0): string | null {
   if (depth > 200) return null;
   switch (r.op) {
-    case 'extrude': case 'revolve': { const e = profileError(r.profile); return e && `${r.op === 'extrude' ? 'extrusion' : 'révolution'} : ${e}`; }
+    case 'extrude': { const e = profileError(r.profile); return e && `extrusion : ${e}`; }
+    case 'revolve': {
+      const e = profileError(r.profile);
+      if (e) return `révolution : ${e}`;
+      // Comme revolveRecipe : le contour reste d'un seul côté de l'axe (axe Z du plan XZ par défaut).
+      const side = r.axis
+        ? (() => { const u = unit2(r.axis!.dir), o = r.axis!.origin; return r.profile.map(p => u[0] * (p[1] - o[1]) - u[1] * (p[0] - o[0])); })()
+        : r.profile.map(p => p[0]);
+      if (side.some(v => v > 1e-9) && side.some(v => v < -1e-9)) return 'révolution : le contour traverse l’axe ; il doit rester d’un seul côté';
+      return null;
+    }
     case 'sweep': {
       const e = Array.isArray(r.profile) ? profileError(r.profile) : null;
       if (e) return `balayage : ${e}`;
