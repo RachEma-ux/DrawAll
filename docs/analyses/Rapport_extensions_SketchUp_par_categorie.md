@@ -123,5 +123,5 @@ Neuf dialogues, lus intégralement :
 | Onglet et coupe selon profil | A, D | Angles de cadres, liaisons de murs et de poutres |
 | Matériau → densité → poids au mètre → coût | B | Métrés et estimation directement depuis le dessin |
 | Nomenclature triable, débit en barres, poids et coût totaux | A, B | Extension de la nomenclature existante |
-| Renumérotation et repères de pièces | B | Repérage automatique sur plan et feuille |
+| Renumérotation et préfixe des repères | B | DrawAll numérote déjà les repères automatiquement ; manquent le préfixe configurable et la renumérotation en masse |
 | Verrouillage d'axe par flèches, MAJ pour basculer une option | B | Gestes clavier rapides pendant le tracé |

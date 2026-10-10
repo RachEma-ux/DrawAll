@@ -21,9 +21,9 @@ Version tableur : [Table_ameliorations_outils_planche.csv](Table_ameliorations_o
 | Bâtiment | 5 | — |
 | Structure | 3 | Poteau, Poutre |
 | Navigation et aides | 3 | — |
-| Fonctions transverses | 8 | Rotation, Nomenclature, Matériaux, Repérage des pièces |
+| Fonctions transverses | 8 | Rotation, Nomenclature, Matériaux |
 
-Au total : 11 priorités hautes, 21 moyennes, 11 basses, 1 sans objet (Panoramique). Les fichiers apportent quelque chose à 35 des 44 lignes.
+Au total : 10 priorités hautes, 22 moyennes, 11 basses, 1 sans objet (Panoramique). Les fichiers apportent quelque chose à 35 des 44 lignes.
 
 ## Table
 
@@ -70,14 +70,14 @@ Au total : 11 priorités hautes, 21 moyennes, 11 basses, 1 sans objet (Panoramiq
 | 39 | Fonctions transverses | Réseau | Rectangulaire et polaire ; ≤ 5000 copies | Polaire refusé pour les blocs ; pas le long d'un chemin | Répartition de barres le long d'arêtes (une par arête) | Draw from edges | Réseau le long d'un chemin | Montants, lisses, chevrons répartis en une fois | Moyenne |
 | 40 | Fonctions transverses | Nomenclature | Rep. / Désignation / Matériau / Qté | Pas de longueur, profil, masse, coût ; colonnes fixes | Colonnes profil, longueur, poids/m, masse, coût ; tri ; calcul sur sélection imbriquée ; débit en barres ; totaux ; devise | report.rbe ; Settings ; Nesting | Comptage auto des poutres et poteaux | Métré, commande matière et devis depuis le dessin | Haute |
 | 41 | Fonctions transverses | Matériaux | 9 noms sans propriétés physiques | Pas de densité donc pas de masse | Densités (acier 7850, inox 8000, alu 2700, laiton 8500, cuivre 8960, bois 550/750, titane 4500, béton 2400, verre 2500, plastique 950 kg/m³) ; coût au kg ; poids/m calculé depuis la section | Add profile ; calc.rbe | — | Masse des ouvrages sans tableur | Haute |
-| 42 | Fonctions transverses | Repérage des pièces | Désignation saisie à la main dans l'Inspecteur | Pas de numérotation automatique | Renuméroter la sélection (préfixe + index), pas de renumérotation à la copie | Documentation ; Settings ; v1.7 | — | Repères cohérents plan / feuille / nomenclature | Haute |
+| 42 | Fonctions transverses | Repérage des pièces | Repères automatiques et stables : numéro de ligne de nomenclature dans l'ordre d'apparition (bom.ts, bulles ISO 6433) ; numéro des pièces 3D attribué à la création (assembly.ts) | Pas de préfixe configurable ; pas de renumérotation explicite d'une sélection | Préfixe et index de départ configurables ; renumérotation explicite de la sélection ; pas de renumérotation à la copie | Documentation ; Settings ; v1.7 | — | Repères au format de l'atelier (ex. « P-101 ») et remise en ordre d'un ensemble en un clic | Moyenne |
 | 43 | Fonctions transverses | Solides 3D (balayage) | Profil le long d'un chemin | Angles vifs, pas d'onglet ; pas de catalogue | Balayage d'un profil du catalogue avec onglets aux sommets ; ligne médiane ; fusion des arêtes colinéaires | Draw from edges + miter ; Settings | Congé / chanfrein 3D dans le panneau | Garde-corps et cadres 3D propres pour STEP / IFC | Moyenne |
 | 44 | Fonctions transverses | Console de scripts | Objets bruts et transformations | Pas d'opérations métier | Commandes « barre », « depuis arêtes », « onglet », « renuméroter », « nomenclature » exposées à l'API | Ensemble des outils MetalFab | Ajuster, congé, décaler, réseau, solides dans l'API | Automatiser les structures répétitives | Basse |
 
 ## Ordre de réalisation proposé
 
 1. **Matériaux avec densité + catalogue de profils** (Matériaux, Poteau, Poutre, Section paramétrique) : socle de tout le reste. Le catalogue s'appuie sur des gammes normalisées (EN 10365 pour IPE/HEA/UPN, EN 10219 pour les tubes), ce qui respecte la règle « aucun catalogue inventé » du lot 13.4.
-2. **Nomenclature enrichie et repérage automatique** : longueur, masse, coût, débit en barres, renumérotation.
+2. **Nomenclature enrichie et renumérotation** : longueur, masse, coût, débit en barres ; préfixe configurable et renumérotation en masse (les repères automatiques existent déjà).
 3. **Gestes de tracé** : dessiner depuis des arêtes (Polyligne), verrouillage d'axe par flèches (Ligne, Accrochages), 5 points d'insertion avec bascule MAJ (Rectangle, Mur, Poteau, Poutre).
 4. **Modifications d'éléments épais** : décalage de longueur, onglet, coupe selon profil, rotation autour de l'axe.
 5. **Sélection des identiques**, puis les priorités moyennes et basses.
