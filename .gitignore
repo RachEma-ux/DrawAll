@@ -43,3 +43,21 @@ coverage/
 # Recette Playwright
 playwright-report/
 test-results/
+
+# --- Claude Code tool environment (tools/claude-env) ---
+# Generated indexes, caches, memory DBs, browser profiles, scan outputs — never commit.
+.serena/cache/
+.serena/memories/
+.serena/project.local.yml
+.playwright-mcp/
+.chrome-devtools-mcp/
+graphify-out/
+**/graphify-out/
+strix_runs/
+.beads/
+.context-mode/
+.qmd/
+tools/claude-env/freellmapi/.env
+tools/claude-env/**/*.local
+# Playwright CLI output (may contain credentials)
+.playwright-cli/

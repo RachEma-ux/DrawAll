@@ -1,0 +1,55 @@
+{
+  "mcpServers": {
+    "serena": {
+      "command": "serena",
+      "args": [
+        "start-mcp-server",
+        "--context", "claude-code",
+        "--project", "${CLAUDE_PROJECT_DIR:-.}",
+        "--enable-web-dashboard", "false"
+      ]
+    },
+    "basic-memory": {
+      "command": "basic-memory",
+      "args": ["mcp"],
+      "env": {
+        "BASIC_MEMORY_HOME": "${BASIC_MEMORY_HOME:-/root/knowledge/basic-memory}",
+        "BASIC_MEMORY_NO_PROMOS": "1"
+      }
+    },
+    "playwright": {
+      "command": "playwright-mcp",
+      "args": [
+        "--headless",
+        "--browser", "chromium",
+        "--executable-path", "${PW_CHROMIUM:-/opt/pw-browsers/chromium-1194/chrome-linux/chrome}",
+        "--isolated",
+        "--output-dir", "${CLAUDE_PROJECT_DIR:-.}/.playwright-mcp"
+      ]
+    },
+    "chrome-devtools": {
+      "command": "chrome-devtools-mcp",
+      "args": [
+        "--headless",
+        "--isolated",
+        "--executablePath", "${PW_CHROMIUM:-/opt/pw-browsers/chromium-1194/chrome-linux/chrome}",
+        "--no-usage-statistics"
+      ]
+    },
+    "qmd": {
+      "command": "qmd",
+      "args": ["mcp"]
+    },
+    "context-mode": {
+      "command": "context-mode",
+      "args": []
+    },
+    "context7": {
+      "type": "http",
+      "url": "${CONTEXT7_URL:-https://mcp.context7.com/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${CONTEXT7_API_KEY}"
+      }
+    }
+  }
+}
